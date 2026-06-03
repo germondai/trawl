@@ -1,0 +1,18 @@
+{
+  "name": "@trawl/tiers",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@trawl/types": "workspace:*",
+    "@trawl/browser": "workspace:*",
+    "patchright": "^1.61.1"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}
