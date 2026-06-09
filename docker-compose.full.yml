@@ -1,0 +1,46 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  trawl:
+    image: ghcr.io/germondai/trawl:latest
+    restart: unless-stopped
+    ports:
+      - "${PORT_API:-8191}:8191"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - BROWSER_POOL_SIZE=${BROWSER_POOL_SIZE:-3}
+    depends_on:
+      redis:
+        condition: service_healthy
+    shm_size: 1gb
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${PORT_WEB:-3000}:80"
+
+  docs:
+    build:
+      context: .
+      dockerfile: apps/docs/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${PORT_DOCS:-3001}:80"
+
+volumes:
+  redis_data:
