@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://trawl.dev/sitemap.xml
