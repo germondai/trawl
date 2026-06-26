@@ -1,0 +1,10 @@
+# Default owners for everything
+* @germondai
+
+# Release surface — CI / Docker / publish pipeline
+/.github/ @germondai
+/docker-compose*.yml @germondai
+/Dockerfile @germondai
+
+# Docs site
+/apps/docs/ @germondai
