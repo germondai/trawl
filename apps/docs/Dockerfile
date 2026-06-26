@@ -5,16 +5,16 @@ RUN apk add --no-cache git
 
 WORKDIR /app
 
-COPY apps/docs/package.json ./package.json
+COPY package.json ./
 RUN bun install
 
-COPY apps/docs/ ./
+COPY . ./
 RUN bun run build
 
 FROM nginx:alpine AS runner
 
 COPY --from=builder /app/.vitepress/dist /usr/share/nginx/html
-COPY apps/docs/nginx.conf /etc/nginx/conf.d/default.conf
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 
