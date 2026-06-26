@@ -13,7 +13,7 @@ This endpoint implements the FlareSolverr v2 API contract. Any client that works
 
 ```typescript
 interface FlareSolverrRequest {
-  cmd: 'request.get' | 'request.post'
+  cmd?: 'request.get' | 'request.post'  // default: 'request.get'
   url: string
   maxTimeout?: number   // milliseconds, default 60000
   postData?: string     // body for request.post
@@ -25,11 +25,11 @@ interface FlareSolverrRequest {
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `cmd` | string | Yes | `"request.get"` or `"request.post"` |
+| `cmd` | string | No | `"request.get"` or `"request.post"` (default `"request.get"`) |
 | `url` | string | Yes | The URL to scrape |
 | `maxTimeout` | number | No | Max wait in ms (default 60000) |
 | `postData` | string | No | POST body (only for `request.post`) |
-| `headers` | object | No | Extra headers to send (merged with browser defaults) |
+| `headers` | object | No | Custom headers forwarded to the target across all tiers — see [Custom Headers](/api-reference/custom-headers) |
 
 ## Response
 

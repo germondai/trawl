@@ -12,10 +12,11 @@ The native endpoint exposes TRAWL's full feature set: tier capping, session IDs,
 ```typescript
 interface ScrapeRequest {
   url: string
-  maxTimeout?: number         // ms, default 60000
-  skipHttp?: boolean          // skip Tier 1 (plain fetch), default false
-  maxTier?: 1 | 2 | 3 | 4    // cap escalation at this tier
-  sessionId?: string          // sticky session override key
+  maxTimeout?: number                    // ms, default 60000
+  skipHttp?: boolean                     // skip Tier 1 (plain fetch), default false
+  maxTier?: 1 | 2 | 3 | 4              // cap escalation at this tier
+  sessionId?: string                     // sticky session override key
+  headers?: Record<string, string>       // custom headers forwarded to the target
 }
 ```
 
@@ -28,6 +29,7 @@ interface ScrapeRequest {
 | `skipHttp` | boolean | false | Skip Tier 1 (go straight to browser) |
 | `maxTier` | 1–4 | 4 | Never escalate beyond this tier |
 | `sessionId` | string | hostname | Override the Redis session key |
+| `headers` | object | — | Custom headers forwarded to the target across all tiers — see [Custom Headers](/api-reference/custom-headers) |
 
 ## Response
 
