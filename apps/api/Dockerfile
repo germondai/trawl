@@ -1,5 +1,5 @@
 # ── Stage 1: install workspace deps (runs natively on build host) ──────────────
-FROM --platform=$BUILDPLATFORM oven/bun:1.3.14 AS deps
+FROM oven/bun:1.3.14 AS deps
 WORKDIR /app
 
 # nodejs/python3/make/g++ are needed to compile better-sqlite3 (camoufox-js dep)
