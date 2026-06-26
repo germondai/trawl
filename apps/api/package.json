@@ -8,9 +8,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@trawl/types": "workspace:*",
+    "@elysiajs/cors": "^1.4.2",
     "@trawl/browser": "workspace:*",
     "@trawl/tiers": "workspace:*",
+    "@trawl/types": "workspace:*",
     "elysia": "^1.4.29"
   },
   "devDependencies": {
