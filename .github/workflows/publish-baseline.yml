@@ -1,8 +1,10 @@
 name: Publish Baseline
 
-# Builds `trawl-baseline:latest` from `apps/api/Dockerfile.baseline` (Bun
-# baseline runtime — pre-2013-CPU compatible). Triggered manually, or
-# automatically on `baseline-v*` tags which also stamp `:baseline-vX.Y.Z`.
+# Builds the `:baseline` tag of `ghcr.io/.../trawl` from
+# `apps/api/Dockerfile.baseline` (Bun baseline runtime — pre-2013-CPU
+# compatible). Same GHCR package as `:latest`, just a different tag.
+# Triggered manually, or automatically on `baseline-v*` tags which stamp
+# `:baseline-vX.Y.Z`.
 
 on:
   workflow_dispatch:
@@ -10,7 +12,7 @@ on:
     tags: ["baseline-v*"]
 
 env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/trawl-baseline
+  IMAGE: ghcr.io/${{ github.repository_owner }}/trawl
 
 jobs:
   build:
@@ -41,14 +43,12 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ github.event_name }}" == "push" ]]; then
-            # Tag push: publish the matching version tag + baseline-vX.Y.Z
             VER="${GITHUB_REF_NAME#baseline-v}"
-            echo "version=${VER}" >> "$GITHUB_OUTPUT"
             TAGS="${IMAGE}:baseline-v${VER}"
           else
-            # Manual dispatch: only update :latest if on default branch
+            # Manual dispatch: only update :baseline if on default branch
             if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-              TAGS="${IMAGE}:latest"
+              TAGS="${IMAGE}:baseline"
             else
               TAGS=""
             fi
@@ -65,9 +65,17 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.tags.outputs.tags }}
           labels: |
-            org.opencontainers.image.title=trawl-baseline
+            org.opencontainers.image.title=trawl (baseline tag)
             org.opencontainers.image.description=TRAWL API on Bun baseline runtime
           cache-from: type=gha,scope=trawl-baseline-${{ matrix.platform }}
           cache-to: type=gha,scope=trawl-baseline-${{ matrix.platform }},mode=max
           secrets: |
             GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
+
+      # Safety: prevent the baseline workflow from ever stamping :latest.
+      # Builds tagged `:latest` are owned by publish.yml.
+      - name: Guard against :latest tag
+        if: startsWith(steps.tags.outputs.tags, 'ghcr.io/') && endsWith(steps.tags.outputs.tags, ':latest')
+        run: |
+          echo "::error::Baseline workflow must not push :latest — aborting"
+          exit 1
