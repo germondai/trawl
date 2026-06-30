@@ -3,13 +3,13 @@ name: Publish Baseline
 # Builds the `:baseline` tag of `ghcr.io/.../trawl` from
 # `apps/api/Dockerfile.baseline` (Bun baseline runtime — pre-2013-CPU
 # compatible). Same GHCR package as `:latest`, just a different tag.
-# Triggered manually, or automatically on `baseline-v*` tags which stamp
-# `:baseline-vX.Y.Z`.
+# Triggered manually, or automatically on `*-baseline` tags (e.g. `1.0.0-baseline`),
+# which produce the docker tag `germondai/trawl:1.0.0-baseline`.
 
 on:
   workflow_dispatch:
   push:
-    tags: ["baseline-v*"]
+    tags: ["*-baseline"]
 
 env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/trawl
@@ -43,8 +43,9 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ github.event_name }}" == "push" ]]; then
-            VER="${GITHUB_REF_NAME#baseline-v}"
-            TAGS="${IMAGE}:baseline-v${VER}"
+            # Tag push: docker tag mirrors git tag exactly.
+            # Pattern: git tag `1.0.0-baseline` → `germondai/trawl:1.0.0-baseline`
+            TAGS="${IMAGE}:${GITHUB_REF_NAME}"
           else
             # Manual dispatch: only update :baseline if on default branch
             if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
