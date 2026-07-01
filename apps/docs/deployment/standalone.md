@@ -36,6 +36,8 @@ docker run -d \
 
 If your host CPU doesn't support AVX2 — older Synology NAS units, Atom/Celeron-era hardware, pre-2013 x86_64 — use the `:baseline` tag instead. Same image, same commands, built on Bun's baseline runtime.
 
+Standard Bun requires Linux kernel 5.1+ (5.6+ recommended); the baseline build degrades gracefully on kernels as old as 3.10 (RHEL 7-era) — covering most Synology DSM installs out of the box.
+
 ```bash
 # Pull
 docker pull ghcr.io/germondai/trawl:baseline
