@@ -111,7 +111,7 @@ image: ghcr.io/germondai/trawl:latest
 image: ghcr.io/germondai/trawl:baseline
 ```
 
-Synology note: many Synology NAS units (DSM 7.x on J4125 / older hardware) ship kernel 4.4.x, which Bun's modern runtime can't fully handle. The `:baseline` tag is published for that case — confirm-working status on the reporter's actual hardware (DS920+, kernel 4.4.302) is pending verification. Published by independent GitHub Actions workflows (`.github/workflows/publish.yml`, `publish-baseline.yml`); tag-triggered releases push matching git tags (e.g. `v1.0.0` → `1.0.0`, `1.0.0-baseline` → `1.0.0-baseline`) and manual `workflow_dispatch` from `main` updates the rolling tag (`latest` and `baseline` respectively).
+Synology note: many Synology NAS units (DSM 7.x on J4125 / older hardware) ship kernel 4.4.x, which Bun's modern runtime can't fully handle. The `:baseline` tag is published for that case — **confirmed working** on a Synology DS920+ (Celeron J4125, DSM 7.3.2, kernel 4.4.302): the container starts cleanly, `/health` reports healthy, and it solves live Cloudflare challenges via `/v1` (see [#1](https://github.com/germondai/trawl/issues/1)). Published by independent GitHub Actions workflows (`.github/workflows/publish.yml`, `publish-baseline.yml`); tag-triggered releases push matching git tags (e.g. `v1.0.0` → `1.0.0`, `1.0.0-baseline` → `1.0.0-baseline`) and manual `workflow_dispatch` from `main` updates the rolling tag (`latest` and `baseline` respectively).
 
 ## Configuration
 
