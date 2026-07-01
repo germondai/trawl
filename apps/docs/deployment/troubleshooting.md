@@ -15,6 +15,31 @@ description: Common issues and how to fix them.
 2. **Camoufox binary not installed** — The API Dockerfile runs `bunx camoufox-js fetch`. If this step was skipped (e.g. build cache reuse), rebuild: `docker compose build --no-cache api`.
 3. **shm_size too small** — Ensure `shm_size: 1gb` is set on the API service.
 
+## Container crash-loops with `EISDIR` or `Cannot find module` errors
+
+**Symptom:** The container restarts continuously, logging one of:
+
+```
+error: EISDIR reading "/app/packages/browser/node_modules/camoufox-js"
+```
+
+```
+error: Cannot find module '@sinclair/typebox' from '/app/apps/api/node_modules/elysia/dist/index.mjs'
+```
+
+or, on older images, `error: Cannot find package 'memoirist' from '/app/apps/api/node_modules/elysia/dist/index.mjs'`.
+
+**Cause:** A bug in Bun's default "isolated" install linker corrupted `node_modules` during the Docker build, leaving transitive dependencies (`camoufox-js`, `@sinclair/typebox`) missing or broken inside the image ([oven-sh/bun#23524](https://github.com/oven-sh/bun/issues/23524), [oven-sh/bun#29489](https://github.com/oven-sh/bun/issues/29489)).
+
+::: tip Already fixed — just re-pull
+This was fixed by switching the image build to `bun install --linker=hoisted`. Every `:latest` and `:baseline` image published after the fix is unaffected. If you're hitting this, re-pull rather than patching your container:
+
+```bash
+docker pull ghcr.io/germondai/trawl:latest   # or :baseline
+docker compose up -d --force-recreate
+```
+:::
+
 ## All requests return Tier 3 (never hitting cache)
 
 **Symptom:** every request takes 10–30s, even for the same domain.

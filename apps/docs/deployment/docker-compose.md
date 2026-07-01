@@ -50,6 +50,21 @@ To update to the latest image:
 docker compose pull && docker compose up -d
 ```
 
+### Baseline (older CPUs / Synology NAS)
+
+If your CPU doesn't support AVX2 — older Synology NAS units, Atom/Celeron-era hardware — override the image tag to `:baseline` in any compose file above. Nothing else changes:
+
+```yaml
+services:
+  trawl:
+    image: ghcr.io/germondai/trawl:baseline
+    # ...rest of the service definition unchanged
+```
+
+::: tip
+See [Standalone Containers → Older CPUs & Synology NAS](/deployment/standalone#older-cpus-synology-nas) for how to tell if you need this, and the [README](https://github.com/germondai/trawl#docker-images-one-ghcr-package-two-tags) for the full tag comparison.
+:::
+
 ## Full stack
 
 `docker-compose.full.yml` adds the landing page and docs on top of the scraper. Web and docs are built from source.
