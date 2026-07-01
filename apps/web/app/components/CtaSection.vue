@@ -122,6 +122,12 @@ const tabs: { id: Tab; label: string; hint: string }[] = [
           </div>
         </div>
 
+        <p class="tag-hint">
+          Older hardware or a Synology NAS without AVX2? Swap <code>:latest</code> for
+          <code>:baseline</code> in the image tag above —
+          <a :href="`${docsUrl}/deployment/standalone#older-cpus-synology-nas`">same commands, different runtime</a>.
+        </p>
+
         <!-- Step 2: Start (only for compose tabs) -->
         <template v-if="active !== 'docker'">
           <div class="step-label" style="margin-top: 24px;">2 — start</div>
@@ -286,6 +292,26 @@ const tabs: { id: Tab; label: string; hint: string }[] = [
   font-size: 10px;
   letter-spacing: 0.04em;
   color: var(--border-strong);
+}
+
+.tag-hint {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  margin-bottom: 24px;
+}
+.tag-hint code {
+  color: var(--text);
+  font-family: inherit;
+}
+.tag-hint a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 2px;
+}
+.tag-hint a:hover {
+  text-decoration-color: var(--accent);
 }
 
 .snippet-body {
