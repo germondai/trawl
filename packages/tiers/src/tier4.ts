@@ -2,8 +2,9 @@ import type { BrowserHandle } from "@trawl/browser"
 import { FINGERPRINT } from "@trawl/browser"
 import type { Cookie, TierResult } from "@trawl/types"
 import { waitForChallengeResolution } from "./challengeWait"
-import { isCloudflarePage } from "./detect"
+import { detectChallengeType, hasImpervaChallenge, isCloudflarePage } from "./detect"
 import { normalizeHtml } from "./html"
+import { waitForImpervaResolution } from "./impervaWait"
 
 export interface Tier4Result extends TierResult {
   tier: 4
@@ -91,14 +92,24 @@ export async function runTier4(
     }
 
     const remaining = maxTimeout - (Date.now() - start)
-    const resolution = await waitForChallengeResolution(page, remaining, url)
+    const peekHtml = await page.content().catch(() => "")
+    const challengeType = detectChallengeType(peekHtml)
+    const resolution =
+      challengeType === "imperva"
+        ? await waitForImpervaResolution(page, remaining, url)
+        : await waitForChallengeResolution(page, remaining, url)
 
     if (resolution !== "ok") {
       return {
         tier: 4,
         status: resolution === "ip-blocked" ? "blocked" : "timeout",
         durationMs: Date.now() - start,
-        reason: resolution === "ip-blocked" ? "proxy-ip-blocked" : "cloudflare-challenge-timeout",
+        reason:
+          resolution === "ip-blocked"
+            ? "proxy-ip-blocked"
+            : challengeType === "imperva"
+              ? "imperva-challenge-timeout"
+              : "cloudflare-challenge-timeout",
       }
     }
 
@@ -116,6 +127,15 @@ export async function runTier4(
         status: "blocked",
         durationMs: Date.now() - start,
         reason: "cloudflare-persistent",
+      }
+    }
+
+    if (hasImpervaChallenge(html)) {
+      return {
+        tier: 4,
+        status: "blocked",
+        durationMs: Date.now() - start,
+        reason: "imperva-persistent",
       }
     }
 

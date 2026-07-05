@@ -2,8 +2,9 @@ import type { BrowserHandle } from "@trawl/browser"
 import { FINGERPRINT, newFreshContext } from "@trawl/browser"
 import type { Cookie, TierResult } from "@trawl/types"
 import { waitForChallengeResolution } from "./challengeWait"
-import { isCloudflarePage } from "./detect"
+import { detectChallengeType, hasImpervaChallenge, isCloudflarePage } from "./detect"
 import { normalizeHtml } from "./html"
+import { waitForImpervaResolution } from "./impervaWait"
 import { solvePageCaptchas } from "./solvers"
 
 export interface Tier3Result extends TierResult {
@@ -75,7 +76,12 @@ export async function runTier3(
     }
 
     const remaining = maxTimeout - (Date.now() - start)
-    const resolution = await waitForChallengeResolution(page, remaining, url)
+    const peekHtml = await page.content().catch(() => "")
+    const challengeType = detectChallengeType(peekHtml)
+    const resolution =
+      challengeType === "imperva"
+        ? await waitForImpervaResolution(page, remaining, url)
+        : await waitForChallengeResolution(page, remaining, url)
 
     if (resolution !== "ok") {
       return {
@@ -84,8 +90,12 @@ export async function runTier3(
         durationMs: Date.now() - start,
         reason:
           resolution === "ip-blocked"
-            ? "datacenter-ip-blocked (cf_clearance obtained but redirect never completed — needs residential proxy)"
-            : "cloudflare-challenge-timeout",
+            ? challengeType === "imperva"
+              ? "datacenter-ip-blocked (imperva sensor cookie obtained but challenge persisted — needs residential proxy)"
+              : "datacenter-ip-blocked (cf_clearance obtained but redirect never completed — needs residential proxy)"
+            : challengeType === "imperva"
+              ? "imperva-challenge-timeout"
+              : "cloudflare-challenge-timeout",
       }
     }
 
@@ -116,6 +126,13 @@ export async function runTier3(
       const pageUrl = page.url()
       console.log(`[tier3] cloudflare-persistent: url="${pageUrl}" title="${pageTitle}" html=${html.length}b`)
       return { tier: 3, status: "blocked", durationMs: Date.now() - start, reason: "cloudflare-persistent" }
+    }
+
+    if (hasImpervaChallenge(html)) {
+      const pageTitle = await page.title().catch(() => "?")
+      const pageUrl = page.url()
+      console.log(`[tier3] imperva-persistent: url="${pageUrl}" title="${pageTitle}" html=${html.length}b`)
+      return { tier: 3, status: "blocked", durationMs: Date.now() - start, reason: "imperva-persistent" }
     }
 
     const rawCookies = await freshCtx.cookies()
