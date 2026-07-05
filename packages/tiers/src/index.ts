@@ -10,6 +10,16 @@ export {
 export type { OrchestratorDeps } from "./orchestrator"
 export { scrape } from "./orchestrator"
 export { clearProxyCache, getNextProxy, getRandomProxy } from "./proxyRotator"
+export {
+  isValidMethod,
+  RESERVED_HEADER_NAMES,
+  RequestValidationError,
+  requireContentTypeForBody,
+  routeContinueOverrides,
+  SUPPORTED_METHODS,
+  type SupportedMethod,
+  sanitizeHeaders,
+} from "./sanitize"
 export { solvePageCaptchas } from "./solvers"
 export { runTier1 } from "./tier1"
 export { runTier2 } from "./tier2"
