@@ -130,11 +130,18 @@ Note: `proxy` on `/v1` is a TRAWL-specific extension — it is not part of the r
 
 ## Ports
 
-### `PORT_API`
+### `PORT`
 
 **Default:** `8191`
 
-Port the Elysia API server listens on. Defaults to `8191` — the same port FlareSolverr and Byparr use, so you can swap TRAWL in without changing any *arr app settings.
+Host port the Docker port mapping forwards to TRAWL's internal listener. Defaults to `8191` — the same port FlareSolverr and Byparr use, so you can swap TRAWL in without changing any *arr app settings. The container itself always listens on `8191` internally; `PORT` only changes the **host-side** port (e.g. `"${PORT:-8191}:8191"` in every compose file).
+
+To run TRAWL alongside FlareSolverr (or any other service that already binds `8191` on the host), set `PORT` in your shell or `.env` to any free port **before** running `docker compose up`:
+
+```bash
+PORT=9191 docker compose up -d
+# TRAWL reachable at http://localhost:9191, while port 8191 stays free for FlareSolverr.
+```
 
 ### `PORT_WEB`
 
@@ -162,6 +169,6 @@ PROXY_LIST_FILE=
 RESIDENTIAL_PROXY_LIST_FILE=
 
 # ── Ports ─────────────────────────────────────
-PORT_API=8191
+PORT=8191
 PORT_WEB=3000
 ```

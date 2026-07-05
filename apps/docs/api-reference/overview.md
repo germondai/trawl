@@ -11,7 +11,7 @@ description: Base URL, content types, and response conventions.
 http://localhost:8191
 ```
 
-Or wherever you've mapped `PORT_API` (default `8191`).
+Or wherever you've mapped `PORT` (default `8191`).
 
 ## Authentication
 
