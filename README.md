@@ -123,7 +123,7 @@ Synology note: many Synology NAS units (DSM 7.x on J4125 / older hardware) ship 
 | `REDIS_URL`                  | `redis://localhost:6379` | Redis connection string                                                  |
 | `RESIDENTIAL_PROXY_URL`      | —                        | Enables Tier 4 proxy escalation                                          |
 | `STT_URL`                    | —                        | Local Whisper endpoint for reCAPTCHA (optional)                          |
-| `PORT_API`                   | `8191`                   | API listen port                                                          |
+| `PORT`                       | `8191`                   | API listen port                                                          |
 
 ## Stack
 

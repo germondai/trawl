@@ -4,7 +4,7 @@ import type { FlareSolverrRequest, FlareSolverrResponse, PoolStats, ScrapeReques
 import { Elysia } from "elysia"
 
 const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379"
-const PORT = Number(process.env.PORT_API ?? "8191")
+const PORT = Number(process.env.PORT ?? "8191")
 const POOL_SIZE = Number(process.env.BROWSER_POOL_SIZE ?? "3")
 // How long acquire() will poll for a free browser before rejecting with PoolExhaustedError.
 // 15s covers a full CF challenge burst with pool=3 (queue depth 7, slowest finishes at ~12s).

@@ -14,7 +14,7 @@ services:
     image: ghcr.io/germondai/trawl:latest
     restart: unless-stopped
     ports:
-      - "${PORT_API:-8191}:8191"
+      - "${PORT:-8191}:8191"
     environment:
       - REDIS_URL=redis://redis:6379
       - BROWSER_POOL_SIZE=${BROWSER_POOL_SIZE:-3}
