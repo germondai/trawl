@@ -4,6 +4,7 @@ export type ChallengeType =
   | "hcaptcha"
   | "recaptcha"
   | "cap"
+  | "imperva"
   | "none"
 
 export function isCloudflarePage(html: string, headers: Record<string, string>): boolean {
@@ -42,9 +43,24 @@ export function hasCapChallenge(html: string): boolean {
   return /cap-widget|trycap\.dev|data-cap-/i.test(html)
 }
 
+// Imperva/Incapsula WAF challenge — sensor-based (reese84, current) or legacy (___utmvc).
+// Both are produced by an obfuscated in-page JS challenge; no need to understand the
+// obfuscation, just detect the challenge page and wait for the sensor cookie (see impervaWait.ts).
+export function hasImpervaChallenge(html: string, headers: Record<string, string> = {}): boolean {
+  const lowerHeaders: Record<string, string> = {}
+  for (const [k, v] of Object.entries(headers)) lowerHeaders[k.toLowerCase()] = v
+  if (lowerHeaders["x-iinfo"]) return true
+  if (/incapsula/i.test(lowerHeaders["x-cdn"] ?? "")) return true
+  if (/incapsula incident id/i.test(html)) return true
+  if (/_incapsula_resource/i.test(html)) return true
+  if (/visid_incap_|incap_ses_|nlbi_|reese84|___utmvc/i.test(html)) return true
+  return false
+}
+
 export function detectChallengeType(html: string, headers: Record<string, string> = {}): ChallengeType {
   if (hasTurnstile(html)) return "cloudflare-turnstile"
   if (isCloudflarePage(html, headers)) return "cloudflare-interstitial"
+  if (hasImpervaChallenge(html, headers)) return "imperva"
   if (hasHcaptcha(html)) return "hcaptcha"
   if (hasRecaptcha(html)) return "recaptcha"
   if (hasCapChallenge(html)) return "cap"
@@ -55,9 +71,10 @@ export function isBlocked(status: number, html: string): boolean {
   // 202 is used by some CDNs (e.g. IMDB) as a bot-gate before the real response
   if (status === 202 || status === 403 || status === 429) return true
   if (isCloudflarePage(html, {})) return true
+  if (hasImpervaChallenge(html)) return true
   return false
 }
 
 export function needsJs(html: string, headers: Record<string, string>): boolean {
-  return isCloudflarePage(html, headers)
+  return isCloudflarePage(html, headers) || hasImpervaChallenge(html, headers)
 }
