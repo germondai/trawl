@@ -16,6 +16,8 @@ export interface ScrapeRequest {
   maxTier?: 1 | 2 | 3 | 4
   sessionId?: string
   headers?: Record<string, string>
+  // Per-request proxy override — bypasses the server-configured proxy pool for this call.
+  proxy?: string
 }
 
 export interface TierResult {
@@ -67,6 +69,8 @@ export interface FlareSolverrRequest {
   maxTimeout?: number
   postData?: string
   headers?: Record<string, string>
+  // TRAWL extension (not part of the FlareSolverr v2 contract) — per-request proxy override.
+  proxy?: string
 }
 
 export interface FlareSolverrResponse {
