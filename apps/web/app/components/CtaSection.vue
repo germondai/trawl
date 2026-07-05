@@ -124,7 +124,8 @@ const tabs: { id: Tab; label: string; hint: string }[] = [
 
         <p class="tag-hint">
           Older hardware or a Synology NAS without AVX2 / kernel &lt; 5.1? Swap <code>:latest</code> for
-          <code>:baseline</code> in the image tag above — degrades gracefully down to kernel 3.10 —
+          <code>:baseline</code>
+          in the image tag above — degrades gracefully down to kernel 3.10 —
           <a :href="`${docsUrl}/deployment/standalone#older-cpus-synology-nas`">same commands, different runtime</a>.
         </p>
 
