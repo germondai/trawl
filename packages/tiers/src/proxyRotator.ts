@@ -1,72 +1,94 @@
-// Rotating proxy pool backed by a continuously updated free proxy list.
-// Proxies are fetched once per TTL and returned round-robin.
-// These are datacenter proxies — useful for IP rotation on non-CF sites but
-// unlikely to help against Cloudflare's managed/Turnstile challenges alone.
+// Proxy pool with sticky-per-domain routing, round-robin fallback, and failure cooldown.
+// Sourced from a user-supplied comma-separated list or line-delimited file — TRAWL never
+// fetches or trusts any third-party proxy list.
 
-const PROXY_LIST_URL = "https://raw.githubusercontent.com/theriturajps/proxy-list/refs/heads/main/proxies.json"
+import { readFileSync } from "node:fs"
 
-const CACHE_TTL_MS = 60 * 60 * 1000 // 1 hour
+const COOLDOWN_MS = 5 * 60 * 1000 // 5 minutes — matches the plan's "time-boxed cooldown"
 
-interface ProxyCache {
-  proxies: string[]
-  fetchedAt: number
+interface ProxyState {
+  url: string
+  badUntil: number
 }
 
-let cache: ProxyCache | null = null
-let cursor = 0
+export class ProxyPool {
+  private proxies: ProxyState[]
+  private cursor = 0
+  private stickyByDomain = new Map<string, string>()
 
-async function fetchProxyList(): Promise<string[]> {
-  try {
-    const res = await fetch(PROXY_LIST_URL, { signal: AbortSignal.timeout(10_000) })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const json = (await res.json()) as { proxies?: string[] } | string[]
-    // Handle both { proxies: [...] } object and bare array formats
-    const raw: string[] = Array.isArray(json) ? json : ((json as { proxies?: string[] }).proxies ?? [])
-    // Filter out obviously invalid entries (0.0.0.0, private ranges)
-    return raw.filter((p) => {
-      if (!p || typeof p !== "string") return false
-      const ip = p.split(":")[0]
-      if (!ip || ip === "0.0.0.0") return false
-      if (ip.startsWith("10.") || ip.startsWith("192.168.") || ip.startsWith("127.")) return false
-      return true
-    })
-  } catch (err) {
-    console.warn("[proxy] failed to fetch proxy list:", err instanceof Error ? err.message : err)
-    return []
+  constructor(urls: string[]) {
+    this.proxies = urls.filter(Boolean).map((url) => ({ url, badUntil: 0 }))
   }
-}
 
-async function getProxies(): Promise<string[]> {
-  if (cache && Date.now() - cache.fetchedAt < CACHE_TTL_MS && cache.proxies.length > 0) {
-    return cache.proxies
+  // Builds a pool from a comma-separated env var and/or a line-delimited file (one proxy
+  // per line, '#' comments allowed). A single URL still works — it's just a 1-element list.
+  // Returns null if neither source yields any proxies, so callers can treat "no proxy
+  // configured" the same way they did with the old single-string PROXY_URL/RESIDENTIAL_PROXY_URL.
+  static fromEnv(urlListEnv?: string, fileEnv?: string): ProxyPool | null {
+    const urls: string[] = []
+    if (urlListEnv) {
+      urls.push(
+        ...urlListEnv
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+      )
+    }
+    if (fileEnv) {
+      try {
+        const lines = readFileSync(fileEnv, "utf-8")
+          .split("\n")
+          .map((s) => s.trim())
+          .filter((s) => s && !s.startsWith("#"))
+        urls.push(...lines)
+      } catch (err) {
+        console.warn(`[proxy] failed to read proxy list file ${fileEnv}:`, err instanceof Error ? err.message : err)
+      }
+    }
+    return urls.length > 0 ? new ProxyPool(urls) : null
   }
-  const proxies = await fetchProxyList()
-  if (proxies.length > 0) {
-    cache = { proxies, fetchedAt: Date.now() }
-    cursor = 0
-    console.log(`[proxy] loaded ${proxies.length} proxies`)
+
+  get size(): number {
+    return this.proxies.length
   }
-  return proxies
-}
 
-// Returns the next proxy in rotation as "http://IP:PORT", or null if unavailable.
-export async function getNextProxy(): Promise<string | null> {
-  const proxies = await getProxies()
-  if (proxies.length === 0) return null
-  const proxy = proxies[cursor % proxies.length]
-  cursor = (cursor + 1) % proxies.length
-  return `http://${proxy}`
-}
+  private available(): ProxyState[] {
+    const now = Date.now()
+    return this.proxies.filter((p) => p.badUntil <= now)
+  }
 
-// Returns a random proxy from the pool (useful for parallel requests).
-export async function getRandomProxy(): Promise<string | null> {
-  const proxies = await getProxies()
-  if (proxies.length === 0) return null
-  const idx = Math.floor(Math.random() * proxies.length)
-  return `http://${proxies[idx]}`
-}
+  // Sticky-per-domain: reuse the same proxy for repeat requests to a domain (consistency
+  // helps avoid re-triggering challenges); falls back to round-robin across available
+  // proxies for new domains or once the sticky proxy has been marked bad.
+  next(domain?: string): string | null {
+    const available = this.available()
+    if (available.length === 0) return null
 
-export function clearProxyCache(): void {
-  cache = null
-  cursor = 0
+    if (domain) {
+      const sticky = this.stickyByDomain.get(domain)
+      if (sticky && available.some((p) => p.url === sticky)) return sticky
+    }
+
+    const proxy = available[this.cursor % available.length]
+    this.cursor = (this.cursor + 1) % available.length
+    if (domain) this.stickyByDomain.set(domain, proxy.url)
+    return proxy.url
+  }
+
+  random(): string | null {
+    const available = this.available()
+    if (available.length === 0) return null
+    return available[Math.floor(Math.random() * available.length)].url
+  }
+
+  // Puts a proxy in cooldown after a tier reports "blocked"/"ip-blocked" for it — skipped
+  // by next()/random() until the cooldown expires. Also drops any sticky-domain mapping
+  // pointing at it so the next call for that domain picks a different proxy.
+  markBad(url: string): void {
+    const entry = this.proxies.find((p) => p.url === url)
+    if (entry) entry.badUntil = Date.now() + COOLDOWN_MS
+    for (const [domain, sticky] of this.stickyByDomain) {
+      if (sticky === url) this.stickyByDomain.delete(domain)
+    }
+  }
 }
