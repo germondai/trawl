@@ -9,7 +9,7 @@ services:
     image: ghcr.io/germondai/trawl:latest
     restart: always
     ports:
-      - "8191:8191"
+      - "${PORT:-8191}:8191"
     shm_size: 1gb
     mem_limit: 3g
     environment:
