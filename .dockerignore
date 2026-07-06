@@ -11,3 +11,28 @@
 !apps/docs/**/*.md
 .github/
 docker-compose*.yml
+
+# Local agent / IDE state — not needed at build or runtime
+.git/
+.claude/
+.gitignore
+.gitattributes
+.editorconfig
+.idea/
+.vscode/
+.dockerignore
+
+# Sources for apps not built into this image (apps/web, apps/docs) — exclude
+# their source/build dirs but keep each package.json (the workspace `bun install`
+# needs them for dependency resolution).
+apps/web/**
+!apps/web/package.json
+apps/docs/**
+!apps/docs/package.json
+
+# Local scripts used for human-in-the-loop testing (e2e probe, soak test); not used in image.
+scripts/
+
+# Tests never run inside the image.
+**/*.test.ts
+**/__tests__/
