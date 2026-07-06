@@ -1,6 +1,7 @@
 import { BrowserPool, PoolExhaustedError, SessionCache } from "@trawl/browser"
 import {
   isValidMethod,
+  ProxyPool,
   RequestValidationError,
   requireContentTypeForBody,
   SUPPORTED_METHODS,
@@ -80,6 +81,7 @@ function buildScrapeRequestFromFlareSolverr(req: FlareSolverrRequest): ScrapeReq
     headers,
     method,
     body: req.postData,
+    proxy: req.proxy,
   }
 }
 
