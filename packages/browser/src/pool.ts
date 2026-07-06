@@ -1,10 +1,12 @@
 import type { PoolBrowser, PoolStats } from "@trawl/types"
 import { Camoufox } from "camoufox-js"
 
-// camoufox-js returns playwright-core types at runtime but doesn't re-export them
-// biome-ignore lint/suspicious/noExplicitAny: camoufox-js doesn't export Browser/BrowserContext types
+// camoufox-js wraps Playwright but doesn't re-export Browser/BrowserContext types.
+// The pool accepts any structurally-compatible browser (Playwright OR patchright) —
+// browsers exported from one aren't structurally assignable to the other in their
+// own TypeScript types, so `any` is the pragmatic escape hatch here.
 type Browser = any
-// biome-ignore lint/suspicious/noExplicitAny: camoufox-js doesn't export Browser/BrowserContext types
+// biome-ignore lint/suspicious/noExplicitAny: see comment on Browser above
 type BrowserContext = any
 
 export class PoolExhaustedError extends Error {
@@ -37,6 +39,7 @@ export class BrowserPool {
   private acquireTimeoutMs: number
   private pollIntervalMs: number
   private recycleAfterTemporaryContexts: number
+  private contentProcesses!: number
   private browserFactory?: BrowserFactory
   private healthInterval: ReturnType<typeof setInterval> | null = null
 
@@ -45,18 +48,21 @@ export class BrowserPool {
     acquireTimeoutMs = 15_000,
     pollIntervalMs = 100,
     recycleAfterTemporaryContexts = 8,
+    contentProcesses = 2,
     browserFactory,
   }: {
     poolSize: number
     acquireTimeoutMs?: number
     pollIntervalMs?: number
     recycleAfterTemporaryContexts?: number
+    contentProcesses?: number
     browserFactory?: BrowserFactory
   }) {
     this.poolSize = poolSize
     this.acquireTimeoutMs = acquireTimeoutMs
     this.pollIntervalMs = pollIntervalMs
     this.recycleAfterTemporaryContexts = recycleAfterTemporaryContexts
+    this.contentProcesses = contentProcesses
     this.browserFactory = browserFactory
   }
 
@@ -95,6 +101,13 @@ export class BrowserPool {
       // COOP at the prefs level (which CF detects via window.crossOriginIsolated)
       config: { forceScopeAccess: true },
       locale: "en-US",
+      // Cap content processes per browser. Firefox's default (8) lets thread count climb
+      // when Tier 3/Tier 4 churn contexts (see #13). Lower cap → bounded OS footprint.
+      // `processPrelaunch: false` stops Firefox from pre-warming extra processes eagerly.
+      prefs: {
+        "dom.ipc.processCount": this.contentProcesses,
+        "dom.ipc.processPrelaunch": false,
+      },
     })
 
     const context = await this.createContext(browser)
@@ -180,6 +193,9 @@ export class BrowserPool {
 
   private noteTemporaryContext(entry: PoolEntry, reason: string): void {
     if (this.recycleAfterTemporaryContexts <= 0) return
+    // Skip if the entry is already being recycled — avoids incrementing the counter
+    // against a dead entry and racing with the in-flight restartEntry.
+    if (entry.restarting) return
 
     entry.temporaryContextUses++
     if (entry.temporaryContextUses >= this.recycleAfterTemporaryContexts) {
