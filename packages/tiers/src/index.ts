@@ -10,7 +10,7 @@ export {
 } from "./detect"
 export type { OrchestratorDeps } from "./orchestrator"
 export { scrape } from "./orchestrator"
-export { clearProxyCache, getNextProxy, getRandomProxy } from "./proxyRotator"
+export { ProxyPool } from "./proxyRotator"
 export {
   isValidMethod,
   RESERVED_HEADER_NAMES,
@@ -21,7 +21,6 @@ export {
   type SupportedMethod,
   sanitizeHeaders,
 } from "./sanitize"
-export { ProxyPool } from "./proxyRotator"
 export { solvePageCaptchas } from "./solvers"
 export { runTier1 } from "./tier1"
 export { runTier2 } from "./tier2"
