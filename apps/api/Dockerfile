@@ -22,24 +22,39 @@ COPY apps/docs/package.json        ./apps/docs/
 # EISDIR on freshly-linked packages (oven-sh/bun#29489, e.g. camoufox-js).
 RUN bun install --frozen-lockfile --production --linker=hoisted
 
-# ── Stage 2: fetch the Camoufox Firefox binary ─────────
+# ── Stage 2: fetch the Camoufox Firefox binary (pinned version) ─────
 FROM oven/bun:1.3.14 AS camoufox
 ENV CAMOUFOX_INSTALL_DIR=/opt/camoufox
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    nodejs npm python3 make g++ && rm -rf /var/lib/apt/lists/*
+    curl unzip ca-certificates && rm -rf /var/lib/apt/lists/*
 
-# Use BuildKit cache for the download
+# Pin Camoufox to v150.0.2-beta.25 (verified working). The camoufox-js `fetch` always
+# downloads the latest release, which broke in 152.x (browser binary no longer in the
+# zip — see Camoufox upstream release notes). Direct curl keeps builds reproducible.
+#
+# Asset naming: arm64 = alpha.25 build, x86_64 = alpha.26 rebuild (only x86_64 was
+# rebuilt in the v150.0.2-beta.25 release).
+ARG TARGETARCH
 RUN --mount=type=secret,id=GITHUB_TOKEN,env=GITHUB_TOKEN \
-    --mount=type=cache,target=/root/.cache/camoufox,sharing=locked \
-    bun x camoufox-js fetch \
-    && rm -rf /opt/camoufox/fonts/macos /opt/camoufox/fonts/windows
-
-# Secret mount keeps GITHUB_TOKEN out of image layers.
-# Token prevents GitHub API rate-limits that cause the binary download to stall.
+    case "$TARGETARCH" in \
+      amd64) ZIP="camoufox-150.0.2-alpha.26-lin.x86_64.zip" ;; \
+      arm64) ZIP="camoufox-150.0.2-alpha.25-lin.arm64.zip" ;; \
+      *) echo "unsupported arch: $TARGETARCH"; exit 1 ;; \
+    esac && \
+    curl -fsSL \
+      "https://github.com/daijro/camoufox/releases/download/v150.0.2-beta.25/${ZIP}" \
+      -o /tmp/camoufox.zip && \
+    unzip -q /tmp/camoufox.zip -d /opt/camoufox && \
+    rm /tmp/camoufox.zip && \
+    printf '{"version":"150.0.2","release":"alpha.26"}\n' > /opt/camoufox/version.json && \
+    chmod -R 755 /opt/camoufox && \
+    rm -rf /opt/camoufox/fonts/macos /opt/camoufox/fonts/windows
 
 # ── Stage 3: lean runtime (only API-required files) ────────────────────────────
-FROM ubuntu:22.04
+# debian:bookworm-slim replaces ubuntu:22.04 — same glibc family, ~50 MB smaller base.
+# Camoufox/Firefox require glibc; Alpine's musl is incompatible.
+FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -61,12 +76,29 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       libasound2 \
       fonts-liberation \
       ca-certificates \
-      curl \
     && apt-get clean
 
 COPY --from=oven/bun:1.3.14  /usr/local/bin/bun /usr/local/bin/bun
 COPY --from=camoufox          /opt/camoufox      /opt/camoufox
 COPY --from=deps              /app/node_modules  /app/node_modules
+
+# Strip debug symbols — Bun is statically linked (safe to strip-all); Firefox's glibc/NSS
+# .so files keep their dynamic symbols via --strip-unneeded. Saves ~75 MB uncompressed
+# without affecting runtime behaviour. `|| true` so a strip failure on one file
+# doesn't abort the build.
+RUN strip --strip-all /usr/local/bin/bun 2>/dev/null || true \
+ && find /opt/camoufox -type f \( -name 'firefox' -o -name 'firefox-bin' -o -name '*.so*' \) \
+        -exec strip --strip-unneeded {} + 2>/dev/null || true
+
+# Prune better-sqlite3's C source/docs/binding.gyp — keeps only the .node binary +
+# JS wrapper that the runtime actually loads. Saves ~12 MB.
+RUN find /app/node_modules -path '*/better-sqlite3*/deps' -prune -exec rm -rf {} + \
+ && find /app/node_modules -path '*/better-sqlite3*/src'   -prune -exec rm -rf {} + \
+ && find /app/node_modules -path '*/better-sqlite3*' -name '*.md'  -delete \
+ && find /app/node_modules -path '*/better-sqlite3*' -name '*.gyp' -delete \
+ && find /app/node_modules -path '*/better-sqlite3*' -name '*.c'   -delete \
+ && find /app/node_modules -path '*/better-sqlite3*' -name '*.h'   -delete \
+ && find /app/node_modules -path '*/better-sqlite3*' -name '*.map' -delete
 
 COPY packages/types/   /app/packages/types/
 COPY packages/browser/ /app/packages/browser/
