@@ -15,4 +15,13 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
+      # Biome: format + lint + organize-imports
       - run: bun run check
+      # TypeScript: per-package typecheck (no root orchestration exists)
+      - run: bun --cwd packages/types typecheck
+      - run: bun --cwd packages/browser typecheck
+      - run: bun --cwd packages/tiers typecheck
+      - run: bun --cwd apps/api typecheck
+      # Unit tests
+      - run: bun --cwd packages/tiers test
+      - run: bun --cwd packages/browser test packages/browser/tests/pool.test.ts
