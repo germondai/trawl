@@ -5,8 +5,7 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@trawl/types": "workspace:*",

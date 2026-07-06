@@ -23,5 +23,5 @@ jobs:
       - run: bun --cwd packages/tiers typecheck
       - run: bun --cwd apps/api typecheck
       # Unit tests
-      - run: bun --cwd packages/tiers test
-      - run: bun --cwd packages/browser test packages/browser/tests/pool.test.ts
+      - run: cd packages/tiers && bun test
+      - run: cd packages/browser && bun test tests/pool.test.ts
