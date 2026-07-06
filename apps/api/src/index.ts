@@ -1,6 +1,7 @@
 import { BrowserPool, PoolExhaustedError, SessionCache } from "@trawl/browser"
 import {
   isValidMethod,
+  normalizeProxy,
   ProxyPool,
   RequestValidationError,
   requireContentTypeForBody,
@@ -81,7 +82,11 @@ function buildScrapeRequestFromFlareSolverr(req: FlareSolverrRequest): ScrapeReq
     headers,
     method,
     body: req.postData,
-    proxy: req.proxy,
+    // Prowlarr's Cardigann flow serializes proxy as {url, username, password};
+    // other callers may send a plain URL string. Normalize to a single URL string
+    // here so downstream Playwright/Camoufox `newContext({proxy})` calls receive
+    // a string (issue #12 — proxy.server: expected string, got object).
+    proxy: normalizeProxy(req.proxy),
   }
 }
 
