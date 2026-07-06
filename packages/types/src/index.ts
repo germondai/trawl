@@ -68,6 +68,12 @@ export interface PoolStats {
   avgRestarts: number
 }
 
+// Per-request proxy override as it arrives at the API. Prowlarr's Cardigann flow
+// serializes this as an object (its FlareSolverrProxy class: {url, username, password}).
+// Other callers may send a plain URL string. The API boundary normalizes both forms
+// into a single URL string before handing off to the orchestrator.
+export type ProxyEndpointInput = string | { url?: string; server?: string; username?: string; password?: string }
+
 export interface FlareSolverrRequest {
   cmd?: "request.get" | "request.post"
   url: string
@@ -75,7 +81,8 @@ export interface FlareSolverrRequest {
   postData?: string
   headers?: Record<string, string>
   // TRAWL extension (not part of the FlareSolverr v2 contract) — per-request proxy override.
-  proxy?: string
+  // Accepts Prowlarr's {url, username, password} object shape OR a plain URL string.
+  proxy?: ProxyEndpointInput
 }
 
 export interface FlareSolverrResponse {
