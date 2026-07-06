@@ -2,6 +2,7 @@ import type { BrowserHandle } from "@trawl/browser"
 import { FINGERPRINT } from "@trawl/browser"
 import type { Cookie, ScrapeRequest, ScrapeResult, SessionData, TierResult } from "@trawl/types"
 import { normalizeHtml } from "./html"
+import type { ProxyPool } from "./proxyRotator"
 import { requireContentTypeForBody, sanitizeHeaders } from "./sanitize"
 import { runTier1 } from "./tier1"
 import { runTier2 } from "./tier2"
@@ -108,9 +109,27 @@ export async function scrape(req: ScrapeRequest, deps: OrchestratorDeps): Promis
       throw new Error("Max tier reached without success")
     }
 
-    // Tier 3: fresh challenge solve
-    const remaining3 = maxTimeout - (Date.now() - totalStart)
-    const t3 = await runTier3(req.url, handle, remaining3, deps.proxyUrl, sanitizedHeaders, req.method, req.body)
+    // Tier 3: fresh challenge solve. Proxy resolves from (priority order) a per-request
+    // override, then the configured datacenter proxy pool, then none (server's own IP).
+    // On a "blocked" result from a pool-sourced proxy, mark it bad and retry with the
+    // next pool proxy before falling through to Tier 4. A per-request override has no
+    // fallback candidate, so it's tried exactly once.
+    let proxy3 = req.proxy ?? deps.proxyPool?.next(domain) ?? undefined
+    let t3: Awaited<ReturnType<typeof runTier3>>
+    for (let attempt = 0; ; attempt++) {
+      const remaining3 = maxTimeout - (Date.now() - totalStart)
+      t3 = await runTier3(req.url, handle, remaining3, proxy3, sanitizedHeaders, req.method, req.body)
+
+      const pool = deps.proxyPool
+      if (t3.status !== "blocked" || req.proxy || !proxy3 || !pool || attempt + 1 >= MAX_PROXY_ATTEMPTS) break
+      pool.markBad(proxy3)
+      const next = pool.next(domain)
+      if (!next || next === proxy3) break
+      console.log(
+        `[orchestrator] Tier 3 proxy ${proxy3.replace(/\/\/[^@]*@/, "//**@")} blocked — retrying with next proxy`,
+      )
+      proxy3 = next
+    }
     emit(t3)
     if (t3.status === "success" && t3.html !== undefined) {
       const cookies: Cookie[] = t3.cookies ?? []
@@ -148,8 +167,19 @@ export async function scrape(req: ScrapeRequest, deps: OrchestratorDeps): Promis
       )
     }
 
-    const remaining4 = maxTimeout - (Date.now() - totalStart)
-    const t4 = await runTier4(req.url, handle, remaining4, proxyUrl, sanitizedHeaders, req.method, req.body)
+    let t4: Awaited<ReturnType<typeof runTier4>>
+    for (let attempt = 0; ; attempt++) {
+      console.log(`[orchestrator] Tier 4 via residential proxy: ${proxy4.replace(/\/\/[^@]*@/, "//**@")}`)
+      const remaining4 = maxTimeout - (Date.now() - totalStart)
+      t4 = await runTier4(req.url, handle, remaining4, proxy4, sanitizedHeaders, req.method, req.body)
+
+      const pool = deps.residentialProxyPool
+      if (t4.status !== "blocked" || req.proxy || !pool || attempt + 1 >= MAX_PROXY_ATTEMPTS) break
+      pool.markBad(proxy4)
+      const next = pool.next(domain)
+      if (!next || next === proxy4) break
+      proxy4 = next
+    }
     emit(t4)
     if (t4.status === "success" && t4.html !== undefined) {
       const cookies: Cookie[] = t4.cookies ?? []

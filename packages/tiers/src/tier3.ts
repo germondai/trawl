@@ -4,9 +4,9 @@ import type { Cookie, TierResult } from "@trawl/types"
 import { waitForChallengeResolution } from "./challengeWait"
 import { detectChallengeType, hasImpervaChallenge, isCloudflarePage } from "./detect"
 import { normalizeHtml } from "./html"
+import { waitForImpervaResolution } from "./impervaWait"
 import type { RouteLike } from "./sanitize"
 import { routeContinueOverrides } from "./sanitize"
-import { waitForImpervaResolution } from "./impervaWait"
 import { solvePageCaptchas } from "./solvers"
 
 export interface Tier3Result extends TierResult {
