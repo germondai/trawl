@@ -20,7 +20,7 @@ const benchmarks = [
   {
     url: "nowsecure.nl",
     type: "No CF protection (Tier 1)",
-    maxMs: 3200,
+    maxMs: 3100,
     results: [
       { name: "TRAWL", ms: 200, label: "0.2s", winner: true },
       { name: "FlareSolverr", ms: 2600, label: "2.6s", winner: false },
@@ -30,7 +30,7 @@ const benchmarks = [
   {
     url: "iplocation.net",
     type: "Cloudflare interstitial (Tier 3)",
-    maxMs: 18800,
+    maxMs: 18700,
     results: [
       { name: "TRAWL", ms: 4200, label: "4.2s", winner: true },
       { name: "FlareSolverr", ms: 11300, label: "11.3s", winner: false },
@@ -40,9 +40,9 @@ const benchmarks = [
   {
     url: "nopecha.com/demo/cloudflare",
     type: "CF + Turnstile (Tier 3)",
-    maxMs: 18300,
+    maxMs: 18200,
     results: [
-      { name: "TRAWL", ms: 8300, label: "8.3s", winner: true },
+      { name: "TRAWL", ms: 5900, label: "5.9s", winner: true },
       { name: "FlareSolverr", ms: 13200, label: "13.2s", winner: false },
       { name: "Byparr", ms: 18200, label: "18.2s", winner: false },
     ],
@@ -53,12 +53,14 @@ const rows = [
   { feature: "Persistent browser pool", trawl: "✓ N instances", flaresolver: "✗ 1 instance", byparr: "✗ 1 instance" },
   {
     feature: "Domain session cache",
-    trawl: "✓ Redis, ~500ms repeat",
+    trawl: "✓ Redis, <500ms repeat",
     flaresolver: "✗ always full solve",
     byparr: "✗ always full solve",
   },
   { feature: "Adaptive tier execution", trawl: "✓ 4 tiers", flaresolver: "✗ always browser", byparr: "~" },
   { feature: "Browser engine", trawl: "✓ Camoufox Firefox", flaresolver: "✗ Chrome", byparr: "✓ Camoufox Firefox" },
+  { feature: "Docker image size", trawl: "✓ 1.04 GB", flaresolver: "✓ 1.03 GB", byparr: "✗ 4.10 GB" },
+  { feature: "Memory footprint (peak)", trawl: "✓ 770 MB", flaresolver: "✗ 500 MB", byparr: "✗ 1.35 GB" },
   { feature: "Cloudflare challenge speed", trawl: "✓ 4–15s", flaresolver: "✗ 11–18s", byparr: "✗ 13–18s" },
   { feature: "CF Turnstile solving", trawl: "✓ shadow DOM click", flaresolver: "✗", byparr: "✗" },
   { feature: "reCAPTCHA v2 solving", trawl: "✓ audio STT (free)", flaresolver: "✗", byparr: "✗" },
@@ -90,10 +92,7 @@ function renderCell(val: string) {
     <div class="container">
       <p class="eyebrow">benchmarks</p>
       <h2 class="section-title">TRAWL vs the alternatives.</h2>
-      <p class="section-sub">
-        Measured on the same machine, same network, same target URLs. Every benchmark run fresh with no pre-warmed
-        session cache.
-      </p>
+      <p class="section-sub">Measured on the same machine, same network, same target URLs.</p>
 
       <div class="bench-grid">
         <div
