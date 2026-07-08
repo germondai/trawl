@@ -92,6 +92,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       libasound2 \
       fonts-liberation \
       ca-certificates \
+      curl \
     && apt-get clean
 
 COPY --from=oven/bun:1.3.14  /usr/local/bin/bun /usr/local/bin/bun
