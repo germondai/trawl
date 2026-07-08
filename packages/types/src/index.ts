@@ -9,6 +9,13 @@ export interface Cookie {
   sameSite?: string
 }
 
+// CONNECT is intentionally excluded — it's a tunneling verb, not a normal
+// request body, and would let a caller establish arbitrary TCP tunnels.
+// QUERY (RFC 9341) is included — safe verb, body carries the query params.
+// Single source of truth for the request-method union — @trawl/tiers derives its
+// runtime SUPPORTED_METHODS array from this same literal set (see sanitize.ts).
+export type SupportedMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS" | "TRACE" | "QUERY"
+
 export interface ScrapeRequest {
   url: string
   maxTimeout?: number
@@ -16,10 +23,7 @@ export interface ScrapeRequest {
   maxTier?: 1 | 2 | 3 | 4
   sessionId?: string
   headers?: Record<string, string>
-  // CONNECT is intentionally excluded — it's a tunneling verb, not a normal
-  // request body, and would let a caller establish arbitrary TCP tunnels.
-  // QUERY (RFC 9341) is included — safe verb, body carries the query params.
-  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS" | "TRACE" | "QUERY"
+  method?: SupportedMethod
   body?: string
   // Per-request proxy override — bypasses the server-configured proxy pool for this call.
   proxy?: string
@@ -67,6 +71,30 @@ export interface PoolStats {
   available: number
   restarts: number
   avgRestarts: number
+}
+
+// Per-instance HTTP-level fingerprint (User-Agent + matching navigator.platform /
+// locale / timezone) — @trawl/browser's FINGERPRINT_POOL is typed against this shape.
+export interface BrowserFingerprint {
+  userAgent: string
+  platform: "Win32" | "MacIntel" | "Linux x86_64" | "Linux armv8"
+  locale: string
+  timezone: string
+}
+
+// A leased browser+context pair handed to a tier by @trawl/browser's BrowserPool.
+// `context`/`browser` are `any` — camoufox-js doesn't export Playwright's
+// Browser/BrowserContext types, and browsers from Playwright vs patchright aren't
+// structurally assignable to each other, so `any` is the pragmatic escape hatch
+// (consumers call .newPage()/.newContext()/.cookies() etc directly on these fields).
+export interface BrowserHandle {
+  id: number
+  // biome-ignore lint/suspicious/noExplicitAny: see comment above
+  context: any
+  // biome-ignore lint/suspicious/noExplicitAny: see comment above
+  browser: any
+  fingerprint: BrowserFingerprint
+  noteTemporaryContext?: (reason: string) => void
 }
 
 // Per-request proxy override as it arrives at the API. Prowlarr's Cardigann flow

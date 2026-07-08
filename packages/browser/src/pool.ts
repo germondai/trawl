@@ -1,4 +1,4 @@
-import type { PoolBrowser, PoolStats } from "@trawl/types"
+import type { BrowserHandle, PoolBrowser, PoolStats } from "@trawl/types"
 import { Camoufox } from "camoufox-js"
 import { FINGERPRINT_POOL } from "./fingerprint"
 
@@ -18,16 +18,9 @@ export class PoolExhaustedError extends Error {
   }
 }
 
-export interface BrowserHandle {
-  id: number
-  context: BrowserContext
-  browser: Browser
-  // Per-instance HTTP-level fingerprint (User-Agent + matching navigator.platform /
-  // locale / timezone). Set at init from FINGERPRINT_POOL so the orchestrator can
-  // send a UA that matches this browser's actual Camoufox-generated platform.
-  fingerprint: (typeof FINGERPRINT_POOL)[number]
-  noteTemporaryContext?: (reason: string) => void
-}
+// BrowserHandle now lives in @trawl/types (shared cross-package); re-exported here
+// for backward compat so existing `import type { BrowserHandle } from "@trawl/browser"` keeps working.
+export type { BrowserHandle } from "@trawl/types"
 
 interface PoolEntry extends PoolBrowser {
   browser: Browser | null

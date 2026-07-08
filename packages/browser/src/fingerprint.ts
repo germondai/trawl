@@ -1,3 +1,5 @@
+import type { BrowserFingerprint } from "@trawl/types"
+
 // The HTTP-level fingerprint sent with every request. Must match the actual browser
 // engine (Camoufox = Firefox) or anti-bot services do UA-vs-engine cross-checks and
 // flag the mismatch. Per-request the orchestrator picks one of these UAs at random
@@ -15,12 +17,7 @@ export const FINGERPRINT = {
 
 // Picked from by the pool per browser-instance so HTTP headers + browser
 // fingerprint (OS, navigator.platform) stay consistent.
-export const FINGERPRINT_POOL: ReadonlyArray<{
-  userAgent: string
-  platform: "Win32" | "MacIntel" | "Linux x86_64" | "Linux armv8"
-  locale: string
-  timezone: string
-}> = [
+export const FINGERPRINT_POOL: ReadonlyArray<BrowserFingerprint> = [
   {
     userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0",
     platform: "Win32",
