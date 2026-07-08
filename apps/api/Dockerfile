@@ -67,6 +67,21 @@ RUN --mount=type=secret,id=GITHUB_TOKEN,env=GITHUB_TOKEN \
     chmod -R 755 /opt/camoufox && \
     rm -rf /opt/camoufox/fonts/macos /opt/camoufox/fonts/windows
 
+# Bake the GeoIP database so camoufox-js never downloads it at runtime.
+# `geoip: true` (packages/browser/src/pool.ts) otherwise makes camoufox-js fetch
+# GeoLite2-City.mmdb from P3TERX/GeoLite.mmdb on first browser launch, into
+# $CAMOUFOX_INSTALL_DIR. An interrupted/truncated download leaves a corrupt file that
+# camoufox-js reuses forever (getGeolocation only re-downloads when the file is absent),
+# crashing every launch with "Invalid Extended Type at offset N val 7" (issue #20).
+# Baking a verified copy into the image makes startup deterministic and removes the
+# runtime GitHub dependency + first-launch download latency. The size check fails the
+# build if the download is truncated, so a corrupt file can never be baked in.
+RUN curl -fsSL \
+      "https://github.com/P3TERX/GeoLite.mmdb/releases/latest/download/GeoLite2-City.mmdb" \
+      -o /opt/camoufox/GeoLite2-City.mmdb && \
+    [ "$(stat -c%s /opt/camoufox/GeoLite2-City.mmdb)" -gt 10000000 ] || \
+      { echo "GeoLite2-City.mmdb download too small / failed"; exit 1; }
+
 # ── Stage 3: lean runtime (only API-required files) ────────────────────────────
 # debian:bookworm-slim replaces ubuntu:22.04 — same glibc family, ~50 MB smaller base.
 # Camoufox/Firefox require glibc; Alpine's musl is incompatible.
@@ -92,6 +107,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       libasound2 \
       fonts-liberation \
       ca-certificates \
+      curl \
     && apt-get clean
 
 COPY --from=oven/bun:1.3.14  /usr/local/bin/bun /usr/local/bin/bun
