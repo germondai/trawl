@@ -1,6 +1,6 @@
 import { FINGERPRINT } from "@trawl/browser"
 import type { TierResult } from "@trawl/types"
-import { isBlocked, isCloudflarePage } from "./detect"
+import { hasHcaptcha, hasRecaptcha, hasTurnstile, isBlocked, isCloudflarePage } from "./detect"
 import { normalizeHtml } from "./html"
 
 export interface Tier1Result extends TierResult {
@@ -40,6 +40,21 @@ export async function runTier1(
 
     if (isCloudflarePage(html, headers)) {
       return { tier: 1, status: "needs-js", durationMs: Date.now() - start, reason: "cloudflare-challenge" }
+    }
+
+    // JS-only challenges: the page's static HTML is just a shell that loads the
+    // captcha widget via <script src="...api.js">. Plain fetch sees the shell and
+    // would otherwise report success — but the real content (including the widget)
+    // only renders after JS executes. Escalate so Tier 3 runs the page in a browser,
+    // executes JS, and the solver can engage the actual widget.
+    if (hasHcaptcha(html)) {
+      return { tier: 1, status: "needs-js", durationMs: Date.now() - start, reason: "hcaptcha-shell" }
+    }
+    if (hasRecaptcha(html)) {
+      return { tier: 1, status: "needs-js", durationMs: Date.now() - start, reason: "recaptcha-shell" }
+    }
+    if (hasTurnstile(html)) {
+      return { tier: 1, status: "needs-js", durationMs: Date.now() - start, reason: "turnstile-shell" }
     }
 
     if (isBlocked(res.status, html)) {
