@@ -9,7 +9,8 @@ export type ChallengeType =
 
 export function isCloudflarePage(html: string, headers: Record<string, string>): boolean {
   if (headers["cf-mitigated"]) return true
-  if (/<title>[^<]*(just a moment|ddos-guard|please wait|checking)[^<]*<\/title>/i.test(html)) return true
+  if (/<title>[^<]*(just a moment|ddos-guard|please wait|checking|attention required)[^<]*<\/title>/i.test(html))
+    return true
   if (/checking your browser/i.test(html)) return true
   if (/enable javascript and cookies to continue/i.test(html)) return true
   if (/verify you are human/i.test(html)) return true
@@ -20,6 +21,31 @@ export function isCloudflarePage(html: string, headers: Record<string, string>):
   if (/id="turnstile-wrapper"/i.test(html)) return true
   // DDoS-Guard
   if (/ddos-guard\.net|\.ddos-guard\.net/i.test(html)) return true
+  // CF firewall/WAF deny page (error 1020 and friends) — static "blocked" page, not a
+  // solvable JS challenge, but still needs to be recognized as CF so the orchestrator
+  // reports tier failure and escalates instead of returning the block page as content
+  if (/id="cf-error-details"/i.test(html)) return true
+  if (/you have been blocked/i.test(html)) return true
+  // Lean CF challenge stub — blank title/body, just the challenge-platform bootstrap
+  // script. No human-readable text at all, so none of the checks above catch it.
+  //
+  // CAUTION: __CF$cv$params is NOT exclusive to active challenges — Cloudflare injects
+  // the same bootstrap into countless ordinary, fully-rendered pages as passive
+  // bot-management telemetry. Matching on the marker alone flags real pages as blocked.
+  // The actual challenge stub is always near-empty (nothing else can render before the
+  // challenge resolves), so gate on page size too.
+  if (html.length < 3000 && /__CF\$cv\$params/i.test(html)) return true
+  return false
+}
+
+// Firefox's own internal about:neterror / about:certerror page — means the browser never
+// reached a real server at all (DNS failure, connection refused, TLS error, etc). Distinct
+// from a Cloudflare/WAF block: there's no origin response to retry against, so callers
+// should treat this the same as a hard network failure, not as scraped content.
+export function isBrowserErrorPage(html: string): boolean {
+  if (/chrome:\/\/global\/skin\/aboutNetError/i.test(html)) return true
+  if (/data-l10n-id="(neterror|certerror)-page-title"/i.test(html)) return true
+  if (/<net-error-card>/i.test(html)) return true
   return false
 }
 

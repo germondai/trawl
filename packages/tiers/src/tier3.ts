@@ -2,7 +2,7 @@ import type { BrowserHandle } from "@trawl/browser"
 import { FINGERPRINT, newFreshContext } from "@trawl/browser"
 import type { Cookie, TierResult } from "@trawl/types"
 import { waitForChallengeResolution } from "./challengeWait"
-import { detectChallengeType, hasImpervaChallenge, isCloudflarePage } from "./detect"
+import { detectChallengeType, hasImpervaChallenge, isBlocked, isBrowserErrorPage, isCloudflarePage } from "./detect"
 import { normalizeHtml } from "./html"
 import { waitForImpervaResolution } from "./impervaWait"
 import type { RouteLike } from "./sanitize"
@@ -123,6 +123,15 @@ export async function runTier3(
       return { tier: 3, status: "error", durationMs: Date.now() - start, reason: errMsg }
     }
 
+    // Browser never reached a real server (DNS/connection/TLS failure) — the "navigation
+    // interrupted" tolerance above lets Firefox-specific network errors fall through
+    // instead of hitting the isHardFail regex (which only matches Chromium ERR_* strings),
+    // so we still need to catch the resulting about:neterror page here.
+    if (isBrowserErrorPage(html)) {
+      const errMsg = gotoErr instanceof Error ? gotoErr.message.split("\n")[0] : "browser network error (about:neterror)"
+      return { tier: 3, status: "error", durationMs: Date.now() - start, reason: errMsg }
+    }
+
     if (isCloudflarePage(html, {})) {
       const pageTitle = await page.title().catch(() => "?")
       const pageUrl = page.url()
@@ -135,6 +144,10 @@ export async function runTier3(
       const pageUrl = page.url()
       console.log(`[tier3] imperva-persistent: url="${pageUrl}" title="${pageTitle}" html=${html.length}b`)
       return { tier: 3, status: "blocked", durationMs: Date.now() - start, reason: "imperva-persistent" }
+    }
+
+    if (isBlocked(statusCode, html)) {
+      return { tier: 3, status: "blocked", durationMs: Date.now() - start, reason: `http-${statusCode}` }
     }
 
     const rawCookies = await freshCtx.cookies()

@@ -1,6 +1,6 @@
 import type { BrowserHandle } from "@trawl/browser"
 import type { Cookie, SessionData, TierResult } from "@trawl/types"
-import { isCloudflarePage } from "./detect"
+import { isBlocked, isBrowserErrorPage, isCloudflarePage } from "./detect"
 import { normalizeHtml } from "./html"
 import type { RouteLike } from "./sanitize"
 import { routeContinueOverrides } from "./sanitize"
@@ -68,8 +68,21 @@ export async function runTier2(
 
     const html = await page.content()
 
+    if (isBrowserErrorPage(html)) {
+      return {
+        tier: 2,
+        status: "error",
+        durationMs: Date.now() - start,
+        reason: "browser network error (about:neterror)",
+      }
+    }
+
     if (isCloudflarePage(html, {})) {
       return { tier: 2, status: "blocked", durationMs: Date.now() - start, reason: "session-expired" }
+    }
+
+    if (isBlocked(statusCode, html)) {
+      return { tier: 2, status: "blocked", durationMs: Date.now() - start, reason: `http-${statusCode}` }
     }
 
     // Attempt to solve any embedded captcha widgets (Turnstile, reCAPTCHA, hCaptcha).

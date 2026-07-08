@@ -43,6 +43,7 @@ export interface ScrapeResult {
   timings: TierResult[]
   totalMs: number
   captchasSolved?: string[] // captcha types solved during this request (e.g. ['turnstile', 'recaptcha-v2'])
+  proxyUsed?: boolean // true if the winning tier routed through a proxy (Tier 3 datacenter pool or Tier 4 residential pool/override)
 }
 
 export interface SessionData {

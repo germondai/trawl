@@ -46,6 +46,8 @@ interface ScrapeResult {
   sessionCached: boolean       // true if a cached session was used
   timings: TierResult[]        // per-tier attempt history
   totalMs: number
+  captchasSolved?: string[]    // captcha types solved on the page itself (e.g. ['turnstile'])
+  proxyUsed?: boolean          // true if the winning tier routed through a proxy (Tier 3 datacenter pool or Tier 4 residential pool/override)
 }
 
 interface TierResult {
@@ -151,4 +153,19 @@ For 429 pool-exhaustion errors, the body is a **FlareSolverr v2 envelope** (same
 }
 ```
 
-For 400 / 503 / 500 the body is the native shape `{ "error": "Human-readable message" }`.
+For 400 / 503 the body is the native shape `{ "error": "Human-readable message" }`.
+
+For 500 errors raised after at least one tier was attempted, the body also includes the
+per-tier attempt history, so a failed request is still fully diagnosable from the response
+alone — no need to check server logs:
+
+```json
+{
+  "error": "All tiers exhausted. Last failure: http-403",
+  "timings": [
+    { "tier": 1, "status": "needs-js", "durationMs": 50, "reason": "cloudflare-challenge" },
+    { "tier": 3, "status": "blocked", "durationMs": 2942, "reason": "http-403" },
+    { "tier": 4, "status": "blocked", "durationMs": 7890, "reason": "http-403" }
+  ]
+}
+```

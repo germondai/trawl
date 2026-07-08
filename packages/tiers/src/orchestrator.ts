@@ -13,6 +13,19 @@ import { runTier4 } from "./tier4"
 // keeps a long proxy list from blowing the request's maxTimeout budget.
 const MAX_PROXY_ATTEMPTS = 2
 
+// Carries the per-tier attempt history alongside the failure message, so callers
+// (the API layer) can report exactly which tier failed and why instead of just a
+// flat string — this data already exists in-memory by the time we throw, it just
+// wasn't reaching anyone outside the orchestrator.
+export class ScrapeError extends Error {
+  timings: TierResult[]
+  constructor(message: string, timings: TierResult[]) {
+    super(message)
+    this.name = "ScrapeError"
+    this.timings = timings
+  }
+}
+
 // True when a Tier 3/4 result indicates the browser's profile was actively rejected
 // by the upstream (CF / Imperva / etc.). On these outcomes the orchestrator flags the
 // pool for a future recycle; on every other outcome (success, transient error, timeout)
@@ -73,12 +86,13 @@ export async function scrape(req: ScrapeRequest, deps: OrchestratorDeps): Promis
         sessionCached: false,
         timings,
         totalMs: Date.now() - totalStart,
+        proxyUsed: false,
       }
     }
   }
 
   if (maxTier < 2) {
-    throw new Error("Max tier reached without success")
+    throw new ScrapeError("Max tier reached without success", timings)
   }
 
   // Acquire browser for tiers 2-4
@@ -110,6 +124,7 @@ export async function scrape(req: ScrapeRequest, deps: OrchestratorDeps): Promis
           timings,
           totalMs: Date.now() - totalStart,
           captchasSolved: t2.captchasSolved,
+          proxyUsed: false,
         }
       }
       // Session failed — purge it
@@ -117,7 +132,7 @@ export async function scrape(req: ScrapeRequest, deps: OrchestratorDeps): Promis
     }
 
     if (maxTier < 3) {
-      throw new Error("Max tier reached without success")
+      throw new ScrapeError("Max tier reached without success", timings)
     }
 
     // Tier 3: fresh challenge solve. Proxy resolves from (priority order) a per-request
@@ -170,19 +185,21 @@ export async function scrape(req: ScrapeRequest, deps: OrchestratorDeps): Promis
         timings,
         totalMs: Date.now() - totalStart,
         captchasSolved: t3.captchasSolved,
+        proxyUsed: Boolean(proxy3),
       }
     }
 
     if (maxTier < 4) {
-      throw new Error("Max tier reached without success")
+      throw new ScrapeError("Max tier reached without success", timings)
     }
 
     // Tier 4: residential proxy escalation — requires at least one residential proxy,
     // supplied either per-request (req.proxy) or via the configured residential pool.
     let proxy4 = req.proxy ?? deps.residentialProxyPool?.next(domain)
     if (!proxy4) {
-      throw new Error(
+      throw new ScrapeError(
         `Tier 3 failed (${t3.reason ?? t3.status}). Set RESIDENTIAL_PROXY_URL (or pass a proxy per-request) to enable Tier 4 proxy escalation.`,
+        timings,
       )
     }
 
@@ -225,10 +242,12 @@ export async function scrape(req: ScrapeRequest, deps: OrchestratorDeps): Promis
         sessionCached: false,
         timings,
         totalMs: Date.now() - totalStart,
+        captchasSolved: t4.captchasSolved,
+        proxyUsed: true,
       }
     }
 
-    throw new Error(`All tiers exhausted. Last failure: ${t4.reason ?? t4.status}`)
+    throw new ScrapeError(`All tiers exhausted. Last failure: ${t4.reason ?? t4.status}`, timings)
   } finally {
     deps.releaseBrowser(handle.id)
   }

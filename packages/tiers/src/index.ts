@@ -5,11 +5,12 @@ export {
   hasRecaptcha,
   hasTurnstile,
   isBlocked,
+  isBrowserErrorPage,
   isCloudflarePage,
   needsJs,
 } from "./detect"
 export type { OrchestratorDeps } from "./orchestrator"
-export { scrape } from "./orchestrator"
+export { ScrapeError, scrape } from "./orchestrator"
 export { normalizeProxy, ProxyPool } from "./proxyRotator"
 export {
   isValidMethod,

@@ -2,11 +2,12 @@ import type { BrowserHandle } from "@trawl/browser"
 import { FINGERPRINT } from "@trawl/browser"
 import type { Cookie, TierResult } from "@trawl/types"
 import { waitForChallengeResolution } from "./challengeWait"
-import { detectChallengeType, hasImpervaChallenge, isCloudflarePage } from "./detect"
+import { detectChallengeType, hasImpervaChallenge, isBlocked, isBrowserErrorPage, isCloudflarePage } from "./detect"
 import { normalizeHtml } from "./html"
 import { waitForImpervaResolution } from "./impervaWait"
 import type { RouteLike } from "./sanitize"
 import { routeContinueOverrides } from "./sanitize"
+import { solvePageCaptchas } from "./solvers"
 
 export interface Tier4Result extends TierResult {
   tier: 4
@@ -14,6 +15,7 @@ export interface Tier4Result extends TierResult {
   cookies?: Cookie[]
   userAgent?: string
   statusCode?: number
+  captchasSolved?: string[]
 }
 
 export async function runTier4(
@@ -117,10 +119,28 @@ export async function runTier4(
 
     await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => {})
 
+    // Attempt to solve any embedded captcha widgets on the page (Turnstile, reCaptcha, hCaptcha) —
+    // same as Tier 3. Sites that reach Tier 4 for IP reputation can still have an in-page widget.
+    const solveRemaining = maxTimeout - (Date.now() - start)
+    let captchasSolved: string[] = []
+    if (solveRemaining > 5000) {
+      const solveResult = await solvePageCaptchas(page, solveRemaining).catch(() => ({ attempted: [], solved: [] }))
+      captchasSolved = solveResult.solved
+    }
+
     const html = await page.content()
 
     if (html.length < 100) {
       return { tier: 4, status: "error", durationMs: Date.now() - start, reason: "page returned empty content" }
+    }
+
+    if (isBrowserErrorPage(html)) {
+      return {
+        tier: 4,
+        status: "error",
+        durationMs: Date.now() - start,
+        reason: "browser network error (about:neterror)",
+      }
     }
 
     if (isCloudflarePage(html, {})) {
@@ -139,6 +159,10 @@ export async function runTier4(
         durationMs: Date.now() - start,
         reason: "imperva-persistent",
       }
+    }
+
+    if (isBlocked(statusCode, html)) {
+      return { tier: 4, status: "blocked", durationMs: Date.now() - start, reason: `http-${statusCode}` }
     }
 
     const rawCookies = await proxyContext.cookies()
@@ -172,6 +196,7 @@ export async function runTier4(
       cookies,
       userAgent: await page.evaluate(() => navigator.userAgent).catch(() => FINGERPRINT.userAgent),
       statusCode,
+      captchasSolved: captchasSolved.length > 0 ? captchasSolved : undefined,
     }
   } catch (err) {
     return {
