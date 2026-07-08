@@ -6,8 +6,9 @@ import { FINGERPRINT_POOL } from "./fingerprint"
 // The pool accepts any structurally-compatible browser (Playwright OR patchright) —
 // browsers exported from one aren't structurally assignable to the other in their
 // own TypeScript types, so `any` is the pragmatic escape hatch here.
+// biome-ignore lint/suspicious/noExplicitAny: see comment above
 type Browser = any
-// biome-ignore lint/suspicious/noExplicitAny: see comment on Browser above
+// biome-ignore lint/suspicious/noExplicitAny: see comment above
 type BrowserContext = any
 
 export class PoolExhaustedError extends Error {

@@ -128,7 +128,8 @@ export async function runTier3(
     // instead of hitting the isHardFail regex (which only matches Chromium ERR_* strings),
     // so we still need to catch the resulting about:neterror page here.
     if (isBrowserErrorPage(html)) {
-      const errMsg = gotoErr instanceof Error ? gotoErr.message.split("\n")[0] : "browser network error (about:neterror)"
+      const errMsg =
+        gotoErr instanceof Error ? gotoErr.message.split("\n")[0] : "browser network error (about:neterror)"
       return { tier: 3, status: "error", durationMs: Date.now() - start, reason: errMsg }
     }
 
