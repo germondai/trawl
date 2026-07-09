@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { runTier1 } from "../src/tier1"
+import { runTier1 } from "../src/tiers/1"
 
 interface RecordedCall {
   url: string
@@ -89,7 +89,7 @@ describe("runTier1 — POST support", () => {
       // This demonstrates the tier's pass-through behaviour: a non-reserved
       // header does override. Reserved headers are stripped upstream by
       // sanitizeHeaders(); this test pins both halves of the contract.
-      const { sanitizeHeaders } = await import("../src/sanitize")
+      const { sanitizeHeaders } = await import("../src/utils/sanitize")
       const cleaned = sanitizeHeaders({ "User-Agent": "evil-spider/1.0", Accept: "application/json" })
       expect(cleaned).toEqual({ Accept: "application/json" }) // UA was reserved, dropped
 

@@ -42,7 +42,13 @@ export function sanitizeHeaders(headers?: Record<string, string>): Record<string
   return Object.keys(out).length ? out : undefined
 }
 
-export const SUPPORTED_METHODS = [
+import type { SupportedMethod } from "@trawl/types"
+
+// SupportedMethod now lives in @trawl/types (single source of truth, shared with
+// ScrapeRequest.method); re-exported here for backward compat.
+export type { SupportedMethod } from "@trawl/types"
+
+export const SUPPORTED_METHODS: readonly SupportedMethod[] = [
   "GET",
   "POST",
   "PUT",
@@ -53,9 +59,7 @@ export const SUPPORTED_METHODS = [
   "TRACE",
   // RFC 9341 — safe verb that carries the query in the request body.
   "QUERY",
-] as const
-
-export type SupportedMethod = (typeof SUPPORTED_METHODS)[number]
+]
 
 const SUPPORTED_METHOD_SET: ReadonlySet<string> = new Set(SUPPORTED_METHODS)
 

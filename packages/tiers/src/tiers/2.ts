@@ -1,10 +1,11 @@
 import type { BrowserHandle } from "@trawl/browser"
 import type { Cookie, SessionData, TierResult } from "@trawl/types"
-import { isBlocked, isBrowserErrorPage, isCloudflarePage } from "./detect"
-import { normalizeHtml } from "./html"
-import type { RouteLike } from "./sanitize"
-import { routeContinueOverrides } from "./sanitize"
-import { solvePageCaptchas } from "./solvers"
+import { solvePageCaptchas } from "../solvers"
+import { normalizeSameSite, toCookies } from "../utils/cookies"
+import { isBlocked, isBrowserErrorPage, isCloudflarePage } from "../utils/detect"
+import { normalizeHtml } from "../utils/html"
+import type { RouteLike } from "../utils/sanitize"
+import { routeContinueOverrides } from "../utils/sanitize"
 
 export interface Tier2Result extends TierResult {
   tier: 2
@@ -12,13 +13,6 @@ export interface Tier2Result extends TierResult {
   cookies?: Cookie[]
   statusCode?: number
   captchasSolved?: string[]
-}
-
-// Playwright's cookie.sameSite is `"Strict" | "Lax" | "None"` but can be undefined when
-// the cookie was set without an explicit sameSite. Normalize to the Playwright literal
-// union with a default of "Lax" (matches browser default for same-origin cookies).
-function normalizeSameSite(s: string | undefined): "Strict" | "Lax" | "None" {
-  return s === "Strict" || s === "Lax" || s === "None" ? s : "Lax"
 }
 
 export async function runTier2(
@@ -94,28 +88,7 @@ export async function runTier2(
       captchasSolved = result.solved
     }
 
-    const rawCookies = await handle.context.cookies()
-    const cookies: Cookie[] = rawCookies.map(
-      (c: {
-        name: string
-        value: string
-        domain: string
-        path: string
-        expires: number
-        httpOnly: boolean
-        secure: boolean
-        sameSite?: string
-      }) => ({
-        name: c.name,
-        value: c.value,
-        domain: c.domain,
-        path: c.path,
-        expires: c.expires ?? -1,
-        httpOnly: c.httpOnly,
-        secure: c.secure,
-        sameSite: c.sameSite,
-      }),
-    )
+    const cookies: Cookie[] = toCookies(await handle.context.cookies())
 
     return {
       tier: 2,

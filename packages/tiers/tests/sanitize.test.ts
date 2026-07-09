@@ -5,7 +5,7 @@ import {
   RequestValidationError,
   requireContentTypeForBody,
   sanitizeHeaders,
-} from "../src/sanitize"
+} from "../src/utils/sanitize"
 
 describe("sanitizeHeaders", () => {
   test("returns undefined for undefined / empty input", () => {

@@ -1,7 +1,7 @@
 import { FINGERPRINT } from "@trawl/browser"
 import type { TierResult } from "@trawl/types"
-import { hasHcaptcha, hasRecaptcha, hasTurnstile, isBlocked, isCloudflarePage } from "./detect"
-import { normalizeHtml } from "./html"
+import { hasHcaptcha, hasRecaptcha, hasTurnstile, isBlocked, isCloudflarePage } from "../utils/detect"
+import { normalizeHtml } from "../utils/html"
 
 export interface Tier1Result extends TierResult {
   tier: 1

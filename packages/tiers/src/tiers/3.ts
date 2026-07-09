@@ -1,13 +1,21 @@
 import type { BrowserHandle } from "@trawl/browser"
 import { FINGERPRINT, newFreshContext } from "@trawl/browser"
 import type { Cookie, TierResult } from "@trawl/types"
-import { waitForChallengeResolution } from "./challengeWait"
-import { detectChallengeType, hasImpervaChallenge, isBlocked, isBrowserErrorPage, isCloudflarePage } from "./detect"
-import { normalizeHtml } from "./html"
-import { waitForImpervaResolution } from "./impervaWait"
-import type { RouteLike } from "./sanitize"
-import { routeContinueOverrides } from "./sanitize"
-import { solvePageCaptchas } from "./solvers"
+import { solvePageCaptchas } from "../solvers"
+import { waitForChallengeResolution } from "../utils/challengeWait"
+import { toCookies } from "../utils/cookies"
+import {
+  detectChallengeType,
+  hasImpervaChallenge,
+  isBlocked,
+  isBrowserErrorPage,
+  isCloudflarePage,
+} from "../utils/detect"
+import { normalizeHtml } from "../utils/html"
+import { waitForImpervaResolution } from "../utils/impervaWait"
+import { isHardNetworkFailure } from "../utils/network"
+import type { RouteLike } from "../utils/sanitize"
+import { routeContinueOverrides } from "../utils/sanitize"
 
 export interface Tier3Result extends TierResult {
   tier: 3
@@ -65,17 +73,10 @@ export async function runTier3(
       .catch((e: Error) => e)
 
     // Abort early on hard network failures — no point running challenge wait
-    if (gotoErr instanceof Error) {
-      const msg = gotoErr.message
-      const isHardFail =
-        /ERR_NAME_NOT_RESOLVED|ERR_CONNECTION_REFUSED|ERR_CONNECTION_TIMED_OUT|ERR_TUNNEL_CONNECTION_FAILED|ERR_PROXY_CONNECTION_FAILED/i.test(
-          msg,
-        )
-      if (isHardFail) {
-        return { tier: 3, status: "error", durationMs: Date.now() - start, reason: msg.split("\n")[0] }
-      }
-      // Otherwise (navigation interrupted by CF redirect) — fall through and keep going
+    if (isHardNetworkFailure(gotoErr)) {
+      return { tier: 3, status: "error", durationMs: Date.now() - start, reason: gotoErr.message.split("\n")[0] }
     }
+    // Otherwise (navigation interrupted by CF redirect) — fall through and keep going
 
     const remaining = maxTimeout - (Date.now() - start)
     const peekHtml = await page.content().catch(() => "")
@@ -151,28 +152,7 @@ export async function runTier3(
       return { tier: 3, status: "blocked", durationMs: Date.now() - start, reason: `http-${statusCode}` }
     }
 
-    const rawCookies = await freshCtx.cookies()
-    const cookies: Cookie[] = rawCookies.map(
-      (c: {
-        name: string
-        value: string
-        domain: string
-        path: string
-        expires: number
-        httpOnly: boolean
-        secure: boolean
-        sameSite?: string
-      }) => ({
-        name: c.name,
-        value: c.value,
-        domain: c.domain,
-        path: c.path,
-        expires: c.expires ?? -1,
-        httpOnly: c.httpOnly,
-        secure: c.secure,
-        sameSite: c.sameSite,
-      }),
-    )
+    const cookies: Cookie[] = toCookies(await freshCtx.cookies())
 
     return {
       tier: 3,

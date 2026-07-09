@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { normalizeProxy } from "../src/proxyRotator"
+import { normalizeProxy } from "../src/utils/proxyRotator"
 
 // Covers issue #12: Prowlarr's Cardigann flow serializes `proxy` as an object
 // {url, username, password}; other callers send a plain URL string. The API

@@ -1,13 +1,13 @@
 import type { BrowserHandle } from "@trawl/browser"
 import { FINGERPRINT, FINGERPRINT_POOL } from "@trawl/browser"
 import type { Cookie, ScrapeRequest, ScrapeResult, SessionData, TierResult } from "@trawl/types"
-import { normalizeHtml } from "./html"
-import type { ProxyPool } from "./proxyRotator"
-import { requireContentTypeForBody, sanitizeHeaders } from "./sanitize"
-import { runTier1 } from "./tier1"
-import { runTier2 } from "./tier2"
-import { runTier3 } from "./tier3"
-import { runTier4 } from "./tier4"
+import { runTier1 } from "./tiers/1"
+import { runTier2 } from "./tiers/2"
+import { runTier3 } from "./tiers/3"
+import { runTier4 } from "./tiers/4"
+import { normalizeHtml } from "./utils/html"
+import type { ProxyPool } from "./utils/proxyRotator"
+import { requireContentTypeForBody, sanitizeHeaders } from "./utils/sanitize"
 
 // Bounds how many distinct proxies a single request will try per tier before giving up —
 // keeps a long proxy list from blowing the request's maxTimeout budget.
