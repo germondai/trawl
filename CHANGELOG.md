@@ -43,6 +43,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   source without needing to restart the browser.
 
 ### Changed
+- Default cache backend switched from Redis to [Dragonfly](https://www.dragonflydb.io/)
+  in all Docker Compose configs (`docker-compose.yml`, `.full.yml`, `.prod.yml`).
+  Dragonfly is Redis-protocol compatible, so `packages/browser`'s session cache
+  (Bun's native `RedisClient`) needs no code changes. The compose service is
+  renamed `redis` → `dragonfly`; the `REDIS_URL` env var name is unchanged.
 - `BROWSER_RECYCLE_AFTER_CONTEXTS` no longer recycles preemptively after
   every N temporary contexts. The pool now recycles only when Tier 3 or
   Tier 4 returns a `blocked` / `needs-js` outcome, preserving cookies,
