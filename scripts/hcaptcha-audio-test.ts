@@ -28,7 +28,7 @@ async function main() {
   console.log("[test] pool ready")
 
   const handle = await pool.acquire("nopecha.com")
-  console.log("[test] acquired browser handle id=" + handle.id)
+  console.log(`[test] acquired browser handle id=${handle.id}`)
 
   // BrowserHandle exposes context + browser, not page — create one from the context
   // (same pattern apps/api/src/index.ts uses).
