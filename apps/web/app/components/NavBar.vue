@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 const docsUrl = useDocsUrl()
 const stars = useGithubStars()
-const menuOpen = ref(false)
+const menuOpen = shallowRef(false)
 
 function closeMenu() {
   menuOpen.value = false

@@ -1,5 +1,5 @@
 export function useGithubStars() {
-  const stars = shallowRef<string | null>(null)
+  const stars = shallowRef<string>()
 
   onMounted(async () => {
     try {
