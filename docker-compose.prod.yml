@@ -1,9 +1,9 @@
 services:
-  dragonfly:
-    image: docker.dragonflydb.io/dragonflydb/dragonfly:v1.39.0
+  redis:
+    image: redis:8.8-alpine
     restart: always
     volumes:
-      - dragonfly_data:/data
+      - redis_data:/data
 
   trawl:
     image: ghcr.io/germondai/trawl:latest
@@ -13,10 +13,10 @@ services:
     shm_size: 1gb
     mem_limit: 3g
     environment:
-      REDIS_URL: redis://dragonfly:6379
+      REDIS_URL: redis://redis:6379
       BROWSER_POOL_SIZE: 5
     depends_on:
-      - dragonfly
+      - redis
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8191/health"]
       interval: 30s
@@ -25,4 +25,4 @@ services:
       start_period: 90s
 
 volumes:
-  dragonfly_data:
+  redis_data:

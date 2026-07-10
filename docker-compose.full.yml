@@ -1,9 +1,9 @@
 services:
-  dragonfly:
-    image: docker.dragonflydb.io/dragonflydb/dragonfly:v1.39.0
+  redis:
+    image: redis:8.8-alpine
     restart: unless-stopped
     volumes:
-      - dragonfly_data:/data
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -16,10 +16,10 @@ services:
     ports:
       - "${PORT:-8191}:8191"
     environment:
-      - REDIS_URL=redis://dragonfly:6379
+      - REDIS_URL=redis://redis:6379
       - BROWSER_POOL_SIZE=${BROWSER_POOL_SIZE:-3}
     depends_on:
-      dragonfly:
+      redis:
         condition: service_healthy
     shm_size: 1gb
     dns:
@@ -49,4 +49,4 @@ services:
       - "${PORT_DOCS:-3001}:80"
 
 volumes:
-  dragonfly_data:
+  redis_data:
