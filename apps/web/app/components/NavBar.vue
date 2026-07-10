@@ -61,7 +61,7 @@ function closeMenu() {
         <a href="#how-it-works" class="mobile-link" @click="closeMenu">tiers</a>
         <a href="#compare" class="mobile-link" @click="closeMenu">benchmarks</a>
         <a href="#code" class="mobile-link" @click="closeMenu">quickstart</a>
-        <a :href="docsUrl" role="link" class="mobile-link" @click="closeMenu" @keydown.enter="closeMenu">docs</a>
+        <a :href="docsUrl" class="mobile-link" @click="closeMenu" @keydown.enter="closeMenu">docs</a>
         <a
           href="https://github.com/germondai/trawl"
           target="_blank"
