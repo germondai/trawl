@@ -113,6 +113,24 @@ image: ghcr.io/germondai/trawl:baseline
 
 Synology note: many Synology NAS units (DSM 7.x on J4125 / older hardware) ship kernel 4.4.x, which Bun's modern runtime can't fully handle. Standard Bun requires kernel 5.1+ (5.6+ recommended); the baseline build degrades gracefully down to kernel 3.10. The `:baseline` tag is published for that case — **confirmed working** on a Synology DS920+ (Celeron J4125, DSM 7.3.2, kernel 4.4.302): the container starts cleanly, `/health` reports healthy, and it solves live Cloudflare challenges via `/v1` (see [#1](https://github.com/germondai/trawl/issues/1)). Published by independent GitHub Actions workflows (`.github/workflows/publish.yml`, `publish-baseline.yml`); tag-triggered releases push matching git tags (e.g. `v1.0.0` → `1.0.0`, `1.0.0-baseline` → `1.0.0-baseline`) and manual `workflow_dispatch` from `main` updates the rolling tag (`latest` and `baseline` respectively).
 
+## Releases & versioning
+
+TRAWL follows [Semantic Versioning](https://semver.org/). Pushing a `v`-prefixed git tag (e.g.
+`v1.0.0`) triggers `publish.yml`, which builds and pushes the matching un-prefixed Docker tag
+(`ghcr.io/germondai/trawl:1.0.0`) alongside a major-only tag (`:1`). `:latest` always tracks the
+tip of `main`; `:sha-<shortsha>` images are pushed on every `main` commit regardless of tags.
+See the [Releases page](https://github.com/germondai/trawl/releases) for the full version
+history and [CHANGELOG.md](CHANGELOG.md) for what changed in each one.
+
+To publish a specific past commit that had a major fix without waiting for the next tip-of-`main`
+release, tag that exact SHA and push it — `publish.yml` builds off the tag ref, not off `main`'s
+current tip:
+
+```bash
+git tag -a v1.0.1 <sha> -m "..."
+git push origin v1.0.1
+```
+
 ## Configuration
 
 | Variable                         | Default                  | Description                                                                         |
