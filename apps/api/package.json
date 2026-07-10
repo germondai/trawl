@@ -13,10 +13,10 @@
     "@trawl/types": "workspace:*",
     "camoufox-js": "0.11.1",
     "elysia": "^1.4.29",
-    "memoirist": "0.4.0"
+    "memoirist": "1.1.0"
   },
   "devDependencies": {
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "@types/bun": "^1.3.14"
   }
 }
