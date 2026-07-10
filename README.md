@@ -1,6 +1,6 @@
 <h1 align="center">
   <a href="https://trawl.dev" target="_blank">
-    <img align="center" src="https://icons.germondai.com/icons?i=bun,elysia,firefox,redis,nuxt,vitepress" /><br/><br/>
+    <img align="center" src="https://icons.germondai.com/icons?i=bun,elysia,firefox,nuxt,vitepress" /><br/><br/>
     <span>TRAWL</span>
   </a>
 </h1>
@@ -14,7 +14,7 @@ Self-hosted web scraping engine with adaptive tier execution. Solves Cloudflare 
 - **4-tier execution** — plain HTTP → cached session → fresh CF solve → residential proxy
 - **Native captcha solving** — CF Turnstile, reCAPTCHA v2 (free STT), hCaptcha, GeeTest v4 Slide
 - **Camoufox Firefox** — fingerprint-patched at the C++/Juggler level; indistinguishable from a real browser
-- **Session cache** — `cf_clearance` cookies stored in Redis; repeat requests to the same domain return in ~500ms
+- **Session cache** — `cf_clearance` cookies stored in Dragonfly; repeat requests to the same domain return in ~500ms
 - **FlareSolverr v2 compatible** — works with Prowlarr, Jackett, Sonarr, Radarr, and the full \*arr ecosystem out of the box
 - **No external APIs** — reCAPTCHA audio transcription uses Google's free STT endpoint by default; everything else is local
 
@@ -26,7 +26,7 @@ git clone https://github.com/germondai/trawl.git
 cd trawl
 cp .env.example .env
 
-# Start scraper + Redis
+# Start scraper + Dragonfly
 docker compose up -d
 
 # Verify
@@ -89,8 +89,8 @@ Tier 4: Residential proxy ──── success ──→ cache + return (15–45
 
 | File                         | Description                                              |
 | ---------------------------- | -------------------------------------------------------- |
-| `docker-compose.yml`         | Scraper + Redis (default)                                |
-| `docker-compose.minimal.yml` | Scraper only, no Redis                                   |
+| `docker-compose.yml`         | Scraper + Dragonfly (default)                             |
+| `docker-compose.minimal.yml` | Scraper only, no Dragonfly                                |
 | `docker-compose.prod.yml`    | Production: `restart: always`, memory limit, healthcheck |
 | `docker-compose.full.yml`    | Full stack: scraper + web + docs                         |
 
@@ -121,20 +121,24 @@ Synology note: many Synology NAS units (DSM 7.x on J4125 / older hardware) ship 
 | `BROWSER_ACQUIRE_TIMEOUT_MS`     | `15000`                  | How long `acquire()` polls for a free browser before HTTP 429 is returned  |
 | `BROWSER_RECYCLE_AFTER_CONTEXTS` | `8`                      | Recycle a browser after this many `blocked`/`needs-js` outcomes; set `0` to disable |
 | `BROWSER_CONTENT_PROCESSES`     | `2`                      | Cap Firefox content processes per browser (`dom.ipc.processCount`); lowers RAM/CPU |
-| `SESSION_TTL_SECONDS`            | `3600`                   | Redis session cache TTL (seconds)                                          |
-| `REDIS_URL`                      | `redis://localhost:6379` | Redis connection string                                                    |
+| `SESSION_TTL_SECONDS`            | `3600`                   | Dragonfly session cache TTL (seconds)                                      |
+| `REDIS_URL`                      | `redis://localhost:6379` | Dragonfly connection string (Redis-protocol compatible)                    |
 | `RESIDENTIAL_PROXY_URL`          | —                        | Enables Tier 4 proxy escalation                                            |
 | `STT_URL`                        | —                        | Local Whisper endpoint for reCAPTCHA (optional)                            |
 | `PORT`                           | `8191`                   | API listen port                                                            |
 
 ## Stack
 
+Built on a modern, fast-by-default stack: Bun + Elysia for the API, Dragonfly for caching,
+Camoufox (hardened Firefox) for browser automation, and Nuxt for the web UI — no legacy
+Node/Express/Redis baggage.
+
 | Layer         | Technology                         |
 | ------------- | ---------------------------------- |
 | Runtime       | Bun                                |
 | API           | Elysia                             |
 | Browser       | Camoufox Firefox (via camoufox-js) |
-| Session cache | Redis                              |
+| Session cache | Dragonfly                          |
 | Landing page  | Nuxt 4                             |
 | Documentation | VitePress                          |
 

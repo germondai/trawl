@@ -7,28 +7,28 @@ description: All environment variables for TRAWL, with defaults and examples.
 
 All configuration is via environment variables. Copy `.env.example` to `.env` and edit before starting.
 
-## Redis
+## Dragonfly
 
 ### `REDIS_URL`
 
 **Default:** `redis://localhost:6379`
 
-Standard Redis connection URL. When running inside Docker Compose use the service name:
+Standard Redis-protocol connection URL — TRAWL's default cache backend is [Dragonfly](https://www.dragonflydb.io/), which is wire-compatible with Redis, so the URL scheme and env var name are unchanged. When running inside Docker Compose use the service name:
 
 ```ini
-REDIS_URL=redis://redis:6379
+REDIS_URL=redis://dragonfly:6379
 ```
 
 With authentication:
 
 ```ini
-REDIS_URL=redis://:yourpassword@redis:6379
+REDIS_URL=redis://:yourpassword@dragonfly:6379
 ```
 
 With a specific database index:
 
 ```ini
-REDIS_URL=redis://redis:6379/1
+REDIS_URL=redis://dragonfly:6379/1
 ```
 
 ## Browser Pool
@@ -91,7 +91,7 @@ BROWSER_CONTENT_PROCESSES=4   # raise if CF/Imperva challenges stall
 
 **Default:** `3600` (1 hour)
 
-How long Cloudflare cookies are cached in Redis per domain. After this TTL the next request to the domain triggers a fresh challenge solve (Tier 3) and refreshes the cache.
+How long Cloudflare cookies are cached in Dragonfly per domain. After this TTL the next request to the domain triggers a fresh challenge solve (Tier 3) and refreshes the cache.
 
 Cloudflare's `cf_clearance` cookie typically has a 30-minute expiry. Setting `SESSION_TTL_SECONDS` below 1800 wastes cache hits; setting it above 7200 risks replaying expired cookies (TRAWL handles this gracefully by invalidating the cache and falling back to Tier 3).
 
@@ -176,7 +176,7 @@ Port the Nuxt landing page listens on.
 ## Full `.env.example`
 
 ```ini
-# ── Redis ─────────────────────────────────────
+# ── Dragonfly ─────────────────────────────────
 REDIS_URL=redis://localhost:6379
 
 # ── Browser pool ──────────────────────────────

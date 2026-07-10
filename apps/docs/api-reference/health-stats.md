@@ -1,11 +1,33 @@
 ---
 title: Health & Stats
-description: GET /health and GET /stats — monitoring endpoints.
+description: GET /, GET /health and GET /stats — status and monitoring endpoints.
 ---
 
 # Health & Stats
 
-Both endpoints require no authentication and are safe to expose to monitoring tools.
+These endpoints require no authentication and are safe to expose to monitoring tools.
+
+---
+
+## `GET /`
+
+FlareSolverr-style readiness message — confirms the API process is up (does not wait on the browser pool).
+
+### Response
+
+```json
+{
+  "msg": "TRAWL is ready!",
+  "version": "0.1.0",
+  "uptime": 42
+}
+```
+
+### Curl
+
+```bash
+curl -s http://localhost:8191/
+```
 
 ---
 
@@ -19,7 +41,7 @@ Full system health check. Used by Docker Compose health checks and monitoring sy
 {
   "status": "ok",
   "uptime": 3842,
-  "redis": "ok",
+  "dragonfly": "ok",
   "pool": {
     "total": 5,
     "busy": 1,
@@ -34,7 +56,7 @@ Full system health check. Used by Docker Compose health checks and monitoring sy
 |-------|------|-------------|
 | `status` | `"ok"` | Always `"ok"` when the API is reachable |
 | `uptime` | number | Seconds since the API process started |
-| `redis` | `"ok"` or `"error"` | Whether the Redis PING succeeded |
+| `dragonfly` | `"ok"` or `"error"` | Whether the Dragonfly PING succeeded |
 | `pool.total` | number | Total browser instances in the pool |
 | `pool.busy` | number | Browsers currently processing a request |
 | `pool.available` | number | Browsers ready to accept a request |
@@ -81,6 +103,6 @@ curl -s http://localhost:8191/stats | jq
 
 ### Prometheus / uptime monitoring
 
-Point an uptime monitor (e.g. UptimeRobot, Uptime Kuma) at `/health`. A 200 response with `"status": "ok"` and `"redis": "ok"` confirms full operation.
+Point an uptime monitor (e.g. UptimeRobot, Uptime Kuma) at `/health`. A 200 response with `"status": "ok"` and `"dragonfly": "ok"` confirms full operation.
 
 For Prometheus, scrape `/stats` and parse the JSON — or add a `/metrics` endpoint as a future extension.

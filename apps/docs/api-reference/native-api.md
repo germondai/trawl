@@ -29,7 +29,7 @@ interface ScrapeRequest {
 | `maxTimeout` | number | 60000 | Max total time in milliseconds |
 | `skipHttp` | boolean | false | Skip Tier 1 (go straight to browser) |
 | `maxTier` | 1–4 | 4 | Never escalate beyond this tier |
-| `sessionId` | string | hostname | Override the Redis session key |
+| `sessionId` | string | hostname | Override the Dragonfly session key |
 | `headers` | object | — | Custom headers forwarded to the target across all tiers — see [Custom Headers](/api-reference/custom-headers) |
 | `proxy` | string | — | Proxy URL used for this request's Tier 3/4 attempts instead of the configured `PROXY_URL`/`RESIDENTIAL_PROXY_URL` pool — see [Configuration § Proxies](/getting-started/configuration#proxies) |
 

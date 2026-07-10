@@ -29,7 +29,7 @@ Client (Prowlarr, curl, your code)
    (packages/browser)   (packages/browser)
           │                   │
           ▼                   ▼
-     Camoufox            Redis (cache)
+     Camoufox            Dragonfly (cache)
      Firefox N×
 ```
 
@@ -37,7 +37,7 @@ Client (Prowlarr, curl, your code)
 
 ### API (`apps/api`)
 
-An Elysia HTTP server. Accepts scrape requests and calls the orchestrator inline — all browser work happens in the same process. Exposes `/health` and `/stats` for monitoring.
+An Elysia HTTP server. Accepts scrape requests and calls the orchestrator inline — all browser work happens in the same process. Exposes `/` for a FlareSolverr-style readiness message, plus `/health` and `/stats` for monitoring. Routes live under `apps/api/src/routes/`, with shared config/pool state in `config.ts`/`deps.ts`.
 
 ### Browser Pool (`packages/browser/src/pool.ts`)
 
@@ -45,9 +45,9 @@ Maintains a fixed set of `{ browser, context }` pairs using [Camoufox](https://g
 
 ### Session Cache (`packages/browser/src/session.ts`)
 
-Stores `{ cookies, userAgent, savedAt }` in Redis, keyed by hostname (`session:example.com`). The TTL is configurable (default 1 hour). Tier 3 writes to it on every successful challenge solve. Tier 2 reads from it at the start of every request.
+Stores `{ cookies, userAgent, savedAt }` in Dragonfly, keyed by hostname (`session:example.com`). The TTL is configurable (default 1 hour). Tier 3 writes to it on every successful challenge solve. Tier 2 reads from it at the start of every request.
 
-Redis is optional — if `REDIS_URL` is not set, the session cache is disabled and every request escalates to Tier 3.
+Dragonfly is optional — if `REDIS_URL` is not set, the session cache is disabled and every request escalates to Tier 3.
 
 ### Tiers (`packages/tiers`)
 

@@ -17,7 +17,7 @@ For security issues, **do not open a public issue** — see [SECURITY.md](SECURI
 
 ## Development setup
 
-Requirements: **Bun ≥ 1.1** and **Docker** (for the Redis service used in tests).
+Requirements: **Bun ≥ 1.1** and **Docker** (for the Dragonfly service used in tests).
 
 ```bash
 git clone https://github.com/germondai/trawl.git
@@ -34,7 +34,7 @@ bun run dev:web     # Nuxt 4 landing page
 bun run dev:docs    # VitePress docs site
 ```
 
-The API requires Redis. The fastest way is `docker compose up -d redis`.
+The API requires Dragonfly (Redis-protocol compatible). The fastest way is `docker compose up -d dragonfly`.
 
 ### Linting & formatting
 

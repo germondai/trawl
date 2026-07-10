@@ -32,7 +32,7 @@ This starts three containers:
 
 | Container | Purpose                 | Port     |
 | --------- | ----------------------- | -------- |
-| `redis`   | Session cache backend   | internal |
+| `dragonfly` | Session cache backend | internal |
 | `api`     | Browser pool + HTTP API | 8191     |
 | `web`     | Landing page & docs UI  | 3000     |
 

@@ -11,7 +11,7 @@ Four compose files live in the repo root, matching the setups shown on the landi
 
 ### Minimal
 
-`docker-compose.minimal.yml` — single service, no Redis. Fastest to get started, no session caching.
+`docker-compose.minimal.yml` — single service, no Dragonfly. Fastest to get started, no session caching.
 
 ```bash
 docker compose -f docker-compose.minimal.yml up -d
@@ -19,7 +19,7 @@ docker compose -f docker-compose.minimal.yml up -d
 
 ### Cached (default)
 
-`docker-compose.yml` — scraper + Redis session cache. Repeat requests to the same domain return in ~500ms.
+`docker-compose.yml` — scraper + Dragonfly session cache. Repeat requests to the same domain return in ~500ms.
 
 ```bash
 docker compose up -d
@@ -78,7 +78,7 @@ docker compose -f docker-compose.full.yml up -d
 | `trawl` | `localhost:8191` | Scraper API |
 | `web`   | `localhost:3000` | Landing page |
 | `docs`  | `localhost:3001` | Documentation |
-| `redis` | internal | Session cache |
+| `dragonfly` | internal | Session cache |
 
 First run builds the web and docs images locally — takes a couple of minutes. Subsequent runs are fast (layers cached).
 
@@ -89,14 +89,14 @@ First run builds the web and docs images locally — takes a couple of minutes. 
 | `BROWSER_POOL_SIZE` | `3` | Warm browser instances |
 | `BROWSER_ACQUIRE_TIMEOUT_MS` | `15000` | How long `acquire()` polls for a free browser before returning HTTP 429 |
 | `BROWSER_RECYCLE_AFTER_CONTEXTS` | `8` | Restart a browser after this many fresh/proxy contexts; set `0` to disable |
-| `REDIS_URL` | `redis://redis:6379` | Redis connection (set automatically in compose) |
+| `REDIS_URL` | `redis://dragonfly:6379` | Dragonfly connection (set automatically in compose) |
 | `RESIDENTIAL_PROXY_URL` | — | Enables Tier 4 proxy escalation |
 
 ## Logs
 
 ```bash
 docker compose logs -f trawl
-docker compose logs -f redis
+docker compose logs -f dragonfly
 ```
 
 ## Memory guide

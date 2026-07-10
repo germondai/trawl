@@ -15,19 +15,19 @@ The API image is published to GHCR on every push to `main`. Pull it directly —
 # Pull
 docker pull ghcr.io/germondai/trawl:latest
 
-# Run (no Redis — session caching disabled, scraping still works)
+# Run (no Dragonfly — session caching disabled, scraping still works)
 docker run -d \
   --name trawl \
   -p 8191:8191 \
   --shm-size=1gb \
   ghcr.io/germondai/trawl:latest
 
-# Run (with external Redis)
+# Run (with external Dragonfly, Redis-protocol compatible)
 docker run -d \
   --name trawl \
   -p 8191:8191 \
   --shm-size=1gb \
-  -e REDIS_URL=redis://your-redis-host:6379 \
+  -e REDIS_URL=redis://your-dragonfly-host:6379 \
   -e BROWSER_POOL_SIZE=3 \
   ghcr.io/germondai/trawl:latest
 ```

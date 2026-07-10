@@ -39,7 +39,7 @@ In scope:
 
 - Anything in `apps/api/` that lets an unauthenticated remote actor read or modify data they shouldn't.
 - Anything in `packages/browser/` that escapes the browser sandbox or exposes host state.
-- Anything in the Redis-backed session cache that leaks another operator's session.
+- Anything in the Dragonfly-backed session cache that leaks another operator's session.
 - Supply-chain issues in pinned dependencies (compromised lockfile entries, malicious transitive packages).
 
 Out of scope:
