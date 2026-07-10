@@ -14,7 +14,7 @@ Self-hosted web scraping engine with adaptive tier execution. Solves Cloudflare 
 - **4-tier execution** — plain HTTP → cached session → fresh CF solve → residential proxy
 - **Native captcha solving** — CF Turnstile, reCAPTCHA v2 (free STT), hCaptcha, GeeTest v4 Slide
 - **Camoufox Firefox** — fingerprint-patched at the C++/Juggler level; indistinguishable from a real browser
-- **Session cache** — `cf_clearance` cookies stored in Dragonfly; repeat requests to the same domain return in ~500ms
+- **Session cache** — `cf_clearance` cookies stored in Redis; repeat requests to the same domain return in ~500ms
 - **FlareSolverr v2 compatible** — works with Prowlarr, Jackett, Sonarr, Radarr, and the full \*arr ecosystem out of the box
 - **No external APIs** — reCAPTCHA audio transcription uses Google's free STT endpoint by default; everything else is local
 
@@ -26,7 +26,7 @@ git clone https://github.com/germondai/trawl.git
 cd trawl
 cp .env.example .env
 
-# Start scraper + Dragonfly
+# Start scraper + Redis
 docker compose up -d
 
 # Verify
@@ -89,17 +89,17 @@ Tier 4: Residential proxy ──── success ──→ cache + return (15–45
 
 | File                         | Description                                              |
 | ---------------------------- | -------------------------------------------------------- |
-| `docker-compose.yml`         | Scraper + Dragonfly (default)                             |
-| `docker-compose.minimal.yml` | Scraper only, no Dragonfly                                |
+| `docker-compose.yml`         | Scraper + Redis (default)                                |
+| `docker-compose.minimal.yml` | Scraper only, no Redis                                   |
 | `docker-compose.prod.yml`    | Production: `restart: always`, memory limit, healthcheck |
 | `docker-compose.full.yml`    | Full stack: scraper + web + docs                         |
 
 ## Docker images (one GHCR package, two tags)
 
-| Image tag                              | Built from                      | Runtime                          | Use case |
-|----------------------------------------|--------------------------------|----------------------------------|----------|
-| `ghcr.io/germondai/trawl:latest`       | `apps/api/Dockerfile`           | Bun 1.3.14 (modern, AVX2)        | Default — modern Linux amd64/arm64 |
-| `ghcr.io/germondai/trawl:baseline`     | `apps/api/Dockerfile.baseline`  | Bun 1.3.14 baseline (no AVX2)     | Older CPUs / older kernels (Synology NAS, J4125, Atom-era) |
+| Image tag                          | Built from                     | Runtime                       | Use case                                                   |
+| ---------------------------------- | ------------------------------ | ----------------------------- | ---------------------------------------------------------- |
+| `ghcr.io/germondai/trawl:latest`   | `apps/api/Dockerfile`          | Bun 1.3.14 (modern, AVX2)     | Default — modern Linux amd64/arm64                         |
+| `ghcr.io/germondai/trawl:baseline` | `apps/api/Dockerfile.baseline` | Bun 1.3.14 baseline (no AVX2) | Older CPUs / older kernels (Synology NAS, J4125, Atom-era) |
 
 Both tags live on the same `ghcr.io/germondai/trawl` package — they share the registry but use different Dockerfile sources. Pick whichever tag fits your hardware:
 
@@ -115,30 +115,30 @@ Synology note: many Synology NAS units (DSM 7.x on J4125 / older hardware) ship 
 
 ## Configuration
 
-| Variable                         | Default                  | Description                                                                    |
-| -------------------------------- | ------------------------ | ------------------------------------------------------------------------------ |
-| `BROWSER_POOL_SIZE`              | `3`                      | Warm Camoufox Firefox instances                                            |
-| `BROWSER_ACQUIRE_TIMEOUT_MS`     | `15000`                  | How long `acquire()` polls for a free browser before HTTP 429 is returned  |
+| Variable                         | Default                  | Description                                                                         |
+| -------------------------------- | ------------------------ | ----------------------------------------------------------------------------------- |
+| `BROWSER_POOL_SIZE`              | `3`                      | Warm Camoufox Firefox instances                                                     |
+| `BROWSER_ACQUIRE_TIMEOUT_MS`     | `15000`                  | How long `acquire()` polls for a free browser before HTTP 429 is returned           |
 | `BROWSER_RECYCLE_AFTER_CONTEXTS` | `8`                      | Recycle a browser after this many `blocked`/`needs-js` outcomes; set `0` to disable |
-| `BROWSER_CONTENT_PROCESSES`     | `2`                      | Cap Firefox content processes per browser (`dom.ipc.processCount`); lowers RAM/CPU |
-| `SESSION_TTL_SECONDS`            | `3600`                   | Dragonfly session cache TTL (seconds)                                      |
-| `REDIS_URL`                      | `redis://localhost:6379` | Dragonfly connection string (Redis-protocol compatible)                    |
-| `RESIDENTIAL_PROXY_URL`          | —                        | Enables Tier 4 proxy escalation                                            |
-| `STT_URL`                        | —                        | Local Whisper endpoint for reCAPTCHA (optional)                            |
-| `PORT`                           | `8191`                   | API listen port                                                            |
+| `BROWSER_CONTENT_PROCESSES`      | `2`                      | Cap Firefox content processes per browser (`dom.ipc.processCount`); lowers RAM/CPU  |
+| `SESSION_TTL_SECONDS`            | `3600`                   | Redis session cache TTL (seconds)                                                   |
+| `REDIS_URL`                      | `redis://localhost:6379` | Redis connection string                                                             |
+| `RESIDENTIAL_PROXY_URL`          | —                        | Enables Tier 4 proxy escalation                                                     |
+| `STT_URL`                        | —                        | Local Whisper endpoint for reCAPTCHA (optional)                                     |
+| `PORT`                           | `8191`                   | API listen port                                                                     |
 
 ## Stack
 
-Built on a modern, fast-by-default stack: Bun + Elysia for the API, Dragonfly for caching,
+Built on a modern, fast-by-default stack: Bun + Elysia for the API, Redis for caching,
 Camoufox (hardened Firefox) for browser automation, and Nuxt for the web UI — no legacy
-Node/Express/Redis baggage.
+Node/Express baggage.
 
 | Layer         | Technology                         |
 | ------------- | ---------------------------------- |
 | Runtime       | Bun                                |
 | API           | Elysia                             |
 | Browser       | Camoufox Firefox (via camoufox-js) |
-| Session cache | Dragonfly                          |
+| Session cache | Redis 8.8                          |
 | Landing page  | Nuxt 4                             |
 | Documentation | VitePress                          |
 
