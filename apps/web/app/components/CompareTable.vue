@@ -59,7 +59,7 @@ const rows = [
   },
   { feature: "Adaptive tier execution", trawl: "✓ 4 tiers", flaresolver: "✗ always browser", byparr: "~" },
   { feature: "Browser engine", trawl: "✓ Camoufox Firefox", flaresolver: "✗ Chrome", byparr: "✓ Camoufox Firefox" },
-  { feature: "Docker image size", trawl: "✓ 1.14 GB", flaresolver: "✓ 1.03 GB", byparr: "✗ 4.10 GB" },
+  { feature: "Docker image size", trawl: "✓ 1.18 GB", flaresolver: "✓ 1.03 GB", byparr: "✗ 4.10 GB" },
   { feature: "Memory footprint (peak)", trawl: "✓ 770 MB", flaresolver: "✗ 500 MB", byparr: "✗ 1.35 GB" },
   { feature: "Cloudflare challenge speed", trawl: "✓ 4–15s", flaresolver: "✗ 11–18s", byparr: "✗ 13–18s" },
   { feature: "CF Turnstile solving", trawl: "✓ shadow DOM click", flaresolver: "✗", byparr: "✗" },
