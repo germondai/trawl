@@ -27,12 +27,12 @@ Content-Type: application/json
 
 ## Endpoints
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/health` | Pool status and uptime |
-| `GET` | `/stats` | Public numbers for dashboards |
-| `POST` | `/v1` | FlareSolverr v2 compatible |
-| `POST` | `/scrape` | Native TRAWL API |
+| Method | Path      | Description                   |
+| ------ | --------- | ----------------------------- |
+| `GET`  | `/health` | Pool status and uptime        |
+| `GET`  | `/stats`  | Public numbers for dashboards |
+| `POST` | `/v1`     | FlareSolverr v2 compatible    |
+| `POST` | `/scrape` | Native TRAWL API              |
 
 ## Error responses
 
@@ -46,13 +46,13 @@ Pool-exhaustion errors are an exception — they return a FlareSolverr v2 envelo
 
 HTTP status codes:
 
-| Code | Meaning |
-|------|---------|
-| 200 | Success |
-| 400 | Bad request (missing/invalid fields) |
-| 429 | Pool exhausted — all browsers busy past `BROWSER_ACQUIRE_TIMEOUT_MS` |
-| 503 | Browser pool initializing |
-| 500 | Internal error |
+| Code | Meaning                                                              |
+| ---- | -------------------------------------------------------------------- |
+| 200  | Success                                                              |
+| 400  | Bad request (missing/invalid fields)                                 |
+| 429  | Pool exhausted — all browsers busy past `BROWSER_ACQUIRE_TIMEOUT_MS` |
+| 503  | Browser pool initializing                                            |
+| 500  | Internal error                                                       |
 
 ::: info CORS
 The API does **not** emit `Access-Control-Allow-Origin` headers. TRAWL is designed for direct, same-network access (e.g. Prowlarr/Jackett, internal services, your reverse proxy). If you need browser-based cross-origin access, terminate at a proxy that adds the CORS headers you need.

@@ -37,12 +37,12 @@ Custom headers are merged **after** browser defaults, so they take precedence ov
 
 ## How headers are applied per tier
 
-| Tier | Mechanism | Scope |
-|------|-----------|-------|
-| **Tier 1** — plain HTTP fetch | Spread into `fetch()` headers | All requests (there is only one) |
-| **Tier 2** — cached browser session | `page.route(url, ...)` interception | Main document request only |
-| **Tier 3** — fresh CF challenge solve | `page.route(url, ...)` interception | Main document request only |
-| **Tier 4** — residential proxy escalation | `page.route(url, ...)` interception | Main document request only |
+| Tier                                      | Mechanism                           | Scope                            |
+| ----------------------------------------- | ----------------------------------- | -------------------------------- |
+| **Tier 1** — plain HTTP fetch             | Spread into `fetch()` headers       | All requests (there is only one) |
+| **Tier 2** — cached browser session       | `page.route(url, ...)` interception | Main document request only       |
+| **Tier 3** — fresh CF challenge solve     | `page.route(url, ...)` interception | Main document request only       |
+| **Tier 4** — residential proxy escalation | `page.route(url, ...)` interception | Main document request only       |
 
 For browser tiers, route interception is scoped to the **exact target URL**. Subresources (JS, CSS, images, fonts, third-party CDNs) and Cloudflare challenge endpoints (`cdn-cgi/*`) are never intercepted — your `Authorization` header does not leak to third parties, and CF challenge solving is unaffected.
 
@@ -60,13 +60,13 @@ When a page requires both challenge bypass and custom headers, the sequence is:
 
 ## Common use cases
 
-| Use case | Header |
-|----------|--------|
-| Authenticated APIs and portals | `Authorization: Bearer <token>` |
+| Use case                               | Header                             |
+| -------------------------------------- | ---------------------------------- |
+| Authenticated APIs and portals         | `Authorization: Bearer <token>`    |
 | Embed-only / iframe-restricted content | `Referer: https://parent-site.com` |
-| CORS-restricted endpoints | `Origin: https://allowed-site.com` |
-| Custom API keys | `X-API-Key: <key>` |
-| Additional session tokens | `Cookie: session=<value>` |
+| CORS-restricted endpoints              | `Origin: https://allowed-site.com` |
+| Custom API keys                        | `X-API-Key: <key>`                 |
+| Additional session tokens              | `Cookie: session=<value>`          |
 
 ::: tip Cookie behaviour
 Passing a `Cookie` header appends to any cookies the browser already holds (CF clearance, cached session cookies). It does not replace them.

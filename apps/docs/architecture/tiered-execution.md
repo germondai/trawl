@@ -45,7 +45,7 @@ Accept-Encoding: gzip, deflate, br
 
 ## Tier 2 — Cached Browser Session
 
-Reads `session:{hostname}` from Dragonfly. If found, injects the saved cookies into a pooled Firefox context and navigates. Because the Cloudflare `cf_clearance` cookie is present, the challenge page is skipped and the site loads directly.
+Reads `session:{hostname}` from Redis. If found, injects the saved cookies into a pooled Firefox context and navigates. Because the Cloudflare `cf_clearance` cookie is present, the challenge page is skipped and the site loads directly.
 
 **Succeeds for:** any domain that was previously solved by Tier 3 and whose session hasn't expired.
 
@@ -57,7 +57,7 @@ Acquires a browser from the pool (or waits up to `BROWSER_ACQUIRE_TIMEOUT_MS` �
 
 On success:
 - Extracts all cookies from the page context
-- Writes `session:{hostname} → { cookies, userAgent, savedAt }` to Dragonfly (TTL = `SESSION_TTL_SECONDS`)
+- Writes `session:{hostname} → { cookies, userAgent, savedAt }` to Redis (TTL = `SESSION_TTL_SECONDS`)
 - Returns the HTML and cookies to the caller
 
 Uses [Camoufox](https://github.com/daijro/camoufox) — Firefox with fingerprint patching at the C++/Juggler level. CF's detection scripts cannot distinguish it from a real Firefox profile.
@@ -89,9 +89,9 @@ This runs Tier 1, then Tier 2, then returns an error if both fail — never laun
 
 ## Timing reference
 
-| Tier | Typical time | Browser used |
-|------|-------------|--------------|
-| 1 | 50–150ms | No |
-| 2 | 400–700ms | Yes (warm) |
-| 3 | 4–15s | Yes (fresh solve) |
-| 4 | 15–45s | Yes (fresh solve + proxy) |
+| Tier | Typical time | Browser used              |
+| ---- | ------------ | ------------------------- |
+| 1    | 50–150ms     | No                        |
+| 2    | 400–700ms    | Yes (warm)                |
+| 3    | 4–15s        | Yes (fresh solve)         |
+| 4    | 15–45s       | Yes (fresh solve + proxy) |

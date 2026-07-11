@@ -24,14 +24,14 @@ interface FlareSolverrRequest {
 
 ### Fields
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `cmd` | string | No | `"request.get"` or `"request.post"` (default `"request.get"`) |
-| `url` | string | Yes | The URL to scrape |
-| `maxTimeout` | number | No | Max wait in ms (default 60000) |
-| `postData` | string | No | POST body (only for `request.post`). On TRAWL's native `/scrape` endpoint this field is named `body`; the `/v1` adapter maps `postData` → `body` internally so the FlareSolverr wire contract stays unchanged for existing callers. |
-| `headers` | object | No | Custom headers forwarded to the target across all tiers — see [Custom Headers](/api-reference/custom-headers) |
-| `proxy` | string | No | **TRAWL-specific extension** (not in the real FlareSolverr v2 contract) — per-request proxy override for Tier 3/4, see [Configuration § Proxies](/getting-started/configuration#proxies) |
+| Field        | Type   | Required | Description                                                                                                                                                                                                                         |
+| ------------ | ------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cmd`        | string | No       | `"request.get"` or `"request.post"` (default `"request.get"`)                                                                                                                                                                       |
+| `url`        | string | Yes      | The URL to scrape                                                                                                                                                                                                                   |
+| `maxTimeout` | number | No       | Max wait in ms (default 60000)                                                                                                                                                                                                      |
+| `postData`   | string | No       | POST body (only for `request.post`). On TRAWL's native `/scrape` endpoint this field is named `body`; the `/v1` adapter maps `postData` → `body` internally so the FlareSolverr wire contract stays unchanged for existing callers. |
+| `headers`    | object | No       | Custom headers forwarded to the target across all tiers — see [Custom Headers](/api-reference/custom-headers)                                                                                                                       |
+| `proxy`      | string | No       | **TRAWL-specific extension** (not in the real FlareSolverr v2 contract) — per-request proxy override for Tier 3/4, see [Configuration § Proxies](/getting-started/configuration#proxies)                                            |
 
 ## Response
 
@@ -133,12 +133,12 @@ curl -s -X POST http://localhost:8191/v1 \
 
 When the request fails, the response is still a FlareSolverr v2 envelope with `status: "error"` and an empty `solution`. The HTTP status code carries the failure class:
 
-| Code | Meaning |
-|------|---------|
-| 200 | `status: "ok"` (request succeeded) |
-| 400 | Malformed request body |
-| 429 | Pool exhausted — all browsers busy past `BROWSER_ACQUIRE_TIMEOUT_MS` |
-| 500 | Internal error |
+| Code | Meaning                                                              |
+| ---- | -------------------------------------------------------------------- |
+| 200  | `status: "ok"` (request succeeded)                                   |
+| 400  | Malformed request body                                               |
+| 429  | Pool exhausted — all browsers busy past `BROWSER_ACQUIRE_TIMEOUT_MS` |
+| 500  | Internal error                                                       |
 
 Example — pool exhausted (HTTP 429):
 

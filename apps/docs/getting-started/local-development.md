@@ -9,10 +9,10 @@ TRAWL is a Bun workspace monorepo. You can run each service locally with hot-rel
 
 ## Prerequisites
 
-| Tool | Version | Install |
-|------|---------|---------|
-| Bun | ≥ 1.2 | `curl -fsSL https://bun.sh/install \| bash` |
-| Dragonfly | 1.39+ | Docker (see below) — Redis-protocol compatible |
+| Tool  | Version | Install                                     |
+| ----- | ------- | ------------------------------------------- |
+| Bun   | ≥ 1.2   | `curl -fsSL https://bun.sh/install \| bash` |
+| Redis | 8.8+    | Docker (see below)                          |
 
 ## 1. Install dependencies
 
@@ -33,13 +33,13 @@ bun x camoufox-js fetch
 
 This downloads the browser into the local cache. It only needs to run once per machine.
 
-## 3. Start Dragonfly
+## 3. Start Redis
 
 ```bash
-docker run -d --name trawl-dragonfly -p 6379:6379 docker.dragonflydb.io/dragonflydb/dragonfly:v1.39.0
+docker run -d --name trawl-redis -p 6379:6379 redis:8.8-alpine
 ```
 
-Or use any Redis-protocol-compatible server you already have — Dragonfly speaks the same wire protocol.
+Or use any Redis-protocol-compatible server you already have.
 
 ## 4. Create your `.env`
 
@@ -92,8 +92,8 @@ trawl/
 │   ├── types/       Shared TypeScript interfaces — no runtime logic
 │   ├── browser/     BrowserPool + SessionCache
 │   └── tiers/       Tier 1–4 executors + orchestrator
-├── docker-compose.yml          scraper + Dragonfly (default)
-├── docker-compose.minimal.yml  scraper only, no Dragonfly
+├── docker-compose.yml          scraper + Redis (default)
+├── docker-compose.minimal.yml  scraper only, no Redis
 ├── docker-compose.prod.yml     production with restart + healthcheck
 └── docker-compose.full.yml     full stack including web + docs
 ```

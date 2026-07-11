@@ -23,15 +23,15 @@ interface ScrapeRequest {
 
 ### Fields
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `url` | string | — | The URL to scrape |
-| `maxTimeout` | number | 60000 | Max total time in milliseconds |
-| `skipHttp` | boolean | false | Skip Tier 1 (go straight to browser) |
-| `maxTier` | 1–4 | 4 | Never escalate beyond this tier |
-| `sessionId` | string | hostname | Override the Dragonfly session key |
-| `headers` | object | — | Custom headers forwarded to the target across all tiers — see [Custom Headers](/api-reference/custom-headers) |
-| `proxy` | string | — | Proxy URL used for this request's Tier 3/4 attempts instead of the configured `PROXY_URL`/`RESIDENTIAL_PROXY_URL` pool — see [Configuration § Proxies](/getting-started/configuration#proxies) |
+| Field        | Type    | Default  | Description                                                                                                                                                                                    |
+| ------------ | ------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `url`        | string  | —        | The URL to scrape                                                                                                                                                                              |
+| `maxTimeout` | number  | 60000    | Max total time in milliseconds                                                                                                                                                                 |
+| `skipHttp`   | boolean | false    | Skip Tier 1 (go straight to browser)                                                                                                                                                           |
+| `maxTier`    | 1–4     | 4        | Never escalate beyond this tier                                                                                                                                                                |
+| `sessionId`  | string  | hostname | Override the Redis session key                                                                                                                                                                 |
+| `headers`    | object  | —        | Custom headers forwarded to the target across all tiers — see [Custom Headers](/api-reference/custom-headers)                                                                                  |
+| `proxy`      | string  | —        | Proxy URL used for this request's Tier 3/4 attempts instead of the configured `PROXY_URL`/`RESIDENTIAL_PROXY_URL` pool — see [Configuration § Proxies](/getting-started/configuration#proxies) |
 
 ## Response
 
@@ -125,13 +125,13 @@ for (const t of result.timings) {
 
 HTTP status codes:
 
-| Code | Meaning |
-|------|---------|
-| 200 | `tier` succeeded |
-| 400 | Malformed request body |
-| 429 | Pool exhausted — all browsers busy past `BROWSER_ACQUIRE_TIMEOUT_MS` |
-| 503 | Browser pool initializing |
-| 500 | Internal error |
+| Code | Meaning                                                              |
+| ---- | -------------------------------------------------------------------- |
+| 200  | `tier` succeeded                                                     |
+| 400  | Malformed request body                                               |
+| 429  | Pool exhausted — all browsers busy past `BROWSER_ACQUIRE_TIMEOUT_MS` |
+| 503  | Browser pool initializing                                            |
+| 500  | Internal error                                                       |
 
 For 429 pool-exhaustion errors, the body is a **FlareSolverr v2 envelope** (same shape `/v1` uses) so clients can parse both endpoints uniformly:
 

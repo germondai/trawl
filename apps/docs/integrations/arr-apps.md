@@ -47,11 +47,11 @@ Bazarr uses subtitle providers, not torrent indexers, so it does not use FlareSo
 
 ## Performance expectations
 
-| Request type | Expected time |
-|---|---|
-| First request to a domain | 4–15s (fresh Cloudflare solve) |
-| Repeat request (same domain, session cached) | ~500ms |
-| Plain site (no Cloudflare) | < 100ms |
-| IP flagged by Cloudflare (Tier 4, if configured) | 15–45s |
+| Request type                                     | Expected time                  |
+| ------------------------------------------------ | ------------------------------ |
+| First request to a domain                        | 4–15s (fresh Cloudflare solve) |
+| Repeat request (same domain, session cached)     | ~500ms                         |
+| Plain site (no Cloudflare)                       | < 100ms                        |
+| IP flagged by Cloudflare (Tier 4, if configured) | 15–45s                         |
 
 The session cache TTL is configurable via `SESSION_TTL_SECONDS` (default 1 hour). Most Cloudflare-protected indexers re-challenge after 30–60 minutes, so daily search schedules in *arr apps almost always hit the cache.

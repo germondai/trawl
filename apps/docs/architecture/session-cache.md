@@ -1,11 +1,11 @@
 ---
 title: Session Cache
-description: How TRAWL caches Cloudflare cookies in Dragonfly to make repeat requests fast.
+description: How TRAWL caches Cloudflare cookies in Redis to make repeat requests fast.
 ---
 
 # Session Cache
 
-The session cache is what makes Tier 2 possible. After every successful Tier 3 solve, the extracted Cloudflare cookies are saved to Dragonfly. The next request to the same domain injects those cookies into a browser context, skipping the challenge entirely.
+The session cache is what makes Tier 2 possible. After every successful Tier 3 solve, the extracted Cloudflare cookies are saved to Redis. The next request to the same domain injects those cookies into a browser context, skipping the challenge entirely.
 
 ## Storage format
 
@@ -40,28 +40,26 @@ Subdomains have separate sessions because Cloudflare can issue different challen
 Tier 3 succeeds
   │
   ├── extract cookies from browser context
-  ├── DRAGONFLY SET session:hostname → JSON  EX SESSION_TTL_SECONDS
+  ├── REDIS SET session:hostname → JSON  EX SESSION_TTL_SECONDS
   │
   └── next request to same domain:
-        DRAGONFLY GET session:hostname
+        REDIS GET session:hostname
           ├── hit  → Tier 2: inject cookies, navigate (500ms)
           └── miss → Tier 3: fresh solve, save to cache
 ```
 
 ## Invalidation
 
-If Tier 2 navigates with the cached cookies and the result is still a Cloudflare interstitial (the session expired before Dragonfly's TTL), the orchestrator:
+If Tier 2 navigates with the cached cookies and the result is still a Cloudflare interstitial (the session expired before Redis's TTL), the orchestrator:
 
-1. Calls `sessionCache.invalidate(domain)` — deletes the Dragonfly key
+1. Calls `sessionCache.invalidate(domain)` — deletes the Redis key
 2. Escalates to Tier 3 to get a fresh session
 
-This handles the case where Cloudflare's `cf_clearance` cookie (30-minute expiry) expires before the Dragonfly TTL does.
+This handles the case where Cloudflare's `cf_clearance` cookie (30-minute expiry) expires before the Redis TTL does.
 
-## Dragonfly
+## Redis
 
-TRAWL's default cache backend is [Dragonfly](https://www.dragonflydb.io/) — a multi-threaded, shared-nothing in-memory datastore that's wire-compatible with the Redis protocol, so no query/command changes were needed to adopt it. It's a drop-in replacement for Redis at the connection-string level (`REDIS_URL` still points at it) while scaling across CPU cores instead of Redis's single-threaded event loop.
-
-TRAWL talks to it with `new RedisClient(REDIS_URL)` from Bun's native Redis client (not ioredis) — Bun's client speaks the same RESP protocol Dragonfly serves, so this needed no code changes either.
+TRAWL's cache backend is Redis 8.8. TRAWL talks to it with `new RedisClient(REDIS_URL)` from Bun's native Redis client (not ioredis).
 
 ```typescript
 import { RedisClient } from 'bun'

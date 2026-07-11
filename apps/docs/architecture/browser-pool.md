@@ -97,10 +97,10 @@ const browser = await Camoufox({
 Each Camoufox instance uses ~350–500 MB. With the default pool of 3:
 
 | Pool size | RAM usage (browser only) |
-|-----------|--------------------------|
-| 1 | ~400 MB |
-| 3 | ~1.2 GB |
-| 5 | ~2 GB |
-| 8 | ~3.2 GB |
+| --------- | ------------------------ |
+| 1         | ~400 MB                  |
+| 3         | ~1.2 GB                  |
+| 5         | ~2 GB                    |
+| 8         | ~3.2 GB                  |
 
 The API service sets `shm_size: 1gb` in Docker Compose. Firefox uses `/dev/shm` heavily; without enough shared memory, tabs crash silently.

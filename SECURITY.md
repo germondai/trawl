@@ -4,10 +4,10 @@
 
 TRAWL is currently in pre-1.0 development (`0.1.x`). Only the latest minor release receives security fixes; older versions are not patched.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.1.x   | ✅ Active          |
-| < 0.1   | ❌ No              |
+| Version | Supported |
+| ------- | --------- |
+| 0.1.x   | ✅ Active  |
+| < 0.1   | ❌ No      |
 
 ## Reporting a vulnerability
 
@@ -39,7 +39,7 @@ In scope:
 
 - Anything in `apps/api/` that lets an unauthenticated remote actor read or modify data they shouldn't.
 - Anything in `packages/browser/` that escapes the browser sandbox or exposes host state.
-- Anything in the Dragonfly-backed session cache that leaks another operator's session.
+- Anything in the Redis-backed session cache that leaks another operator's session.
 - Supply-chain issues in pinned dependencies (compromised lockfile entries, malicious transitive packages).
 
 Out of scope:
