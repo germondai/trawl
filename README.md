@@ -15,11 +15,11 @@ Much faster and more reliable FlareSolverr & Byparr alternative and drop-in repl
 
 - **2-6x faster** - compared to FlareSolverr or Byparr it returns much faster with higher success rate
 - **4-tier execution** - plain HTTP fetch → cached browser session → fresh CF solve → residential proxy
-- **Native captcha solving** - Cloudflare Turnstile/Interstitial, reCAPTCHA v2 (free STT), hCaptcha, GeeTest v4 Slide
-- **Camoufox Firefox** - anti-detect; fingerprint-patched at the C++/Juggler level; indistinguishable from a real browser
-- **Session cache** - captcha/challenge cookies stored in Redis; repeat requests to the same domain return in ~500ms
-- **FlareSolverr v2 compatible** - works with Prowlarr, Jackett, Sonarr, Radarr, and the full \*arr ecosystem out of the box
-- **No external APIs** - reCAPTCHA audio transcription uses Google's free STT endpoint by default; everything else is local
+- **Native captcha solving** - CF Turnstile/Interstitial, reCAPTCHA v2 (free STT), hCaptcha, GeeTest v4 Slide
+- **Camoufox Firefox** - fingerprint-patched at the C++/Juggler level; indistinguishable from a real browser
+- **Session cache** - bypass cookies stored in Redis; repeat requests to the same domain return in ~500ms
+- **FlareSolverr compatible** - works with Prowlarr, Jackett, Sonarr, and the full \*arr ecosystem out of the box
+- **No external APIs required** - reCAPTCHA audio transcription uses Google's free STT endpoint by default
 
 ## Sponsors
 
@@ -34,8 +34,7 @@ Much faster and more reliable FlareSolverr & Byparr alternative and drop-in repl
         </a>
       </td>
       <td valign="middle">
-        <b><a href="https://go.nodemaven.com/germondaiGitHub" target="_blank">NodeMaven</a></b> - The most reliable proxy provider with the Highest Quality IP on the market.<br>
-        Best solution for automation, web scraping, SEO research, and social media management.<br><br>
+        <b><a href="https://go.nodemaven.com/germondaiGitHub" target="_blank">NodeMaven</a></b> - The most reliable proxy provider with the Highest Quality IP on the market. Best solution for automation, web scraping, SEO research, and social media management.<br><br>
         <b>Why <a href="https://go.nodemaven.com/germondaiGitHub" target="_blank">NodeMaven</a>?</b><br>
         • 99.9% uptime<br>
         • Sticky sessions up to 7 days<br>
