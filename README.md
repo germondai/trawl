@@ -53,7 +53,7 @@ Much faster and more reliable FlareSolverr & Byparr alternative and drop-in repl
 
 ```bash
 # Clone and configure
-git clone https://github.com/germondai/git
+git clone https://github.com/germondai/trawl
 cd trawl
 cp .env.example .env
 
