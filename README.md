@@ -1,28 +1,60 @@
 <h1 align="center">
-  <a href="https://trawl.dev" target="_blank">
+  <a href="https://trawl.germondai.com" target="_blank">
     <img align="center" src="https://icons.germondai.com/icons?i=bun,elysia,firefox,nuxt,vitepress" /><br/><br/>
     <span>TRAWL</span>
   </a>
 </h1>
 
-## **Welcome** to <a href="https://trawl.dev" target="_blank">**TRAWL**</a>! 👋
+## **Welcome** to <a href="https://trawl.germondai.com" target="_blank">**TRAWL**</a>! 👋
 
-Self-hosted web scraping engine with adaptive tier execution. Solves Cloudflare challenges natively using [Camoufox](https://github.com/daijro/camoufox) Firefox. Returns cached results in under 500ms. Drop-in FlareSolverr v2 replacement.
+Self-hosted web scraping engine that bypasses any JS challenge & captcha.\
+Support for: Cloudflare, Turnstile, Interstitial, reCAPTCHA, hCaptcha, GeeTest, Imperva (experimental).\
+Much faster and more reliable FlareSolverr & Byparr alternative and drop-in replacement for your \*arr stack.
 
 ## Features
 
-- **4-tier execution** — plain HTTP → cached session → fresh CF solve → residential proxy
-- **Native captcha solving** — CF Turnstile, reCAPTCHA v2 (free STT), hCaptcha, GeeTest v4 Slide
-- **Camoufox Firefox** — fingerprint-patched at the C++/Juggler level; indistinguishable from a real browser
-- **Session cache** — `cf_clearance` cookies stored in Redis; repeat requests to the same domain return in ~500ms
-- **FlareSolverr v2 compatible** — works with Prowlarr, Jackett, Sonarr, Radarr, and the full \*arr ecosystem out of the box
-- **No external APIs** — reCAPTCHA audio transcription uses Google's free STT endpoint by default; everything else is local
+- **2-6x faster** - compared to FlareSolverr or Byparr it returns much faster with higher success rate
+- **4-tier execution** - plain HTTP fetch → cached browser session → fresh CF solve → residential proxy
+- **Native captcha solving** - Cloudflare Turnstile/Interstitial, reCAPTCHA v2 (free STT), hCaptcha, GeeTest v4 Slide
+- **Camoufox Firefox** - anti-detect; fingerprint-patched at the C++/Juggler level; indistinguishable from a real browser
+- **Session cache** - captcha/challenge cookies stored in Redis; repeat requests to the same domain return in ~500ms
+- **FlareSolverr v2 compatible** - works with Prowlarr, Jackett, Sonarr, Radarr, and the full \*arr ecosystem out of the box
+- **No external APIs** - reCAPTCHA audio transcription uses Google's free STT endpoint by default; everything else is local
+
+## Sponsors
+
+<details open>
+  <summary>View/Collapse All</summary>
+
+  <table>
+    <tr>
+      <td width="30%" align="center" valign="middle">
+        <a href="https://go.nodemaven.com/germondaiGitHub" target="_blank">
+          <img width="720" height="300" alt="nodemaven" src="https://github.com/user-attachments/assets/5dbfaee7-7863-4a20-a4a0-eb9f7bf0a90a" />
+        </a>
+      </td>
+      <td valign="middle">
+        <b><a href="https://go.nodemaven.com/germondaiGitHub" target="_blank">NodeMaven</a></b> - The most reliable proxy provider with the Highest Quality IP on the market.<br>
+        Best solution for automation, web scraping, SEO research, and social media management.<br><br>
+        <b>Why <a href="https://go.nodemaven.com/germondaiGitHub" target="_blank">NodeMaven</a>?</b><br>
+        • 99.9% uptime<br>
+        • Sticky sessions up to 7 days<br>
+        • IP filtering: all proxies have fraud score <97%<br>
+        • No KYC required<br>
+        • Cashback on traffic - burn GB and earn up to 10% back<br><br>
+        <b>Special codes for <a href="https://trawl.germondai.com" target="_blank">TRAWL</a> users:</b><br>
+        • TRAWL35 - 35% off to Mobile and Residential Proxies<br>
+        • TRAWL40 - 40% off to ISP (Static) Proxies
+      </td>
+    </tr>
+  </table>
+</details>
 
 ## Quick start
 
 ```bash
 # Clone and configure
-git clone https://github.com/germondai/trawl.git
+git clone https://github.com/germondai/git
 cd trawl
 cp .env.example .env
 
