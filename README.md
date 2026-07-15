@@ -46,6 +46,25 @@ Much faster and more reliable FlareSolverr & Byparr alternative and drop-in repl
         • TRAWL40 - 40% off to ISP (Static) Proxies
       </td>
     </tr>
+    <tr>
+      <td width="30%" align="center" valign="middle">
+        <a href="https://www.swiftproxy.net/?code=ICOTZM44K" target="_blank">
+          <img width="240" height="100" alt="swiftproxy" src="https://github.com/user-attachments/assets/d7112814-182b-46b9-b359-cf48ca69d4cc" />
+        </a>
+      </td>
+      <td valign="middle">
+        <b><a href="https://www.swiftproxy.net/?code=ICOTZM44K" target="_blank">Swiftproxy</a></b> - A global residential proxy provider offering 80M+ real residential IPs across 190+ countries and regions. Built for web scraping, browser automation, AI workflows, SEO monitoring, and multi-account management.<br><br>
+        <b>Why <a href="https://www.swiftproxy.net/?code=ICOTZM44K" target="_blank">Swiftproxy</a>?</b><br>
+        • Non-expiring residential traffic<br>
+        • Rotating & sticky sessions<br>
+        • HTTP, HTTPS & SOCKS5 support<br>
+        • Country, state & city-level targeting<br>
+        • 24/7 technical support<br><br>
+        <b>Exclusive offer for <a href="https://trawl.germondai.com" target="_blank">TRAWL</a> users:</b><br>
+        • PROXY90 - Get 10% OFF all proxy plans<br>
+        • Free Trial Available
+      </td>
+    </tr>
   </table>
 </details>
 
