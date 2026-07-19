@@ -2,10 +2,12 @@ import type { BrowserHandle } from "@trawl/browser"
 import { FINGERPRINT, newFreshContext } from "@trawl/browser"
 import type { Cookie, TierResult } from "@trawl/types"
 import { solvePageCaptchas } from "../solvers"
+import { waitForAkamaiResolution } from "../utils/akamaiWait"
 import { waitForChallengeResolution } from "../utils/challengeWait"
 import { toCookies } from "../utils/cookies"
 import {
   detectChallengeType,
+  hasAkamaiChallenge,
   hasImpervaChallenge,
   isBlocked,
   isBrowserErrorPage,
@@ -84,7 +86,9 @@ export async function runTier3(
     const resolution =
       challengeType === "imperva"
         ? await waitForImpervaResolution(page, remaining, url)
-        : await waitForChallengeResolution(page, remaining, url)
+        : challengeType === "akamai"
+          ? await waitForAkamaiResolution(page, remaining, url)
+          : await waitForChallengeResolution(page, remaining, url)
 
     if (resolution !== "ok") {
       return {
@@ -96,9 +100,7 @@ export async function runTier3(
             ? challengeType === "imperva"
               ? "datacenter-ip-blocked (imperva sensor cookie obtained but challenge persisted — needs residential proxy)"
               : "datacenter-ip-blocked (cf_clearance obtained but redirect never completed — needs residential proxy)"
-            : challengeType === "imperva"
-              ? "imperva-challenge-timeout"
-              : "cloudflare-challenge-timeout",
+            : `${challengeType === "none" ? "cloudflare" : challengeType}-challenge-timeout`,
       }
     }
 
@@ -146,6 +148,13 @@ export async function runTier3(
       const pageUrl = page.url()
       console.log(`[tier3] imperva-persistent: url="${pageUrl}" title="${pageTitle}" html=${html.length}b`)
       return { tier: 3, status: "blocked", durationMs: Date.now() - start, reason: "imperva-persistent" }
+    }
+
+    if (hasAkamaiChallenge(html)) {
+      const pageTitle = await page.title().catch(() => "?")
+      const pageUrl = page.url()
+      console.log(`[tier3] akamai-persistent: url="${pageUrl}" title="${pageTitle}" html=${html.length}b`)
+      return { tier: 3, status: "blocked", durationMs: Date.now() - start, reason: "akamai-persistent" }
     }
 
     if (isBlocked(statusCode, html)) {
