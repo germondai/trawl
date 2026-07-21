@@ -1,7 +1,7 @@
 {
   "private": true,
   "name": "trawl",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -15,6 +15,6 @@
     "check": "biome check . --write"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.3"
+    "@biomejs/biome": "2.5.4"
   }
 }

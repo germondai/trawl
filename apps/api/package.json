@@ -1,6 +1,6 @@
 {
   "name": "@trawl/api",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "scripts": {
     "dev": "bun run --watch src/index.ts",
@@ -11,9 +11,9 @@
     "@trawl/browser": "workspace:*",
     "@trawl/tiers": "workspace:*",
     "@trawl/types": "workspace:*",
-    "camoufox-js": "0.11.1",
+    "camoufox-js": "0.11.2",
     "elysia": "^1.4.29",
-    "memoirist": "1.1.0"
+    "memoirist": "1.2.0"
   },
   "devDependencies": {
     "typescript": "^7.0.2",

@@ -4,7 +4,8 @@ import type { Cookie, ScrapeRequest, ScrapeResult, SessionData, TierResult } fro
 import { runTier1 } from "./tiers/1"
 import { runTier2 } from "./tiers/2"
 import { runTier3 } from "./tiers/3"
-import { runTier4 } from "./tiers/4"
+// Tier 4 (residential proxy) is dynamically imported only when needed.
+import type { runTier4 } from "./tiers/4"
 import { normalizeHtml } from "./utils/html"
 import type { ProxyPool } from "./utils/proxyRotator"
 import { requireContentTypeForBody, sanitizeHeaders } from "./utils/sanitize"
@@ -204,10 +205,11 @@ export async function scrape(req: ScrapeRequest, deps: OrchestratorDeps): Promis
     }
 
     let t4: Awaited<ReturnType<typeof runTier4>>
+    const { runTier4: runTier4Lazy } = await import("./tiers/4")
     for (let attempt = 0; ; attempt++) {
       console.log(`[orchestrator] Tier 4 via residential proxy: ${proxy4.replace(/\/\/[^@]*@/, "//**@")}`)
       const remaining4 = maxTimeout - (Date.now() - totalStart)
-      t4 = await runTier4(req.url, handle, remaining4, proxy4, sanitizedHeaders, req.method, req.body)
+      t4 = await runTier4Lazy(req.url, handle, remaining4, proxy4, sanitizedHeaders, req.method, req.body)
 
       // Mirror Tier 3's recycle-on-suspect policy — only flag when the upstream
       // explicitly rejected the browser's profile.

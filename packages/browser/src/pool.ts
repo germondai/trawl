@@ -137,12 +137,47 @@ export class BrowserPool {
       // + browser-side Intl locale all align.
       locale: fingerprint.locale,
       timezone: fingerprint.timezone,
-      // Cap content processes per browser. Firefox's default (8) lets thread count climb
-      // when Tier 3/Tier 4 churn contexts (see #13). Lower cap → bounded OS footprint.
-      // `processPrelaunch: false` stops Firefox from pre-warming extra processes eagerly.
-      prefs: {
+      // Camoufox 150.x managed-mode relies on `firefox_user_prefs` (Playwright
+      // maps this to firefoxUserPrefs). The earlier `prefs` key was silently
+      // ignored, so these settings were dead code in 1.0.0.
+      firefox_user_prefs: {
         "dom.ipc.processCount": this.contentProcesses,
         "dom.ipc.processPrelaunch": false,
+        "dom.ipc.contentProcessCount": this.contentProcesses,
+
+        // Telemetry
+        "datareporting.healthreport.uploadEnabled": false,
+        "datareporting.policy.dataSubmissionEnabled": false,
+        "datareporting.policy.dataSubmissionURL": "",
+        "toolkit.telemetry.enabled": false,
+        "toolkit.telemetry.unified": false,
+        "toolkit.telemetry.archive": false,
+        "toolkit.telemetry.updatePing.enabled": false,
+        "app.crashreporter": false,
+        "breakpad.reportURL": "",
+        "breakpad.submitReportURL": "",
+
+        // Disabled Firefox services — not used in headless scraping
+        "browser.safebrowsing.downloads.enabled": false,
+        "browser.safebrowsing.malware.enabled": false,
+        "extensions.update.enabled": false,
+        "extensions.systemAddon.update.url": "",
+        "browser.fixup.alternate.enabled": false,
+        "app.normandy.enabled": false,
+        "app.shield.optoutstudies.enabled": false,
+        "network.connectivity-service.enabled": false,
+        "network.captive-portal-service.enabled": false,
+        "network.prefetch-next": false,
+        "beacon.enabled": false,
+        "security.OCSP.enabled": 0,
+        "network.http.tls-handshake-timeout": 30,
+        "network.http.connection-timeout": 60,
+        "network.http.response.timeout": 120,
+
+        // UI chrome features a scraper never sees
+        "extensions.screenshots.system.enabled": false,
+        "extensions.screenshots.background.enabled": false,
+        "browser.sessionstore.max_tabs_undo": 0,
       },
     })
 
