@@ -40,6 +40,7 @@ export class BrowserPool {
   private pollIntervalMs: number
   private recycleAfterTemporaryContexts: number
   private contentProcesses!: number
+  private stallAfterMs: number
   private browserFactory?: BrowserFactory
   private healthInterval: ReturnType<typeof setInterval> | null = null
 
@@ -49,6 +50,7 @@ export class BrowserPool {
     pollIntervalMs = 100,
     recycleAfterTemporaryContexts = 8,
     contentProcesses = 2,
+    stallAfterMs = 180_000,
     browserFactory,
   }: {
     poolSize: number
@@ -56,6 +58,7 @@ export class BrowserPool {
     pollIntervalMs?: number
     recycleAfterTemporaryContexts?: number
     contentProcesses?: number
+    stallAfterMs?: number
     browserFactory?: BrowserFactory
   }) {
     this.poolSize = poolSize
@@ -63,7 +66,15 @@ export class BrowserPool {
     this.pollIntervalMs = pollIntervalMs
     this.recycleAfterTemporaryContexts = recycleAfterTemporaryContexts
     this.contentProcesses = contentProcesses
+    this.stallAfterMs = stallAfterMs
     this.browserFactory = browserFactory
+  }
+
+  // A checkout longer than this is not slow, it's wedged: the orchestrator's own budget
+  // is req.maxTimeout (default 60s), so nothing legitimate holds a browser for minutes.
+  private isStalled(entry: PoolEntry, now = Date.now()): boolean {
+    if (!entry.busy || entry.busySince === undefined) return false
+    return now - entry.busySince > this.stallAfterMs
   }
 
   async init(): Promise<void> {
@@ -188,6 +199,7 @@ export class BrowserPool {
         if (!entry) return false
         if (!entry.context || !entry.browser) return false
         entry.busy = true
+        entry.busySince = Date.now()
         entry.lastDomain = domain
         entry.lastUsedAt = Date.now()
         resolve({
@@ -244,6 +256,7 @@ export class BrowserPool {
     const entry = this.entries.find((e) => e.id === id)
     if (!entry) return
     entry.busy = false
+    entry.busySince = undefined
     // Keep the context alive — CF cookies (cf_clearance, __cf_bm) and browser cache
     // accumulate, making subsequent challenges faster. Cookies are domain-scoped.
     if (entry.context) {
@@ -307,8 +320,10 @@ export class BrowserPool {
   }
 
   getStats(): PoolStats {
+    const now = Date.now()
     const busy = this.entries.filter((e) => e.busy).length
     const available = this.entries.filter((e) => !e.busy && !e.restarting && e.healthy && e.context).length
+    const stalled = this.entries.filter((e) => this.isStalled(e, now)).length
     const totalRestarts = this.entries.reduce((sum, e) => sum + e.restartCount, 0)
     return {
       total: this.poolSize,
@@ -316,6 +331,10 @@ export class BrowserPool {
       available,
       restarts: totalRestarts,
       avgRestarts: totalRestarts / this.poolSize,
+      stalled,
+      // Entries that can serve work now or are genuinely mid-request. Excludes entries
+      // that are restarting (no browser attached) and entries wedged in a dead checkout.
+      live: available + (busy - stalled),
     }
   }
 

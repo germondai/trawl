@@ -8,6 +8,7 @@ import {
   REDIS_URL,
   residentialProxyPool,
   SESSION_TTL,
+  STALL_TIMEOUT_MS,
 } from "./config"
 
 // Single embedded pool — no BullMQ / worker process required.
@@ -36,6 +37,7 @@ export async function initPool() {
     acquireTimeoutMs: ACQUIRE_TIMEOUT_MS,
     recycleAfterTemporaryContexts: RECYCLE_AFTER_TEMPORARY_CONTEXTS,
     contentProcesses: CONTENT_PROCESSES,
+    stallAfterMs: STALL_TIMEOUT_MS,
   })
   await pool.init()
   pool.startHealthCheck()
