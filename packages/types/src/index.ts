@@ -97,6 +97,9 @@ export interface BrowserFingerprint {
 // (consumers call .newPage()/.newContext()/.cookies() etc directly on these fields).
 export interface BrowserHandle {
   id: number
+  // Identifies this specific checkout. Pass it back to release() so a request that
+  // outlived its checkout can't free a browser the pool has since reclaimed.
+  lease: number
   // biome-ignore lint/suspicious/noExplicitAny: see comment above
   context: any
   // biome-ignore lint/suspicious/noExplicitAny: see comment above

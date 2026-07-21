@@ -11,6 +11,34 @@ type Browser = any
 // biome-ignore lint/suspicious/noExplicitAny: see comment above
 type BrowserContext = any
 
+// Closing a Camoufox browser or context can hang indefinitely when a content process is
+// wedged — tier3/tier4 already guard their temporary contexts this way. 10s is far above
+// the typical sub-second close path.
+const CLOSE_TIMEOUT_MS = 10_000
+// A cold Camoufox start is a few seconds; camoufox-js also does a public-IP lookup for
+// `geoip` before handing off to Playwright, which adds network time that Playwright's own
+// launch timeout does not cover. 90s is generous but finite.
+const LAUNCH_TIMEOUT_MS = 90_000
+
+// Resolves when `p` settles or `ms` elapses, whichever comes first. Never rejects, and
+// never leaves an unhandled rejection behind when `p` fails after we stopped waiting.
+function settleWithin(p: Promise<unknown> | undefined | null, ms: number): Promise<void> {
+  if (!p) return Promise.resolve()
+  const swallowed = p.then(
+    () => {},
+    () => {},
+  )
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([
+    swallowed,
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, ms)
+    }),
+  ]).finally(() => {
+    if (timer) clearTimeout(timer)
+  })
+}
+
 export class PoolExhaustedError extends Error {
   constructor() {
     super("Browser pool exhausted: all browsers are busy")
@@ -23,9 +51,18 @@ export class PoolExhaustedError extends Error {
 export type { BrowserHandle } from "@trawl/types"
 
 interface PoolEntry extends PoolBrowser {
+  // Monotonic per-checkout token. Bumped on every acquire and every restart so a
+  // release() arriving from an abandoned request can be recognised and ignored.
+  lease: number
   browser: Browser | null
   context: BrowserContext | null
   temporaryContextUses: number
+  // Page closes started by release(); restartEntry lets them settle before tearing the
+  // context down, so it isn't closing a context underneath in-flight page.close() calls.
+  pendingPageCloses?: Promise<unknown>
+  // Wall-clock instant past which this checkout is considered wedged. Set on acquire from
+  // the caller's budget; undefined when idle.
+  stallAt?: number
   restartReason?: string
   restarting?: boolean
   fingerprint: (typeof FINGERPRINT_POOL)[number]
@@ -41,8 +78,15 @@ export class BrowserPool {
   private recycleAfterTemporaryContexts: number
   private contentProcesses!: number
   private stallAfterMs: number
+  private closeTimeoutMs: number
+  private launchTimeoutMs: number
+  private healthIntervalMs: number
   private browserFactory?: BrowserFactory
   private healthInterval: ReturnType<typeof setInterval> | null = null
+  // Launch attempts we timed out on and can no longer cancel. Decremented if the attempt
+  // ever settles. Retrying past maxAbandonedLaunches would just stack up more of them.
+  private abandonedLaunches = 0
+  private maxAbandonedLaunches: number
 
   constructor({
     poolSize,
@@ -51,6 +95,10 @@ export class BrowserPool {
     recycleAfterTemporaryContexts = 8,
     contentProcesses = 2,
     stallAfterMs = 180_000,
+    closeTimeoutMs = CLOSE_TIMEOUT_MS,
+    launchTimeoutMs = LAUNCH_TIMEOUT_MS,
+    healthIntervalMs = 30_000,
+    maxAbandonedLaunches = 3,
     browserFactory,
   }: {
     poolSize: number
@@ -59,6 +107,10 @@ export class BrowserPool {
     recycleAfterTemporaryContexts?: number
     contentProcesses?: number
     stallAfterMs?: number
+    closeTimeoutMs?: number
+    launchTimeoutMs?: number
+    healthIntervalMs?: number
+    maxAbandonedLaunches?: number
     browserFactory?: BrowserFactory
   }) {
     this.poolSize = poolSize
@@ -67,14 +119,21 @@ export class BrowserPool {
     this.recycleAfterTemporaryContexts = recycleAfterTemporaryContexts
     this.contentProcesses = contentProcesses
     this.stallAfterMs = stallAfterMs
+    this.closeTimeoutMs = closeTimeoutMs
+    this.launchTimeoutMs = launchTimeoutMs
+    this.healthIntervalMs = healthIntervalMs
+    this.maxAbandonedLaunches = maxAbandonedLaunches
     this.browserFactory = browserFactory
   }
 
-  // A checkout longer than this is not slow, it's wedged: the orchestrator's own budget
-  // is req.maxTimeout (default 60s), so nothing legitimate holds a browser for minutes.
+  // A checkout past its deadline is not slow, it's wedged. The deadline is the caller's
+  // own budget (req.maxTimeout) plus a full stallAfterMs of grace, so a request is never
+  // reclaimed while it is still inside the time it asked for — callers may legitimately
+  // pass a maxTimeout larger than stallAfterMs. Without a budget we fall back to
+  // stallAfterMs alone.
   private isStalled(entry: PoolEntry, now = Date.now()): boolean {
-    if (!entry.busy || entry.busySince === undefined) return false
-    return now - entry.busySince > this.stallAfterMs
+    if (!entry.busy || entry.stallAt === undefined) return false
+    return now > entry.stallAt
   }
 
   async init(): Promise<void> {
@@ -83,10 +142,14 @@ export class BrowserPool {
       // navigator.platform, locale, timezone, and the HTTP UA the orchestrator sends.
       // Shuffled pool (not sequential) so 4 browsers don't all get the same fingerprint.
       const fingerprint = FINGERPRINT_POOL[i % FINGERPRINT_POOL.length]
-      const { browser, context } = await this.launchBrowser(fingerprint)
+      // Bounded like every other launch: an unbounded hang here leaves init() pending
+      // forever with the HTTP listener already up, so the pod never becomes ready and
+      // never fails either. Throwing lets the startup probe restart the container.
+      const { browser, context } = await this.launchWithin(fingerprint, this.launchTimeoutMs)
       this.entries.push({
         id: i,
         busy: false,
+        lease: 0,
         restartCount: 0,
         healthy: true,
         browser,
@@ -192,24 +255,34 @@ export class BrowserPool {
     return context
   }
 
-  acquire(domain?: string): Promise<BrowserHandle> {
+  // `budgetMs` is the caller's own deadline for this checkout (the orchestrator passes
+  // req.maxTimeout). It only ever extends how long the checkout is tolerated, never
+  // shortens it below stallAfterMs.
+  acquire(domain?: string, budgetMs?: number): Promise<BrowserHandle> {
     return new Promise((resolve, reject) => {
       const tryAcquire = () => {
         const entry = this.pickEntry(domain)
         if (!entry) return false
         if (!entry.context || !entry.browser) return false
+        const now = Date.now()
         entry.busy = true
-        entry.busySince = Date.now()
+        entry.busySince = now
+        entry.stallAt = now + Math.max(budgetMs ?? 0, 0) + this.stallAfterMs
+        entry.lease++
         entry.lastDomain = domain
         entry.lastUsedAt = Date.now()
         resolve({
           id: entry.id,
+          lease: entry.lease,
           context: entry.context,
           browser: entry.browser,
           fingerprint: entry.fingerprint,
-          noteTemporaryContext: (reason: string) => {
+          // Captured lease: a reclaimed request that resumes later must not attribute its
+          // failure to the replacement browser now occupying this entry.
+          noteTemporaryContext: ((lease: number) => (reason: string) => {
+            if (entry.lease !== lease) return
             this.noteTemporaryContext(entry, reason)
-          },
+          })(entry.lease),
         })
         return true
       }
@@ -252,29 +325,59 @@ export class BrowserPool {
     }
   }
 
-  release(id: number): void {
+  release(id: number, lease?: number): void {
     const entry = this.entries.find((e) => e.id === id)
     if (!entry) return
+    // A checkout the health check already reclaimed must not free the entry a second
+    // time — by now it may be restarting, or handed to a different request. The lease
+    // identifies *which* checkout is being released; a mismatch means this one is stale.
+    if (lease !== undefined && entry.lease !== lease) return
+    if (!entry.busy) return
     entry.busy = false
     entry.busySince = undefined
+    entry.stallAt = undefined
     // Keep the context alive — CF cookies (cf_clearance, __cf_bm) and browser cache
     // accumulate, making subsequent challenges faster. Cookies are domain-scoped.
-    if (entry.context) {
-      const pages: unknown[] = entry.context.pages() ?? []
-      for (const p of pages) (p as { close: () => Promise<void> }).close().catch(() => {})
-    }
+    const pages: unknown[] = entry.context?.pages() ?? []
+    entry.pendingPageCloses = Promise.all(
+      pages.map((p) => (p as { close: () => Promise<void> }).close().catch(() => {})),
+    )
     if (entry.restartReason) {
-      void this.restartEntry(entry, entry.restartReason)
+      const reason = entry.restartReason
+      entry.restartReason = undefined
+      // Called synchronously, not deferred behind the page closes: restartEntry sets
+      // `restarting` before its first await, and that flag is what stops another request
+      // acquiring this entry in the window before the browser is actually torn down.
+      // restartEntry waits on pendingPageCloses itself.
+      void this.restartEntry(entry, reason)
     }
   }
 
   startHealthCheck(): void {
-    this.healthInterval = setInterval(() => this.runHealthCheck(), 30_000)
+    this.healthInterval = setInterval(() => this.runHealthCheck(), this.healthIntervalMs)
   }
 
   private async runHealthCheck(): Promise<void> {
+    const now = Date.now()
     for (const entry of this.entries) {
-      if (entry.busy) continue
+      // A restart already in flight will finish or fail on its own deadline. Re-entering
+      // here only produced the "disconnected, restarting" log every 30s that made a dead
+      // pool look like a busy one.
+      if (entry.restarting) continue
+
+      if (entry.busy) {
+        // We can't probe a checked-out browser — closing it would kill a live request.
+        // But a checkout past the stall threshold is not a request any more: it never
+        // reached the orchestrator's `finally`, so nothing will ever release it. Left
+        // alone, the entry is subtracted from the pool for the rest of the process.
+        if (this.isStalled(entry, now)) {
+          const heldSec = Math.round((now - (entry.busySince ?? now)) / 1000)
+          console.warn(`[pool] browser ${entry.id} stalled — checked out for ${heldSec}s, reclaiming`)
+          await this.restartEntry(entry, "checkout stalled")
+        }
+        continue
+      }
+
       if (!(entry.browser?.isConnected() ?? false)) {
         console.warn(`[pool] browser ${entry.id} disconnected, restarting`)
         await this.restartEntry(entry, "browser disconnected")
@@ -284,6 +387,62 @@ export class BrowserPool {
     }
   }
 
+  // Runs `launchBrowser` under a hard deadline. Playwright's own launch timeout does not
+  // cover camoufox-js's pre-launch work (the `geoip` public-IP lookup), so a launch can
+  // outlive it; and an unbounded launch here is unrecoverable — see restartEntry.
+  private async launchWithin(
+    fingerprint: (typeof FINGERPRINT_POOL)[number],
+    ms: number,
+  ): Promise<{ browser: Browser; context: BrowserContext }> {
+    let timedOut = false
+    // Playwright exposes no way to cancel an in-flight launch, so a timeout here can only
+    // stop *waiting* — the attempt keeps running. Count the ones we abandon so a browser
+    // that hangs on every launch can't have attempts piled on it forever.
+    this.abandonedLaunches++
+    const launch = this.launchBrowser(fingerprint).then(
+      (result) => {
+        if (!timedOut) {
+          this.abandonedLaunches--
+          return result
+        }
+        // We already gave up on this launch — don't leak the browser it finally produced.
+        // Stay charged until that close *actually* settles, with no timeout: releasing the
+        // slot on a bound would let genuinely unkillable Firefox processes accumulate
+        // silently, one per retry. Holding it means a doubly-wedged entry (launch hung,
+        // then close hung) stays down and the pool reports reduced `live` — the readiness
+        // gate surfaces that, which is the outcome we want over a quiet process leak.
+        void Promise.resolve(result.browser?.close()).then(
+          () => {
+            this.abandonedLaunches--
+          },
+          () => {
+            this.abandonedLaunches--
+          },
+        )
+        return null
+      },
+      (err) => {
+        this.abandonedLaunches--
+        if (timedOut) return null
+        throw err
+      },
+    )
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const result = await Promise.race([
+      launch,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => {
+          timedOut = true
+          resolve(null)
+        }, ms)
+      }),
+    ]).finally(() => {
+      if (timer) clearTimeout(timer)
+    })
+    if (!result) throw new Error(`browser launch exceeded ${ms}ms`)
+    return result
+  }
+
   private async restartEntry(entry: PoolEntry, reason = "manual restart"): Promise<void> {
     if (entry.restarting) {
       entry.restartReason ??= reason
@@ -291,21 +450,48 @@ export class BrowserPool {
     }
     entry.restarting = true
     entry.healthy = false
+    // Drop any checkout this entry was holding. Either release() already cleared it, or
+    // we are reclaiming a stalled one — in both cases the entry is ours now, and the
+    // bumped lease makes a late release() from the abandoned request a no-op.
+    entry.busy = false
+    entry.busySince = undefined
+    entry.stallAt = undefined
+    entry.lease++
     entry.restartReason = undefined
     console.warn(`[pool] browser ${entry.id} restarting: ${reason}`)
-    try {
-      await entry.context?.close()
-    } catch {}
-    try {
-      await entry.browser?.close()
-    } catch {}
-    entry.browser = null
+
+    const dyingContext = entry.context
+    const dyingBrowser = entry.browser
+    const pendingPageCloses = entry.pendingPageCloses
     entry.context = null
+    entry.browser = null
+    entry.pendingPageCloses = undefined
+
+    // Every await below is bounded, and that is the whole point. Camoufox/Firefox hangs
+    // on close when a content process is wedged (the hazard tier3/tier4 already guard
+    // their temporary contexts against), and camoufox-js's launch path can hang too. An
+    // unbounded await anywhere in here strands the entry with restarting=true forever:
+    // it is then excluded from `available` in getStats() and short-circuited by the
+    // `if (entry.restarting)` guard at the top, so the 30s health check can only log
+    // "disconnected, restarting" about it, never actually restart it. That is how a pool
+    // reaches zero live browsers while its restart counter sits frozen and the process
+    // looks perfectly healthy from the outside.
+    await settleWithin(pendingPageCloses, this.closeTimeoutMs)
+    await settleWithin(dyingContext?.close(), this.closeTimeoutMs)
+    await settleWithin(dyingBrowser?.close(), this.closeTimeoutMs)
+
     try {
+      // Refuse to pile another attempt onto a backlog of launches we already gave up
+      // waiting for — each one may still be holding a real Firefox process we can't
+      // cancel. The entry stays unhealthy, so `live` drops and the readiness gate takes
+      // the pod out of rotation instead of quietly leaking processes.
+      if (this.abandonedLaunches >= this.maxAbandonedLaunches) {
+        throw new Error(`${this.abandonedLaunches} launches already abandoned; not starting another until one settles`)
+      }
       // On restart, keep the entry's original fingerprint so this browser instance
       // keeps its identity across restart cycles (otherwise cross-session correlation
       // becomes trivial).
-      const { browser, context } = await this.launchBrowser(entry.fingerprint)
+      const { browser, context } = await this.launchWithin(entry.fingerprint, this.launchTimeoutMs)
       entry.browser = browser
       entry.context = context
       entry.healthy = true
@@ -313,17 +499,28 @@ export class BrowserPool {
       entry.restartCount++
       console.log(`[pool] browser ${entry.id} restarted (total: ${entry.restartCount})`)
     } catch (err) {
+      // Leave the entry unhealthy with no browser attached. `restarting` clears in the
+      // finally, so the next health-check tick retries this entry from scratch.
       console.error(`[pool] browser ${entry.id} failed to restart:`, err)
     } finally {
       entry.restarting = false
     }
   }
 
+  // A browser only counts if its transport is actually up. `healthy` is only refreshed
+  // every health-check tick, and busy entries are never probed at all, so without this a
+  // checkout whose browser died reads as capacity until its stall deadline passes.
+  private isUsable(entry: PoolEntry): boolean {
+    return Boolean(entry.context) && Boolean(entry.browser?.isConnected?.() ?? false)
+  }
+
   getStats(): PoolStats {
     const now = Date.now()
     const busy = this.entries.filter((e) => e.busy).length
-    const available = this.entries.filter((e) => !e.busy && !e.restarting && e.healthy && e.context).length
+    const available = this.entries.filter((e) => !e.busy && !e.restarting && e.healthy && this.isUsable(e)).length
     const stalled = this.entries.filter((e) => this.isStalled(e, now)).length
+    // Busy entries that are still genuinely working: inside their deadline AND connected.
+    const busyLive = this.entries.filter((e) => e.busy && !this.isStalled(e, now) && this.isUsable(e)).length
     const totalRestarts = this.entries.reduce((sum, e) => sum + e.restartCount, 0)
     return {
       total: this.poolSize,
@@ -332,17 +529,19 @@ export class BrowserPool {
       restarts: totalRestarts,
       avgRestarts: totalRestarts / this.poolSize,
       stalled,
-      // Entries that can serve work now or are genuinely mid-request. Excludes entries
-      // that are restarting (no browser attached) and entries wedged in a dead checkout.
-      live: available + (busy - stalled),
+      // Real capacity: idle-and-connected plus in-flight-and-connected. Excludes
+      // restarting entries, wedged checkouts, and checkouts whose browser has died.
+      live: available + busyLive,
     }
   }
 
   async shutdown(): Promise<void> {
     if (this.healthInterval) clearInterval(this.healthInterval)
     for (const entry of this.entries) {
-      await entry.context?.close().catch(() => {})
-      await entry.browser?.close().catch(() => {})
+      // Bounded for the same reason as restartEntry — an unbounded close here hangs
+      // SIGTERM handling until the supervisor's grace period expires and force-kills us.
+      await settleWithin(entry.context?.close(), this.closeTimeoutMs)
+      await settleWithin(entry.browser?.close(), this.closeTimeoutMs)
     }
     this.entries = []
   }

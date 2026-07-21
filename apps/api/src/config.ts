@@ -17,6 +17,12 @@ export const CONTENT_PROCESSES = Number(process.env.BROWSER_CONTENT_PROCESSES ??
 // busy. A scrape's own budget is req.maxTimeout (default 60s), so 3x that is well clear
 // of anything legitimate while still catching a hung checkout within a few minutes.
 export const STALL_TIMEOUT_MS = Number(process.env.BROWSER_STALL_TIMEOUT_MS ?? "180000")
+// Upper bound on a single browser/context close during a recycle. Camoufox can hang on
+// close when a content process is wedged; past this we abandon the close and relaunch.
+export const CLOSE_TIMEOUT_MS = Number(process.env.BROWSER_CLOSE_TIMEOUT_MS ?? "10000")
+// Upper bound on a browser launch. A cold Camoufox start is a few seconds, but launches
+// have been observed to hang indefinitely — without a bound that strands the pool entry.
+export const LAUNCH_TIMEOUT_MS = Number(process.env.BROWSER_LAUNCH_TIMEOUT_MS ?? "90000")
 
 // PROXY_URL / RESIDENTIAL_PROXY_URL accept a comma-separated list of proxy URLs (a single
 // URL still works — it's just a 1-element list). *_LIST_FILE is an alternative source
