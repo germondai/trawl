@@ -2,10 +2,12 @@ import type { BrowserHandle } from "@trawl/browser"
 import { FINGERPRINT } from "@trawl/browser"
 import type { Cookie, TierResult } from "@trawl/types"
 import { solvePageCaptchas } from "../solvers"
+import { waitForAkamaiResolution } from "../utils/akamaiWait"
 import { waitForChallengeResolution } from "../utils/challengeWait"
 import { toCookies } from "../utils/cookies"
 import {
   detectChallengeType,
+  hasAkamaiChallenge,
   hasImpervaChallenge,
   isBlocked,
   isBrowserErrorPage,
@@ -102,7 +104,9 @@ export async function runTier4(
     const resolution =
       challengeType === "imperva"
         ? await waitForImpervaResolution(page, remaining, url)
-        : await waitForChallengeResolution(page, remaining, url)
+        : challengeType === "akamai"
+          ? await waitForAkamaiResolution(page, remaining, url)
+          : await waitForChallengeResolution(page, remaining, url)
 
     if (resolution !== "ok") {
       return {
@@ -112,9 +116,7 @@ export async function runTier4(
         reason:
           resolution === "ip-blocked"
             ? "proxy-ip-blocked"
-            : challengeType === "imperva"
-              ? "imperva-challenge-timeout"
-              : "cloudflare-challenge-timeout",
+            : `${challengeType === "none" ? "cloudflare" : challengeType}-challenge-timeout`,
       }
     }
 
@@ -159,6 +161,15 @@ export async function runTier4(
         status: "blocked",
         durationMs: Date.now() - start,
         reason: "imperva-persistent",
+      }
+    }
+
+    if (hasAkamaiChallenge(html)) {
+      return {
+        tier: 4,
+        status: "blocked",
+        durationMs: Date.now() - start,
+        reason: "akamai-persistent",
       }
     }
 

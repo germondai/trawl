@@ -2,7 +2,7 @@ import type { BrowserHandle } from "@trawl/browser"
 import type { Cookie, SessionData, TierResult } from "@trawl/types"
 import { solvePageCaptchas } from "../solvers"
 import { normalizeSameSite, toCookies } from "../utils/cookies"
-import { isBlocked, isBrowserErrorPage, isCloudflarePage } from "../utils/detect"
+import { hasAkamaiChallenge, isBlocked, isBrowserErrorPage, isCloudflarePage } from "../utils/detect"
 import { normalizeHtml } from "../utils/html"
 import type { RouteLike } from "../utils/sanitize"
 import { routeContinueOverrides } from "../utils/sanitize"
@@ -73,6 +73,12 @@ export async function runTier2(
 
     if (isCloudflarePage(html, {})) {
       return { tier: 2, status: "blocked", durationMs: Date.now() - start, reason: "session-expired" }
+    }
+
+    // A cached session that lands back on Akamai's interstitial is stale — force a
+    // fresh Tier-3 solve rather than returning the ~2KB challenge stub as content.
+    if (hasAkamaiChallenge(html)) {
+      return { tier: 2, status: "blocked", durationMs: Date.now() - start, reason: "akamai-session-expired" }
     }
 
     if (isBlocked(statusCode, html)) {

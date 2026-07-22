@@ -5,6 +5,7 @@ export type ChallengeType =
   | "recaptcha"
   | "cap"
   | "imperva"
+  | "akamai"
   | "none"
 
 export function isCloudflarePage(html: string, headers: Record<string, string>): boolean {
@@ -83,10 +84,28 @@ export function hasImpervaChallenge(html: string, headers: Record<string, string
   return false
 }
 
+// Akamai Bot Manager "Behavioral Detection" (sec-cpt / SBSD) interstitial. Akamai
+// serves a near-empty page whose only real content is a hidden #sec-if-cpt-container
+// (the "behavioral-content" widget, often a press-and-hold button) plus an obfuscated
+// sensor script; once the sensor's XHR posts telemetry the page location.reload()s
+// into the real content. trawl solves this by driving human-like interaction and
+// waiting for the reload — see akamaiWait.ts. These DOM markers are challenge-only
+// (the class/id names don't appear on ordinary Akamai-fronted pages), so no size gate
+// is needed for them; the sensor-bootstrap fallback IS size-gated to avoid flagging
+// full pages that merely carry passive Akamai telemetry.
+export function hasAkamaiChallenge(html: string, _headers: Record<string, string> = {}): boolean {
+  if (/id=["']?sec-if-cpt-container|class=["'][^"']*behavioral-content|sec-bc-tile|scf-akamai-logo/i.test(html))
+    return true
+  if (/\/_sec\/(cp_challenge|verify)\//i.test(html)) return true
+  if (html.length < 3500 && /akamai\.com/i.test(html) && /(progress-button|behavioral|sec-cpt)/i.test(html)) return true
+  return false
+}
+
 export function detectChallengeType(html: string, headers: Record<string, string> = {}): ChallengeType {
   if (hasTurnstile(html)) return "cloudflare-turnstile"
   if (isCloudflarePage(html, headers)) return "cloudflare-interstitial"
   if (hasImpervaChallenge(html, headers)) return "imperva"
+  if (hasAkamaiChallenge(html, headers)) return "akamai"
   if (hasHcaptcha(html)) return "hcaptcha"
   if (hasRecaptcha(html)) return "recaptcha"
   if (hasCapChallenge(html)) return "cap"
@@ -98,9 +117,10 @@ export function isBlocked(status: number, html: string): boolean {
   if (status === 202 || status === 403 || status === 429) return true
   if (isCloudflarePage(html, {})) return true
   if (hasImpervaChallenge(html)) return true
+  if (hasAkamaiChallenge(html)) return true
   return false
 }
 
 export function needsJs(html: string, headers: Record<string, string>): boolean {
-  return isCloudflarePage(html, headers) || hasImpervaChallenge(html, headers)
+  return isCloudflarePage(html, headers) || hasImpervaChallenge(html, headers) || hasAkamaiChallenge(html, headers)
 }

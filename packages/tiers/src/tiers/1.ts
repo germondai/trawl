@@ -1,6 +1,13 @@
 import { FINGERPRINT } from "@trawl/browser"
 import type { TierResult } from "@trawl/types"
-import { hasHcaptcha, hasRecaptcha, hasTurnstile, isBlocked, isCloudflarePage } from "../utils/detect"
+import {
+  hasAkamaiChallenge,
+  hasHcaptcha,
+  hasRecaptcha,
+  hasTurnstile,
+  isBlocked,
+  isCloudflarePage,
+} from "../utils/detect"
 import { normalizeHtml } from "../utils/html"
 
 export interface Tier1Result extends TierResult {
@@ -55,6 +62,11 @@ export async function runTier1(
     }
     if (hasTurnstile(html)) {
       return { tier: 1, status: "needs-js", durationMs: Date.now() - start, reason: "turnstile-shell" }
+    }
+    // Akamai's behavioral interstitial is served with HTTP 200; escalate to a browser
+    // tier so the sensor JS runs and akamaiWait can drive the challenge.
+    if (hasAkamaiChallenge(html, headers)) {
+      return { tier: 1, status: "needs-js", durationMs: Date.now() - start, reason: "akamai-interstitial" }
     }
 
     if (isBlocked(res.status, html)) {
