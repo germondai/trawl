@@ -27,17 +27,17 @@ export const residentialProxyPool =
 
 // ── MITM forward-proxy mode ────────────────────────────────────────────────────
 // Optional browser-backed HTTP(S) forward proxy (apps/api/src/proxy). Off by default.
-// When enabled, point a client's proxy setting at MITM_PROXY_PORT and every request it
-// makes is re-issued through the browser pool — for clients (e.g. Prowlarr) that only
-// consume cookies+UA from /v1 and re-fetch themselves, which fails on fingerprint-bound
-// Cloudflare clearances. See proxy/server.ts for the full rationale.
+// When enabled, point a client's HTTP(S) proxy at MITM_PROXY_PORT and every request is
+// re-issued through the browser pool — for clients that only consume cookies+UA from
+// /v1 and re-fetch themselves, which fails on fingerprint-bound Cloudflare clearances.
+// See proxy/server.ts for the full rationale.
 export const MITM_PROXY_ENABLED = /^(1|true|yes)$/i.test(process.env.MITM_PROXY_ENABLED ?? "")
 export const MITM_PROXY_PORT = Number(process.env.MITM_PROXY_PORT ?? "8192")
-// Default 127.0.0.1 so the README's "private interface only" guarantee holds by default —
-// the proxy can impersonate any host to anyone who trusts its CA, so it should only ever
-// be reachable by the trusted client (a localhost-bound Prowlarr/Jackett in the same
-// docker network). Override only if you intentionally want a non-local client to use it.
-export const MITM_PROXY_HOST = process.env.MITM_PROXY_HOST ?? "127.0.0.1"
+// Default 0.0.0.0 — the dominant deployment is docker-compose (clients reach trawl
+// through the docker bridge, which requires a non-loopback bind). Loopback-only
+// operators can set MITM_PROXY_HOST=127.0.0.1. The primary safety guard remains
+// MITM_PROXY_ENABLED=false.
+export const MITM_PROXY_HOST = process.env.MITM_PROXY_HOST ?? "0.0.0.0"
 // CA cert + key live here (persist across restarts so the CA is installed once).
 export const MITM_PROXY_CA_DIR = process.env.MITM_PROXY_CA_DIR ?? "/data/proxy-ca"
 // Cap the tier the proxy will escalate to (e.g. keep it off residential Tier 4).

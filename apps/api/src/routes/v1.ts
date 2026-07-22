@@ -5,7 +5,7 @@ import { Elysia } from "elysia"
 import { buildScrapeRequestFromFlareSolverr, flareSolverrError } from "../adapters/flaresolverr"
 import { getDeps, getPool } from "../deps"
 
-// FlareSolverr v2 compat — always open (Prowlarr/Jackett can't send auth headers)
+// FlareSolverr v2 compat — always open (the v2 spec has no auth header)
 export function v1Route() {
   return new Elysia().post("/v1", async ({ body, set }) => {
     const req = body as FlareSolverrRequest

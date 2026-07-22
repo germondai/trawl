@@ -1,22 +1,18 @@
 import { readFileSync } from "node:fs"
 import net from "node:net"
 import tls from "node:tls"
-import { isCloudflarePage, type OrchestratorDeps, scrape } from "@trawl/tiers"
+import { detectChallengeType, isChallengeWall, type OrchestratorDeps, scrape } from "@trawl/tiers"
 import type { Cookie, SupportedMethod } from "@trawl/types"
 import { MitmCa } from "./ca"
 
 // Browser-backed MITM forward proxy.
 //
 // WHY THIS EXISTS: the FlareSolverr `/v1` contract only hands back cookies + user-agent.
-// Clients like Prowlarr take those, then RE-FETCH the target with their own HTTP stack.
-// Against sites whose Cloudflare clearance is bound to the solving browser's full
-// connection fingerprint (not just cookie+UA), that re-fetch is re-challenged and fails —
-// no cookie is portable to a plain HTTP client. See the FlareSolverr adapter for the
-// legacy path.
-//
-// This proxy sidesteps that: point the client's HTTP(S) proxy at it (per-indexer in
-// Prowlarr), and every request the client makes is transparently re-issued through the
-// real browser pool via scrape(), so Cloudflare always sees the fingerprint it cleared.
+// HTTP clients that consume that contract re-fetch the target with their own HTTP stack
+// and get re-challenged on sites whose Cloudflare clearance is bound to the solving
+// browser's full connection fingerprint — the cookie alone isn't portable. This proxy
+// sidesteps that: point the client's HTTP(S) proxy at it and every request is re-issued
+// through the browser pool via scrape(), so Cloudflare sees the fingerprint it cleared.
 //
 // It is a MITM: it terminates the client's TLS using a per-host cert from our own CA
 // (ca.ts). Only expose it to trusted clients on a private interface.
@@ -27,9 +23,9 @@ export interface MitmProxyOptions {
   port: number
   caDir: string
   deps: OrchestratorDeps
-  // Defaults to 127.0.0.1 in caller code so the proxy is unreachable from anything but
-  // the local host (the per-host loopback TLS terminators stay on 127.0.0.1 unconditionally).
-  host?: string
+  // Required — caller resolves `MITM_PROXY_HOST` (or any default it wants) and passes
+  // the resolved string here. Per-host internal TLS terminators stay on 127.0.0.1.
+  host: string
   maxTier?: 1 | 2 | 3 | 4
   maxTimeout?: number
   debug?: boolean
@@ -86,8 +82,8 @@ export function startMitmProxy(opts: MitmProxyOptions): {
   // Bind to loopback by default — a MITM proxy trusts whoever installs its CA, so it must
   // never be exposed off-host unless the operator explicitly opts in via MITM_PROXY_HOST.
   // The per-host internal TLS terminators (above) stay on 127.0.0.1 unconditionally.
-  server.listen(opts.port, opts.host ?? "127.0.0.1", () => {
-    console.log(`[proxy] MITM forward proxy on ${opts.host ?? "127.0.0.1"}:${opts.port}  (CA: ${ca.caCertPath})`)
+  server.listen(opts.port, opts.host, () => {
+    console.log(`[proxy] MITM forward proxy on ${opts.host}:${opts.port}  (CA: ${ca.caCertPath})`)
   })
 
   return { ca, server }
@@ -268,20 +264,25 @@ async function fetchRaw(
       const contentType = respHeaders["content-type"] ?? "application/octet-stream"
       const bodyBuf = Buffer.from((await resp?.body()) ?? new Uint8Array())
 
-      // Challenge interstitials are always small HTML — only sniff those, never binaries.
-      const looksHtml = /text\/html/i.test(contentType)
-      const challenged =
-        attempt === 0 &&
-        (status === 403 || status === 503) &&
-        looksHtml &&
-        isCloudflarePage(bodyBuf.toString("utf8", 0, 4096), {})
+      // Challenge wall detection — universal across all solvable challenge types (CF,
+      // Turnstile/hCaptcha/reCAPTCHA/GeeTest, Imperva, CAP). A "wall" is anything
+      // blocking page access (4xx/5xx, or a lean interstitial stub at 200); in-page
+      // widget captchas on accessible pages (status 200 + widget markers) are NOT walls
+      // — return the page as-is.
+      const challengeType = detectChallengeType(bodyBuf.toString("utf8", 0, 4096), respHeaders)
+      const wall = isChallengeWall(status, bodyBuf.length, challengeType)
 
-      if (challenged) {
-        // Same IP getting re-challenged means rotation has a real shot at clearing CF —
-        // mirror Tier 3's markBad + next().
+      if (wall) {
+        // Hit the wall on this IP — rotate to a fresh proxy next attempt.
         if (proxy && proxyPool) proxyPool.markBad(proxy)
-        // fall through to next attempt; finally still tears down the page and context
+        if (attempt === 0) {
+          // Refresh the cache so attempt 1 has solved cookies to add. Awaited (not
+          // fire-and-forget) so attempt 1 doesn't race the cache write.
+          await scrape({ url, method, body, maxTier: opts.maxTier, maxTimeout }, opts.deps).catch(() => {})
+        }
+        // attempt === 1 still walled — fall through to the final scrape() below.
       } else {
+        // Page is reachable (or just has an in-page widget — content is the answer).
         return { status, contentType, body: bodyBuf }
       }
     } finally {
