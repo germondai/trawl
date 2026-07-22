@@ -33,6 +33,11 @@ export const residentialProxyPool =
 // Cloudflare clearances. See proxy/server.ts for the full rationale.
 export const MITM_PROXY_ENABLED = /^(1|true|yes)$/i.test(process.env.MITM_PROXY_ENABLED ?? "")
 export const MITM_PROXY_PORT = Number(process.env.MITM_PROXY_PORT ?? "8192")
+// Default 127.0.0.1 so the README's "private interface only" guarantee holds by default —
+// the proxy can impersonate any host to anyone who trusts its CA, so it should only ever
+// be reachable by the trusted client (a localhost-bound Prowlarr/Jackett in the same
+// docker network). Override only if you intentionally want a non-local client to use it.
+export const MITM_PROXY_HOST = process.env.MITM_PROXY_HOST ?? "127.0.0.1"
 // CA cert + key live here (persist across restarts so the CA is installed once).
 export const MITM_PROXY_CA_DIR = process.env.MITM_PROXY_CA_DIR ?? "/data/proxy-ca"
 // Cap the tier the proxy will escalate to (e.g. keep it off residential Tier 4).

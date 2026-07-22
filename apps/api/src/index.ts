@@ -3,6 +3,7 @@ import {
   MITM_PROXY_CA_DIR,
   MITM_PROXY_DEBUG,
   MITM_PROXY_ENABLED,
+  MITM_PROXY_HOST,
   MITM_PROXY_MAX_TIER,
   MITM_PROXY_PORT,
   POOL_SIZE,
@@ -34,6 +35,7 @@ initPool()
     if (MITM_PROXY_ENABLED) {
       startMitmProxy({
         port: MITM_PROXY_PORT,
+        host: MITM_PROXY_HOST,
         caDir: MITM_PROXY_CA_DIR,
         deps: getDeps(),
         maxTier: MITM_PROXY_MAX_TIER,

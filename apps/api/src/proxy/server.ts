@@ -27,6 +27,9 @@ export interface MitmProxyOptions {
   port: number
   caDir: string
   deps: OrchestratorDeps
+  // Defaults to 127.0.0.1 in caller code so the proxy is unreachable from anything but
+  // the local host (the per-host loopback TLS terminators stay on 127.0.0.1 unconditionally).
+  host?: string
   maxTier?: 1 | 2 | 3 | 4
   maxTimeout?: number
   debug?: boolean
@@ -80,8 +83,11 @@ export function startMitmProxy(opts: MitmProxyOptions): {
   })
 
   server.on("error", (err) => console.error("[proxy] server error:", err instanceof Error ? err.message : err))
-  server.listen(opts.port, () => {
-    console.log(`[proxy] MITM forward proxy on :${opts.port}  (CA: ${ca.caCertPath})`)
+  // Bind to loopback by default — a MITM proxy trusts whoever installs its CA, so it must
+  // never be exposed off-host unless the operator explicitly opts in via MITM_PROXY_HOST.
+  // The per-host internal TLS terminators (above) stay on 127.0.0.1 unconditionally.
+  server.listen(opts.port, opts.host ?? "127.0.0.1", () => {
+    console.log(`[proxy] MITM forward proxy on ${opts.host ?? "127.0.0.1"}:${opts.port}  (CA: ${ca.caCertPath})`)
   })
 
   return { ca, server }
