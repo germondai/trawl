@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-07-22
+
+### Added
+- **Browser-backed MITM forward-proxy mode** (`MITM_PROXY_ENABLED`, off by default): HTTP(S) forward proxy that re-issues every request through the browser pool so clients like Prowlarr / Sonarr / Jackett / JDownloader / ChangeDetection can hit fingerprint-bound Cloudflare sites (e.g. 1337x) that the `/v1` cookie-handoff can't. CA + leaf certs self-generated and persisted; CA downloadable at `GET /proxy-ca.crt`. New env: `MITM_PROXY_{ENABLED,PORT,HOST,CA_DIR,MAX_TIER,DEBUG}`.
+
+### Changed
+- `fetchRaw` rotates `proxyPool` on Cloudflare challenge (same `markBad → next()` pattern as Tier 3) instead of retrying on the same IP.
+- Main MITM proxy listener binds to `127.0.0.1` by default; `MITM_PROXY_HOST` env override for non-local docker-network setups.
+- `ci.yml` runs on PRs targeting `dev` in addition to `main`.
+- `publish.yml` inspects the actually-pushed tag from `docker/metadata-action` instead of re-deriving from `github.sha` (which previously mismatched the 7-char short SHA).
+- `node-forge ^1.3.1` runtime dep for CA + per-host leaf cert generation.
+
 ## [1.0.1] - 2026-07-18
 
 ### Changed
@@ -17,19 +29,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `scripts/bench-targets.sh`, `scripts/bench-success-rate.sh`, `scripts/bench-compare.sh` — observability harnesses for measuring CF challenge latency + bypass success rate.
-
-### Added
-- **MITM forward-proxy mode** (`MITM_PROXY_ENABLED`) — a browser-backed HTTP(S) forward proxy.
-  The FlareSolverr `/v1` contract only returns cookies + user-agent; clients like Prowlarr take
-  those and re-fetch the target with their own HTTP stack, which is re-challenged on sites whose
-  Cloudflare clearance is bound to the solving browser's connection fingerprint (e.g. 1337x) — no
-  cookie is portable to a plain client. Point such a client's HTTP proxy at this instead and every
-  request is transparently re-issued through the browser pool, returning the raw response bytes
-  (so `.torrent`/binary downloads pass through intact, not just HTML). Terminates TLS with a
-  self-generated CA (persisted to `MITM_PROXY_CA_DIR`, downloadable at `GET /proxy-ca.crt`) that
-  you install into the client's trust store. New env: `MITM_PROXY_ENABLED`, `MITM_PROXY_PORT`
-  (default 8192), `MITM_PROXY_CA_DIR`, `MITM_PROXY_MAX_TIER`, `MITM_PROXY_DEBUG`.
-
 ## [1.0.0] - 2026-07-10
 
 ### Changed
