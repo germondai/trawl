@@ -98,12 +98,15 @@ jobs:
         with:
           images: ${{ env.IMAGE }}
           tags: |
-            # Versioned release tag (e.g. v1.0.0) → keep the v prefix.
-            type=ref,event=tag
+            # Versioned release tag: git tag v1.0.0 → docker tag 1.0.0 (strips the v prefix,
+            # per Docker convention; type=ref would mirror the v through). type=semver also
+            # auto-attaches :latest via the default latest=auto flavor.
+            type=semver,pattern={{version}}
             # main branch push → :nightly (disposable test build).
             type=raw,value=nightly,enable=${{ github.ref == 'refs/heads/main' }}
-            # main branch push → :nightly-<sha> for traceability.
-            type=sha,prefix=nightly-
+            # main branch push → :nightly-<sha> for traceability. Gated so a vX.Y.Z
+            # tag push does NOT also inherit a nightly-<sha> tag (only main builds are nightly).
+            type=sha,prefix=nightly-,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Create and push multi-arch manifest
         working-directory: /tmp/digests
