@@ -113,16 +113,13 @@ jobs:
             $(printf '${{ env.IMAGE }}@sha256:%s ' *)
 
       - name: Inspect manifest
-        env:
-          IMAGE: ${{ env.IMAGE }}
         run: |
           # Pull the first tag actually pushed by docker/metadata-action in the previous
-          # step (env var DOCKER_METADATA_OUTPUT_JSON). The legacy logic re-derived from
-          # ${{ github.ref }} / ${{ github.sha }}, but `type=sha,prefix=nightly-` writes
-          # the short 7-char SHA while `${{ github.sha }}` is the full 40-char hash, so
-          # the inspect always 404'd on main pushes (e.g. searched for
-          # nightly-2b146e36bd89510b0027978d72fdcb2a95b5bb37 but only
-          # nightly-2b146e3 was pushed).
+          # step. DOCKER_METADATA_OUTPUT_JSON.tags[] is already fully-qualified
+          # ("ghcr.io/germondai/trawl:nightly-…") so no $IMAGE prefix needed — the legacy
+          # logic re-derived from ${{ github.ref }} / ${{ github.sha }} which disagreed
+          # with what got pushed (type=sha,prefix=nightly- writes short 7-char SHA but
+          # github.sha is the full 40-char hash).
           tag=$(jq -r '.tags[0]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
-          docker buildx imagetools inspect "$IMAGE:$tag"
+          docker buildx imagetools inspect "$tag"
 
