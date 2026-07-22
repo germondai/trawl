@@ -25,4 +25,22 @@ export const residentialProxyPool =
     process.env.RESIDENTIAL_PROXY_LIST_FILE || undefined,
   ) ?? undefined
 
+// ── MITM forward-proxy mode ────────────────────────────────────────────────────
+// Optional browser-backed HTTP(S) forward proxy (apps/api/src/proxy). Off by default.
+// When enabled, point a client's proxy setting at MITM_PROXY_PORT and every request it
+// makes is re-issued through the browser pool — for clients (e.g. Prowlarr) that only
+// consume cookies+UA from /v1 and re-fetch themselves, which fails on fingerprint-bound
+// Cloudflare clearances. See proxy/server.ts for the full rationale.
+export const MITM_PROXY_ENABLED = /^(1|true|yes)$/i.test(process.env.MITM_PROXY_ENABLED ?? "")
+export const MITM_PROXY_PORT = Number(process.env.MITM_PROXY_PORT ?? "8192")
+// CA cert + key live here (persist across restarts so the CA is installed once).
+export const MITM_PROXY_CA_DIR = process.env.MITM_PROXY_CA_DIR ?? "/data/proxy-ca"
+// Cap the tier the proxy will escalate to (e.g. keep it off residential Tier 4).
+export const MITM_PROXY_MAX_TIER = process.env.MITM_PROXY_MAX_TIER
+  ? (Number(process.env.MITM_PROXY_MAX_TIER) as 1 | 2 | 3 | 4)
+  : undefined
+// Log one line per proxied request (method, url, status, content-type, bytes). Off by
+// default — proxied clients can be chatty. Errors are always logged.
+export const MITM_PROXY_DEBUG = /^(1|true|yes)$/i.test(process.env.MITM_PROXY_DEBUG ?? "")
+
 export const startTime = Date.now()

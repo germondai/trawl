@@ -18,6 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `scripts/bench-targets.sh`, `scripts/bench-success-rate.sh`, `scripts/bench-compare.sh` — observability harnesses for measuring CF challenge latency + bypass success rate.
 
+### Added
+- **MITM forward-proxy mode** (`MITM_PROXY_ENABLED`) — a browser-backed HTTP(S) forward proxy.
+  The FlareSolverr `/v1` contract only returns cookies + user-agent; clients like Prowlarr take
+  those and re-fetch the target with their own HTTP stack, which is re-challenged on sites whose
+  Cloudflare clearance is bound to the solving browser's connection fingerprint (e.g. 1337x) — no
+  cookie is portable to a plain client. Point such a client's HTTP proxy at this instead and every
+  request is transparently re-issued through the browser pool, returning the raw response bytes
+  (so `.torrent`/binary downloads pass through intact, not just HTML). Terminates TLS with a
+  self-generated CA (persisted to `MITM_PROXY_CA_DIR`, downloadable at `GET /proxy-ca.crt`) that
+  you install into the client's trust store. New env: `MITM_PROXY_ENABLED`, `MITM_PROXY_PORT`
+  (default 8192), `MITM_PROXY_CA_DIR`, `MITM_PROXY_MAX_TIER`, `MITM_PROXY_DEBUG`.
+
 ## [1.0.0] - 2026-07-10
 
 ### Changed

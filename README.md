@@ -114,6 +114,33 @@ http://localhost:8191        # running on the same host
 http://trawl:8191            # running via Docker Compose on the same network
 ```
 
+### MITM forward-proxy mode (fingerprint-bound Cloudflare, e.g. 1337x)
+
+Some sites bind their Cloudflare clearance to the solving browser's full connection
+fingerprint. The `/v1` flow can't help there: Prowlarr keeps only the cookie + user-agent
+and **re-fetches the page with its own HTTP client**, which Cloudflare re-challenges — the
+cookie isn't portable. For those indexers, enable the browser-backed forward proxy and add
+it to Prowlarr as an **HTTP proxy** (tag it onto just the affected indexers):
+
+```env
+MITM_PROXY_ENABLED=true
+MITM_PROXY_PORT=8192
+MITM_PROXY_CA_DIR=/data/proxy-ca   # persist the CA (mount a volume)
+```
+
+1. Install the proxy's CA into the client's trust store so it accepts the per-host certs:
+   `curl http://<trawl-host>:8191/proxy-ca.crt` → add to the Prowlarr container's CA store
+   (e.g. a linuxserver `/custom-cont-init.d` script that copies it to
+   `/usr/local/share/ca-certificates/` and runs `update-ca-certificates`).
+2. Prowlarr → Settings → Indexer Proxies → **HTTP**, host `<trawl-host>`, port `8192`, give it
+   a tag, and add that tag to the CF-fingerprint-bound indexer.
+
+Every request that indexer makes (search **and** the `.torrent`/magnet grab) is then re-issued
+through the browser pool and returns the exact bytes Cloudflare served the browser.
+
+> ⚠️ A MITM proxy can impersonate any host to a client that trusts its CA. Only expose it on a
+> private interface (localhost / a private Docker network), never publicly.
+
 ## Tiers
 
 ```
