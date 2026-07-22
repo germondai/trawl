@@ -104,3 +104,24 @@ export function isBlocked(status: number, html: string): boolean {
 export function needsJs(html: string, headers: Record<string, string>): boolean {
   return isCloudflarePage(html, headers) || hasImpervaChallenge(html, headers)
 }
+
+// Lean-body threshold per challenge type. When a known challenge returns a response
+// with body shorter than this, the page is wall-graded (only the bootstrap script
+// loaded, no real content yet). Absent = the challenge is never wall-graded by
+// body length alone (relies on 4xx/5xx instead).
+const LEAN_BODY_THRESHOLDS: Partial<Record<ChallengeType, number>> = {
+  "cloudflare-interstitial": 3000,
+  imperva: 5000,
+}
+
+// True if the response is a challenge wall (page access blocked) rather than a page
+// that happens to contain a captcha widget. 4xx/5xx is HTTP-standard; the lean-stub
+// checks are TRAWL-specific heuristics (CF's auto-resolving bootstrap and Imperva's
+// sensor cookie challenge can come at 200 with body < a few KB).
+export function isChallengeWall(status: number, bodyLength: number, challengeType: ChallengeType): boolean {
+  if (challengeType === "none") return false
+  if (status === 403 || status === 503) return true
+  const threshold = LEAN_BODY_THRESHOLDS[challengeType]
+  if (threshold !== undefined && bodyLength < threshold) return true
+  return false
+}
