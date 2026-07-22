@@ -5,7 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.1] - 2026-07-18
+
+### Changed
+- `packages/browser/src/pool.ts` — renamed Firefox prefs key from `prefs` (silently ignored by camoufox-js@0.11.1) to `firefox_user_prefs` (which camoufox-js maps to Playwright's `firefoxUserPrefs`). The prefs are now actually applied.
+- `packages/browser/src/pool.ts` — added the safe-only subset of Firefox prefs: telemetry off (`datareporting.*`, `toolkit.telemetry.*`, `app.crashreporter`, `breakpad.*`), dead UI features off (`extensions.screenshots.*`, `browser.sessionstore.max_tabs_undo`), dead network services off (`browser.safebrowsing.*`, `extensions.update.*`, `browser.fixup.alternate.*`, `app.normandy.*`, `app.shield.*`, `network.connectivity-service.*`, `network.captive-portal-service.*`, `network.prefetch-next`, `beacon.enabled`), `security.OCSP.enabled: 0`, and tightened network timeouts (`tls-handshake-timeout: 30`, `connection-timeout: 60`, `response.timeout: 120`). None of these touch the JS/CSS fingerprint surface.
+- `apps/api/Dockerfile` — stage-3 prune of apt cache + `/usr/share/{locale,doc,man}` (image-size win, runtime-neutral).
+- `apps/api/Dockerfile` — added 9 Bun runtime ENV flags (`BUN_DISABLE_CJS=1`, `BUN_DEBUG=0`, `BUN_DISABLE_SOURCEMAPS=1`, `BUN_HTTP_KEEPALIVE=0`, `BUN_AGENT_DISABLE=1`, `BUN_INSPECT=0`, `BUN_LOCKFILE_MIGRATION=false`, `MIMALLOC_PURGE_DELAY=0`, `NODE_NO_WARNINGS=1`). All verified runtime-neutral in smoke tests.
+- `packages/browser/package.json` — moved `patchright` + `playwright-core` from `dependencies` to `devDependencies` (build hygiene; camoufox-js bundles both transitively at runtime).
+- All packages bumped to `1.0.1`.
+
+### Added
+- `scripts/bench-targets.sh`, `scripts/bench-success-rate.sh`, `scripts/bench-compare.sh` — observability harnesses for measuring CF challenge latency + bypass success rate.
 
 ### Added
 - **MITM forward-proxy mode** (`MITM_PROXY_ENABLED`) — a browser-backed HTTP(S) forward proxy.

@@ -1,6 +1,6 @@
 {
   "name": "@trawl/web",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "scripts": {
     "dev": "nuxt dev",
@@ -13,7 +13,7 @@
     "@nuxt/image": "^2.0.0",
     "@nuxtjs/color-mode": "^4.0.1",
     "@nuxtjs/seo": "5.3.2",
-    "@takumi-rs/core": "^2.0.2",
+    "@takumi-rs/core": "^2.3.0",
     "@vueuse/motion": "^3.0.3",
     "nuxt": "^4.4.8",
     "typescript": "^7.0.2",

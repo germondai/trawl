@@ -98,9 +98,12 @@ jobs:
         with:
           images: ${{ env.IMAGE }}
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=semver,pattern={{version}}
-            type=sha,prefix=sha-
+            # Versioned release tag (e.g. v1.0.0) → keep the v prefix.
+            type=ref,event=tag
+            # main branch push → :nightly (disposable test build).
+            type=raw,value=nightly,enable=${{ github.ref == 'refs/heads/main' }}
+            # main branch push → :nightly-<sha> for traceability.
+            type=sha,prefix=nightly-
 
       - name: Create and push multi-arch manifest
         working-directory: /tmp/digests
@@ -110,4 +113,15 @@ jobs:
             $(printf '${{ env.IMAGE }}@sha256:%s ' *)
 
       - name: Inspect manifest
-        run: docker buildx imagetools inspect ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}
+        env:
+          IMAGE: ${{ env.IMAGE }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+        run: |
+          if [[ "$REF" == refs/tags/v* ]]; then
+            tag="${REF#refs/tags/}"
+          else
+            tag="nightly-$SHA"
+          fi
+          docker buildx imagetools inspect "$IMAGE:$tag"
+

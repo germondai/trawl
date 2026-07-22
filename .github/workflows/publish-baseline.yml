@@ -7,6 +7,8 @@ name: Publish Baseline
 # Triggers:
 #   - workflow_dispatch: run manually from any branch; pick a tag via the input
 #     (default: "baseline") e.g. "baseline", "1.0.0-baseline"
+#   - push of `v*` tags (e.g., `v1.0.1`) -> docker tag derived as `1.0.1-baseline`
+#     (so cutting a release builds both `:1.0.1` and `:1.0.1-baseline` in one push)
 #   - push of `*-baseline` tags (e.g. `1.0.0-baseline`) → docker tag mirrors git tag
 
 on:
@@ -17,7 +19,9 @@ on:
         required: false
         default: 'baseline'
   push:
-    tags: ["*-baseline"]
+    tags:
+      - "v*"
+      - "*-baseline"
 
 env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/trawl
@@ -106,7 +110,19 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ github.event_name }}" == "push" ]]; then
-            TAG="${GITHUB_REF_NAME}"
+            REF="${GITHUB_REF_NAME}"
+            if [[ "${REF}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              # Versioned release tag (e.g., v1.0.1) -> derive `1.0.1-baseline`
+              TAG="${REF#v}-baseline"
+            elif [[ "${REF}" =~ ^v.*-baseline$ ]]; then
+              # Should never happen given trigger patterns, but guard so we
+              # never produce a literal `v1.0.1-baseline-baseline` docker tag.
+              echo "::error::Tag '${REF}' mixes both conventions. Push the bare vX.Y.Z tag - publish.yml handles :1.0.1, this workflow handles :1.0.1-baseline."
+              exit 1
+            else
+              # Explicit baseline tag push (e.g., `1.0.1-baseline`) -> use as-is
+              TAG="${REF}"
+            fi
           else
             TAG="${{ inputs.tag }}"
           fi

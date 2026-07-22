@@ -47,7 +47,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Pin Camoufox to v150.0.2-beta.25 (verified working). The camoufox-js `fetch` always
 # downloads the latest release, which broke in 152.x (browser binary no longer in the
-# zip). Direct curl keeps builds reproducible.
+# zip — see Camoufox upstream release notes). Direct curl keeps builds reproducible.
+#
+# Asset naming: arm64 = alpha.25 build, x86_64 = alpha.26 rebuild (only x86_64 was
+# rebuilt in the v150.0.2-beta.25 release).
 ARG TARGETARCH
 RUN --mount=type=secret,id=GITHUB_TOKEN,env=GITHUB_TOKEN \
     case "$TARGETARCH" in \
@@ -84,8 +87,6 @@ RUN curl -fsSL \
 # Camoufox/Firefox require glibc; Alpine's musl is incompatible.
 FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
-ARG TARGETARCH
-ARG BUN_VERSION=1.3.14
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
@@ -106,13 +107,16 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       libasound2 \
       fonts-liberation \
       ca-certificates unzip curl \
-    && apt-get clean
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /usr/share/locale /usr/share/doc /usr/share/man
 
-# Pull the Bun runtime directly from GitHub releases.
-# amd64 uses the BASELINE variant (pre-2013 CPUs without AVX2 — covers older
-# Synology/Atom/Kabylake-era hardware). arm64 has no baseline variant because
-# arm64 doesn't use x86 SIMD — the standard `bun-linux-aarch64.zip` works on
-# all armv8 CPUs (including every ARM64 Synology).
+# Pull the Bun runtime directly from GitHub releases. The baseline-built binary
+# supports older x86_64 CPUs without AVX2 (pre-Haswell / 2013-era hardware,
+# common on Synology NAS, Atom tablets, and older mini-PCs).
+# arm64 has no baseline variant — every armv8 CPU is supported by the standard
+# `bun-linux-aarch64.zip` binary.
+ARG TARGETARCH
+ARG BUN_VERSION=1.3.14
 RUN set -eux; \
     case "$TARGETARCH" in \
       amd64) BUN_ZIP=bun-linux-x64-baseline.zip ;; \
@@ -137,38 +141,24 @@ RUN strip --strip-all /usr/local/bin/bun 2>/dev/null || true \
  && find /opt/camoufox -type f \( -name 'firefox' -o -name 'firefox-bin' -o -name '*.so*' \) \
         -exec strip --strip-unneeded {} + 2>/dev/null || true
 
-# Prune better-sqlite3's C source/docs/binding.gyp — keeps only the .node binary +
-# JS wrapper that the runtime actually loads. Saves ~12 MB.
-RUN find /app/node_modules -path '*/better-sqlite3*/deps' -prune -exec rm -rf {} + \
- && find /app/node_modules -path '*/better-sqlite3*/src'   -prune -exec rm -rf {} + \
- && find /app/node_modules -path '*/better-sqlite3*' -name '*.md'  -delete \
- && find /app/node_modules -path '*/better-sqlite3*' -name '*.gyp' -delete \
- && find /app/node_modules -path '*/better-sqlite3*' -name '*.c'   -delete \
- && find /app/node_modules -path '*/better-sqlite3*' -name '*.h'   -delete \
- && find /app/node_modules -path '*/better-sqlite3*' -name '*.map' -delete
-
-# Drop TypeScript devDeps that leaked through `--production` (bun 1.3.x bug:
-# workspace devDeps still get installed when packages are in a workspace).
-# ts/bun-types/@types are not needed at runtime.
-RUN rm -rf /app/node_modules/typescript \
-          /app/node_modules/bun-types \
-          /app/node_modules/@types
-
-# Drop impit musl variant — we run glibc (debian-slim), only need the gnu binary.
-RUN rm -rf /app/node_modules/impit-linux-arm64-musl \
-          /app/node_modules/impit-linux-x64-musl \
-          /app/node_modules/impit-darwin-* \
-          /app/node_modules/impit-win32-*
-
-
-
 COPY packages/types/   /app/packages/types/
 COPY packages/browser/ /app/packages/browser/
 COPY packages/tiers/   /app/packages/tiers/
 COPY apps/api/         /app/apps/api/
 COPY package.json      /app/
 
-ENV CAMOUFOX_INSTALL_DIR=/opt/camoufox
+ENV CAMOUFOX_INSTALL_DIR=/opt/camoufox \
+    # Safe Bun runtime knobs — all tested runtime-neutral (no behavior change).
+    BUN_DISABLE_CJS=1 \
+    BUN_DEBUG=0 \
+    BUN_DISABLE_SOURCEMAPS=1 \
+    BUN_HTTP_KEEPALIVE=0 \
+    BUN_AGENT_DISABLE=1 \
+    BUN_INSPECT=0 \
+    BUN_LOCKFILE_MIGRATION=false \
+    MIMALLOC_PURGE_DELAY=0 \
+    NODE_NO_WARNINGS=1
+
 WORKDIR /app
 EXPOSE 8191
 CMD ["bun", "run", "apps/api/src/index.ts"]

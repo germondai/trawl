@@ -108,7 +108,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       fonts-liberation \
       ca-certificates \
       curl \
-    && apt-get clean
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /usr/share/locale /usr/share/doc /usr/share/man
 
 COPY --from=oven/bun:1.3.14  /usr/local/bin/bun /usr/local/bin/bun
 COPY --from=camoufox          /opt/camoufox      /opt/camoufox
@@ -128,7 +129,18 @@ COPY packages/tiers/   /app/packages/tiers/
 COPY apps/api/         /app/apps/api/
 COPY package.json      /app/
 
-ENV CAMOUFOX_INSTALL_DIR=/opt/camoufox
+ENV CAMOUFOX_INSTALL_DIR=/opt/camoufox \
+    # Safe Bun runtime knobs — all tested runtime-neutral (no behavior change).
+    BUN_DISABLE_CJS=1 \
+    BUN_DEBUG=0 \
+    BUN_DISABLE_SOURCEMAPS=1 \
+    BUN_HTTP_KEEPALIVE=0 \
+    BUN_AGENT_DISABLE=1 \
+    BUN_INSPECT=0 \
+    BUN_LOCKFILE_MIGRATION=false \
+    MIMALLOC_PURGE_DELAY=0 \
+    NODE_NO_WARNINGS=1
+
 WORKDIR /app
 EXPOSE 8191
 CMD ["bun", "run", "apps/api/src/index.ts"]
