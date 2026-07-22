@@ -105,7 +105,7 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
-      - name: Compute tag
+      - name: Compute tags
         id: tags
         shell: bash
         run: |
@@ -131,15 +131,22 @@ jobs:
             echo "::error::Baseline workflow must not push :latest — use publish.yml instead"
             exit 1
           fi
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "full=${IMAGE}:${TAG}" >> "$GITHUB_OUTPUT"
+          # Build the -t args. Every baseline build also moves the rolling :baseline
+          # pointer (mirrors how main pushes move :nightly) — unless the computed tag
+          # already IS "baseline" (manual dispatch default), in which case dedupe.
+          TAGS="-t ${IMAGE}:${TAG}"
+          if [[ "${TAG}" != "baseline" ]]; then
+            TAGS="${TAGS} -t ${IMAGE}:baseline"
+          fi
+          echo "versioned=${IMAGE}:${TAG}" >> "$GITHUB_OUTPUT"
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
 
       - name: Create and push multi-arch manifest
         working-directory: /tmp/digests
         run: |
           docker buildx imagetools create \
-            -t ${{ steps.tags.outputs.full }} \
+            ${{ steps.tags.outputs.tags }} \
             $(printf '${{ env.IMAGE }}@sha256:%s ' *)
 
       - name: Inspect manifest
-        run: docker buildx imagetools inspect ${{ steps.tags.outputs.full }}
+        run: docker buildx imagetools inspect ${{ steps.tags.outputs.versioned }}
