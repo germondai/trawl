@@ -1,11 +1,12 @@
 export type { OrchestratorDeps } from "./orchestrator"
 export { ScrapeError, scrape } from "./orchestrator"
-export { solvePageCaptchas } from "./solvers"
+export { type SolveResult, solvePageCaptchas } from "./solvers"
 export { runTier1 } from "./tiers/1"
 export { runTier2 } from "./tiers/2"
 export { runTier3 } from "./tiers/3"
 export { runTier4 } from "./tiers/4"
 export {
+  type ChallengeType,
   detectChallengeType,
   hasHcaptcha,
   hasImpervaChallenge,
@@ -13,6 +14,7 @@ export {
   hasTurnstile,
   isBlocked,
   isBrowserErrorPage,
+  isChallengeWall,
   isCloudflarePage,
   needsJs,
 } from "./utils/detect"
