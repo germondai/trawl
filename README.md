@@ -126,7 +126,11 @@ it to Prowlarr as an **HTTP proxy** (tag it onto just the affected indexers):
 MITM_PROXY_ENABLED=true
 MITM_PROXY_PORT=8192
 MITM_PROXY_CA_DIR=/data/proxy-ca   # persist the CA (mount a volume)
+MITM_PROXY_MAX_TIER=4              # cap escalation (e.g. 3 to stay off residential)
 ```
+
+By default the listener binds `0.0.0.0` so clients on a Docker bridge network can reach
+it; set `MITM_PROXY_HOST=127.0.0.1` to restrict it to loopback on a bare-metal host.
 
 1. Install the proxy's CA into the client's trust store so it accepts the per-host certs:
    `curl http://<trawl-host>:8191/proxy-ca.crt` → add to the Prowlarr container's CA store
@@ -221,6 +225,12 @@ git push origin v1.0.1
 | `RESIDENTIAL_PROXY_URL`          | —                        | Enables Tier 4 proxy escalation                                                     |
 | `STT_URL`                        | —                        | Local Whisper endpoint for reCAPTCHA (optional)                                     |
 | `PORT`                           | `8191`                   | API listen port                                                                     |
+| `MITM_PROXY_ENABLED`             | `false`                  | Enable the browser-backed MITM forward proxy (see [MITM forward-proxy mode](#mitm-forward-proxy-mode-fingerprint-bound-cloudflare-eg-1337x)) |
+| `MITM_PROXY_PORT`                | `8192`                   | Forward-proxy listen port                                                           |
+| `MITM_PROXY_HOST`                | `0.0.0.0`                | Bind address; `127.0.0.1` for loopback-only                                         |
+| `MITM_PROXY_CA_DIR`              | `/data/proxy-ca`         | Where the MITM CA + leaf certs are persisted (mount a volume)                       |
+| `MITM_PROXY_MAX_TIER`            | `4`                      | Cap escalation used by the proxy (e.g. `3` to stay off residential)                 |
+| `MITM_PROXY_DEBUG`               | `false`                  | Log one line per proxied request (errors are always logged)                          |
 
 ## Stack
 
