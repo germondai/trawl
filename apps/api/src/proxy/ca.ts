@@ -15,7 +15,7 @@ import forge from "node-forge"
 // reachable by the trusted client (e.g. bound to localhost / a private Docker netns).
 export class MitmCa {
   private readonly caCert: forge.pki.Certificate
-  private readonly caKey: forge.pki.PrivateKey
+  private readonly caKey: forge.pki.rsa.PrivateKey
   private readonly leafKeys: forge.pki.rsa.KeyPair
   private readonly certCache = new Map<string, string>()
   readonly caCertPem: string
@@ -82,7 +82,10 @@ export class MitmCa {
   }
 }
 
-function createCaCertificate(): { cert: forge.pki.Certificate; key: forge.pki.PrivateKey } {
+function createCaCertificate(): {
+  cert: forge.pki.Certificate
+  key: forge.pki.rsa.PrivateKey
+} {
   const keys = forge.pki.rsa.generateKeyPair(2048)
   const cert = forge.pki.createCertificate()
   cert.publicKey = keys.publicKey
@@ -104,10 +107,13 @@ function createCaCertificate(): { cert: forge.pki.Certificate; key: forge.pki.Pr
 }
 
 // SAN must carry an IP entry (type 7) for literal-IP hosts and a DNS entry (type 2)
-// otherwise, or strict clients reject the leaf.
+// otherwise, or strict clients reject the leaf. node-forge's TypeScript types narrow
+// `type` to string at the CertificateField boundary, but the runtime accepts the
+// numeric GeneralName tags ("2" / "7") — the cast below bridges the two.
 function altNamesFor(host: string): forge.pki.CertificateField[] {
   const isIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(host)
-  return [isIp ? { type: 7, ip: host } : { type: 2, value: host }]
+  const entry = isIp ? { type: "7", value: host } : { type: "2", value: host }
+  return [entry]
 }
 
 // 16 random hex bytes; leading 0 keeps it a positive integer for strict parsers.

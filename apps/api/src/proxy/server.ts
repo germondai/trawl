@@ -32,7 +32,10 @@ export interface MitmProxyOptions {
   debug?: boolean
 }
 
-export function startMitmProxy(opts: MitmProxyOptions): { ca: MitmCa; server: net.Server } {
+export function startMitmProxy(opts: MitmProxyOptions): {
+  ca: MitmCa
+  server: net.Server
+} {
   const ca = new MitmCa(opts.caDir)
 
   // Per-host loopback TLS terminators. We know the target host from the CONNECT line, so
@@ -67,7 +70,10 @@ export function startMitmProxy(opts: MitmProxyOptions): { ca: MitmCa; server: ne
         void handleConnect(clientSocket, target ?? "", tlsPortFor)
       } else {
         // Plain-HTTP proxy request: "GET http://host/path HTTP/1.1"
-        handlePlainHttp(clientSocket, first, opts).catch(() => clientSocket.destroy())
+        // `first` arrives as Buffer from Bun's net.Socket 'data' event; the lib.dom.d.ts
+        // type widens it to string|Buffer for cross-runtime compatibility, but we only
+        // ever get bytes here.
+        handlePlainHttp(clientSocket, first as Buffer, opts).catch(() => clientSocket.destroy())
       }
     })
     clientSocket.on("error", () => clientSocket.destroy())
@@ -174,8 +180,10 @@ async function reissue(
 // bencoded payload. Raw HTML is also what Cardigann-style parsers want.
 //
 // Fast path is a browser navigation reusing the domain's cached session (cf_clearance).
-// If that comes back as a Cloudflare interstitial, we run the full scrape() pipeline to
-// solve the challenge (which refreshes the session cache) and retry the raw capture once.
+// If that comes back as a Cloudflare interstitial, we rotate the proxy the same way
+// Tier 3 does (markBad → next()), retry with a fresh per-attempt context so the new
+// proxy actually applies (the pool-shared context can't be reconfigured mid-flight),
+// and only fall through to the full scrape() pipeline once proxy rotation is exhausted.
 async function fetchRaw(
   url: string,
   method: SupportedMethod,
@@ -184,19 +192,33 @@ async function fetchRaw(
 ): Promise<{ status: number; contentType: string; body: Buffer }> {
   const domain = new URL(url).hostname
   const maxTimeout = opts.maxTimeout ?? 60_000
+  const proxyPool = opts.deps.proxyPool
 
   for (let attempt = 0; attempt < 2; attempt++) {
     const handle = await opts.deps.acquireBrowser(domain)
-    const page = await handle.context.newPage()
+    // Pick a fresh proxy per attempt — proxyPool.next() is sticky-per-domain until we
+    // markBad(), at which point it rotates. No pool → no proxy, just reuse handle.context.
+    const proxy = proxyPool?.next(domain) ?? undefined
+    const createdFreshCtx = Boolean(proxy)
+    const ctx = proxy
+      ? await handle.browser.newContext({
+          viewport: null,
+          proxy: { server: proxy },
+        })
+      : handle.context
+    const page = await ctx.newPage()
     try {
       const session = await opts.deps.loadSession(domain)
       if (session?.cookies?.length) {
-        await handle.context.addCookies(session.cookies.map(toPlaywrightCookie))
+        await ctx.addCookies(session.cookies.map(toPlaywrightCookie))
         await page.setExtraHTTPHeaders({ "User-Agent": session.userAgent })
       }
       if (method !== "GET" || body !== undefined) {
         await page.route(url, (route: { continue: (o: Record<string, unknown>) => void }) =>
-          route.continue({ method, ...(body !== undefined ? { postData: body } : {}) }),
+          route.continue({
+            method,
+            ...(body !== undefined ? { postData: body } : {}),
+          }),
         )
       }
 
@@ -214,7 +236,10 @@ async function fetchRaw(
 
       let resp: PlaywrightResponse | null = null
       try {
-        resp = await page.goto(url, { waitUntil: "domcontentloaded", timeout: maxTimeout })
+        resp = await page.goto(url, {
+          waitUntil: "domcontentloaded",
+          timeout: maxTimeout,
+        })
       } catch (err) {
         // A download navigation rejects goto — wait briefly for the download event to land.
         await Promise.race([downloadSeen, sleep(3000)])
@@ -225,13 +250,17 @@ async function fetchRaw(
         const filePath = await download.path()
         const buf = filePath ? readFileSync(filePath) : Buffer.alloc(0)
         await download.delete().catch(() => {})
-        return { status: 200, contentType: contentTypeFor(download.suggestedFilename()), body: buf }
+        return {
+          status: 200,
+          contentType: contentTypeFor(download.suggestedFilename()),
+          body: buf,
+        }
       }
 
       const status: number = resp?.status() ?? 0
       const respHeaders: Record<string, string> = resp?.headers() ?? {}
       const contentType = respHeaders["content-type"] ?? "application/octet-stream"
-      const bodyBuf = Buffer.from(await resp?.body())
+      const bodyBuf = Buffer.from((await resp?.body()) ?? new Uint8Array())
 
       // Challenge interstitials are always small HTML — only sniff those, never binaries.
       const looksHtml = /text\/html/i.test(contentType)
@@ -242,20 +271,28 @@ async function fetchRaw(
         isCloudflarePage(bodyBuf.toString("utf8", 0, 4096), {})
 
       if (challenged) {
-        // Solve via the full tier pipeline (refreshes the cached session), then retry raw.
-        await scrape({ url, method, body, maxTier: opts.maxTier, maxTimeout }, opts.deps).catch(() => {})
-        continue
+        // Same IP getting re-challenged means rotation has a real shot at clearing CF —
+        // mirror Tier 3's markBad + next().
+        if (proxy && proxyPool) proxyPool.markBad(proxy)
+        // fall through to next attempt; finally still tears down the page and context
+      } else {
+        return { status, contentType, body: bodyBuf }
       }
-      return { status, contentType, body: bodyBuf }
     } finally {
       await page.close().catch(() => {})
+      // Fresh per-attempt contexts must be closed explicitly or they leak.
+      if (createdFreshCtx) await ctx.close().catch(() => {})
       opts.deps.releaseBrowser(handle.id)
     }
   }
 
   // Both raw attempts came back challenged — return whatever the solver produced as HTML.
   const solved = await scrape({ url, method, body, maxTier: opts.maxTier, maxTimeout }, opts.deps)
-  return { status: solved.statusCode || 200, contentType: "text/html; charset=utf-8", body: Buffer.from(solved.html) }
+  return {
+    status: solved.statusCode || 200,
+    contentType: "text/html; charset=utf-8",
+    body: Buffer.from(solved.html),
+  }
 }
 
 // Minimal plain-HTTP (non-TLS) proxy support, mainly for completeness / http:// targets.
