@@ -59,6 +59,9 @@ export interface SessionData {
 export interface PoolBrowser {
   id: number
   busy: boolean
+  // When the current checkout started, or undefined when idle. Used to tell a browser
+  // that is busy doing work from one whose request wedged and left it busy forever.
+  busySince?: number
   lastDomain?: string
   lastUsedAt?: number
   restartCount: number
@@ -71,6 +74,11 @@ export interface PoolStats {
   available: number
   restarts: number
   avgRestarts: number
+  // Subset of `busy` that has been checked out longer than the pool's stall threshold.
+  // A stalled entry is counted in `busy` but is not real capacity — its request wedged
+  // and will never call release(). `live` is the honest capacity number.
+  stalled: number
+  live: number
 }
 
 // Per-instance HTTP-level fingerprint (User-Agent + matching navigator.platform /
@@ -89,6 +97,9 @@ export interface BrowserFingerprint {
 // (consumers call .newPage()/.newContext()/.cookies() etc directly on these fields).
 export interface BrowserHandle {
   id: number
+  // Identifies this specific checkout. Pass it back to release() so a request that
+  // outlived its checkout can't free a browser the pool has since reclaimed.
+  lease: number
   // biome-ignore lint/suspicious/noExplicitAny: see comment above
   context: any
   // biome-ignore lint/suspicious/noExplicitAny: see comment above

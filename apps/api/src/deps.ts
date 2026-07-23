@@ -1,13 +1,16 @@
 import { BrowserPool, SessionCache } from "@trawl/browser"
 import {
   ACQUIRE_TIMEOUT_MS,
+  CLOSE_TIMEOUT_MS,
   CONTENT_PROCESSES,
+  LAUNCH_TIMEOUT_MS,
   POOL_SIZE,
   proxyPool,
   RECYCLE_AFTER_TEMPORARY_CONTEXTS,
   REDIS_URL,
   residentialProxyPool,
   SESSION_TTL,
+  STALL_TIMEOUT_MS,
 } from "./config"
 
 // Single embedded pool — no BullMQ / worker process required.
@@ -36,6 +39,9 @@ export async function initPool() {
     acquireTimeoutMs: ACQUIRE_TIMEOUT_MS,
     recycleAfterTemporaryContexts: RECYCLE_AFTER_TEMPORARY_CONTEXTS,
     contentProcesses: CONTENT_PROCESSES,
+    stallAfterMs: STALL_TIMEOUT_MS,
+    closeTimeoutMs: CLOSE_TIMEOUT_MS,
+    launchTimeoutMs: LAUNCH_TIMEOUT_MS,
   })
   await pool.init()
   pool.startHealthCheck()
@@ -47,8 +53,8 @@ export function getDeps() {
   const p = pool
   const sc = sessionCache
   return {
-    acquireBrowser: (d: string) => p.acquire(d),
-    releaseBrowser: (id: number) => p.release(id),
+    acquireBrowser: (d: string, budgetMs?: number) => p.acquire(d, budgetMs),
+    releaseBrowser: (id: number, lease?: number) => p.release(id, lease),
     // Session cache ops are no-ops when Redis is unavailable
     loadSession: (d: string) => (sc ? sc.load(d).catch(() => null) : Promise.resolve(null)),
     saveSession: (d: string, data: unknown) => (sc ? sc.save(d, data as never).catch(() => {}) : Promise.resolve()),

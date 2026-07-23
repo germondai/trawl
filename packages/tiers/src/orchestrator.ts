@@ -36,8 +36,8 @@ export function shouldFlagForRecycle(status: TierResult["status"]): boolean {
 }
 
 export interface OrchestratorDeps {
-  acquireBrowser(domain: string): Promise<BrowserHandle>
-  releaseBrowser(id: number): void
+  acquireBrowser(domain: string, budgetMs?: number): Promise<BrowserHandle>
+  releaseBrowser(id: number, lease?: number): void
   loadSession(domain: string): Promise<SessionData | null>
   saveSession(domain: string, data: SessionData): Promise<void>
   invalidateSession(domain: string): Promise<void>
@@ -97,7 +97,9 @@ export async function scrape(req: ScrapeRequest, deps: OrchestratorDeps): Promis
   }
 
   // Acquire browser for tiers 2-4
-  const handle = await deps.acquireBrowser(domain)
+  // Pass our own budget so the pool's stall detector doesn't reclaim this browser
+  // while the request is still inside the time the caller asked for.
+  const handle = await deps.acquireBrowser(domain, maxTimeout)
 
   try {
     // Tier 2: browser with cached session
@@ -251,6 +253,6 @@ export async function scrape(req: ScrapeRequest, deps: OrchestratorDeps): Promis
 
     throw new ScrapeError(`All tiers exhausted. Last failure: ${t4.reason ?? t4.status}`, timings)
   } finally {
-    deps.releaseBrowser(handle.id)
+    deps.releaseBrowser(handle.id, handle.lease)
   }
 }
