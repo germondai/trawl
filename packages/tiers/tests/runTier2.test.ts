@@ -80,4 +80,32 @@ describe("runTier2", () => {
     expect(userAgent).toEqual({ "User-Agent": session.userAgent })
     expect(pageClosed).toBe(true)
   })
+
+  test("rejects a cached session that lands on an AWS WAF interstitial", async () => {
+    let pageClosed = false
+    const page = {
+      url: () => "https://example.com/protected",
+      setExtraHTTPHeaders: async () => {},
+      on: () => {},
+      goto: async () => {},
+      waitForLoadState: async () => {},
+      content: async () =>
+        `<script>window.gokuProps={}</script>
+         <script src="https://abc.token.awswaf.com/abc/challenge.js"></script>`,
+      close: async () => {
+        pageClosed = true
+      },
+    }
+    const context = {
+      newPage: async () => page,
+      addCookies: async () => {},
+      cookies: async () => session.cookies,
+    }
+
+    const result = await runTier2("https://example.com/protected", handleWithContext(context), session, 100)
+
+    expect(result.status).toBe("blocked")
+    expect(result.reason).toBe("aws-waf-session-expired")
+    expect(pageClosed).toBe(true)
+  })
 })

@@ -234,12 +234,12 @@ async function readHttpResponse(
   const rawLen = headers["content-length"]
   const contentLength = rawLen ? Number(rawLen) : undefined
 
-  // Cloudflare defines `cf-mitigated: challenge` as an authoritative Challenge
-  // Page signal. Escalate as soon as the headers arrive instead of waiting for
-  // an unbounded/keep-alive response body to finish (or hit the 30s socket timeout).
-  // Body-based detection below remains the fallback for challenge variants that
-  // do not send this header.
-  if (!skipChallengeDetection && detectChallengeType("", headers) === "cloudflare-interstitial") {
+  // Cloudflare's `cf-mitigated: challenge` and AWS WAF's `x-amzn-waf-action`
+  // are authoritative challenge signals. Escalate as soon as headers arrive
+  // instead of waiting for an unbounded/keep-alive response body to finish.
+  // Body-based detection below remains the fallback for variants without them.
+  const headerChallengeType = detectChallengeType("", headers)
+  if (!skipChallengeDetection && isChallengeWall(status, 0, headerChallengeType)) {
     socket.destroy()
     return {
       mode: "buffer",

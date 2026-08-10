@@ -176,6 +176,45 @@ describe("directForwardHttp — buffered by default", () => {
     }
   })
 
+  test("escalates AWS WAF CAPTCHA headers without waiting for an open 405 body", async () => {
+    const sockets = new Set<net.Socket>()
+    const hangingServer = net.createServer((socket) => {
+      sockets.add(socket)
+      socket.once("close", () => sockets.delete(socket))
+      socket.write(
+        "HTTP/1.1 405 Method Not Allowed\r\n" +
+          "Content-Type: text/html\r\n" +
+          "X-Amzn-Waf-Action: captcha\r\n" +
+          "Connection: keep-alive\r\n\r\n",
+      )
+    })
+    hangingServer.listen(0, "127.0.0.1")
+    await once(hangingServer, "listening")
+    const address = hangingServer.address()
+    if (!address || typeof address === "string") throw new Error("test server did not bind a TCP port")
+
+    try {
+      const startedAt = performance.now()
+      const result = await directForwardHttp({
+        url: `http://127.0.0.1:${address.port}/captcha`,
+        method: "GET",
+        headers: {},
+        timeoutMs: 2_000,
+      })
+
+      expect(performance.now() - startedAt).toBeLessThan(500)
+      expect(result.mode).toBe("buffer")
+      if (result.mode !== "buffer") return
+      expect(result.status).toBe(405)
+      expect(result.challengeDetected).toBe(true)
+      expect(result.headers["x-amzn-waf-action"]).toBe("captcha")
+      expect(result.body.length).toBe(0)
+    } finally {
+      for (const socket of sockets) socket.destroy()
+      await new Promise<void>((resolve, reject) => hangingServer.close((error) => (error ? reject(error) : resolve())))
+    }
+  })
+
   test("buffers and de-chunks small HTML instead of treating it as a stream", async () => {
     const result = await directForwardHttp({
       url: `${baseUrl}/chunked-html`,

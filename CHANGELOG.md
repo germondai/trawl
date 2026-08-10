@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Detect AWS WAF Challenge/CAPTCHA responses across HTTP and browser tiers, solve supported audio accessibility challenges in Camoufox, and persist the resulting `aws-waf-token` session cookie.
+
 ### Changed
 - **Cold-start performance milestone:** TRAWL's complete first request, including browser launch, is now nearly **4x faster** in like-for-like Docker benchmarks. Redis validation and browser warmup now run concurrently, Tier 0 becomes available immediately, and browser capacity is published progressively. Warm-request timings vary with browser state, session caching, and challenge behavior and are not included in this cold-start comparison.
 

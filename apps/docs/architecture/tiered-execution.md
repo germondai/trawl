@@ -39,7 +39,7 @@ Accept-Encoding: gzip, deflate, br
 
 **Succeeds for:** sites that serve the requested content without a browser challenge.
 
-**Escalates for:** recognized Cloudflare, Akamai, or Imperva challenge responses and blocked status codes such as 403 or 429. Detection uses provider-specific headers and HTML markers.
+**Escalates for:** recognized Cloudflare, AWS WAF, Akamai, or Imperva challenge responses and blocked status codes such as 403 or 429. AWS WAF's `202 Challenge` and `405 CAPTCHA` responses are recognized from `x-amzn-waf-action` before the body is read. Detection also uses provider-specific HTML markers as a fallback.
 
 **Skip with:** `skipHttp: true` in the request body, or `maxTier: 1` to cap at Tier 1.
 
@@ -53,7 +53,7 @@ Reads `session:{hostname}` from Redis. If found, injects the saved cookies into 
 
 ## Tier 3 — Fresh Challenge Solve
 
-Acquires a browser from the pool (or waits up to `BROWSER_ACQUIRE_TIMEOUT_MS` — default 15s — for one to become available), creates a fresh Camoufox context, and navigates without preloaded cookies. TRAWL identifies the wall and runs the matching Cloudflare, Akamai, or Imperva wait flow until the protected page replaces the interstitial or `maxTimeout` elapses.
+Acquires a browser from the pool (or waits up to `BROWSER_ACQUIRE_TIMEOUT_MS` — default 15s — for one to become available), creates a fresh Camoufox context, and navigates without preloaded cookies. TRAWL identifies the wall and runs the matching Cloudflare, AWS WAF, Akamai, or Imperva wait flow until the protected page replaces the interstitial or `maxTimeout` elapses.
 
 On success:
 - Extracts all cookies from the page context
@@ -61,6 +61,12 @@ On success:
 - Returns the HTML and cookies to the caller
 
 Uses [Camoufox](https://github.com/daijro/camoufox) — Firefox with fingerprint patching at the C++/Juggler level to reduce common automation signals. Success still depends on the target's challenge variant, IP reputation, and upstream network conditions.
+
+### AWS WAF challenges and CAPTCHA
+
+Tier 1 and the forward proxy recognize AWS WAF `Challenge` and `CAPTCHA` rule actions. Tier 3 and Tier 4 let the official AWS challenge script mint the `aws-waf-token` in the same browser context. For an interactive CAPTCHA, TRAWL opens the accessibility audio challenge, transcribes it, submits the answer, and waits for the widget and interstitial to clear. Embedded widgets created with `AwsWafCaptcha.renderCaptcha` use the same solver after the page loads.
+
+The built-in Google speech endpoint is available without configuration. A Whisper-compatible `STT_URL` is recommended for AWS WAF audio because challenge audio and speech-recognition behavior vary between deployments. Image-grid-only variants are not currently solved.
 
 ### Akamai Bot Manager challenges
 

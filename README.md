@@ -8,7 +8,7 @@
 ## **Welcome** to <a href="https://trawl.germondai.com" target="_blank">**TRAWL**</a>! 👋
 
 Self-hosted web scraping engine with best-effort JS challenge and CAPTCHA solving.\
-Dedicated flows for Cloudflare, Akamai Bot Manager, and Imperva/Incapsula (best effort), plus Turnstile, reCAPTCHA, hCaptcha, and GeeTest.\
+Dedicated flows for Cloudflare, AWS WAF, Akamai Bot Manager, and Imperva/Incapsula (best effort), plus Turnstile, reCAPTCHA, hCaptcha, and GeeTest.\
 Much faster and more reliable FlareSolverr & Byparr alternative and drop-in replacement for your \*arr stack.
 
 ## Features
@@ -16,12 +16,12 @@ Much faster and more reliable FlareSolverr & Byparr alternative and drop-in repl
 - **2-6x faster** - compared to FlareSolverr or Byparr it returns much faster with higher success rate
 - **4-tier execution** - plain HTTP fetch → cached browser session → fresh challenge solve → residential proxy
 - **Challenge-aware HTTP/HTTPS proxy** - direct forwarding for normal traffic, automatic tier escalation for detected walls, plus WebSockets, binary bodies, and Range/206 support
-- **Multi-WAF handling** - dedicated Cloudflare, Akamai Bot Manager, and Imperva/Incapsula detection and browser flows
-- **Native captcha solving** - CF Turnstile/Interstitial, reCAPTCHA v2 (free STT), hCaptcha, GeeTest v4 Slide
+- **Multi-WAF handling** - dedicated Cloudflare, AWS WAF, Akamai Bot Manager, and Imperva/Incapsula detection and browser flows
+- **Native captcha solving** - CF Turnstile/Interstitial, AWS WAF CAPTCHA audio, reCAPTCHA v2 audio, hCaptcha, GeeTest v4 Slide
 - **Camoufox Firefox** - fingerprint-patched at the C++/Juggler level to reduce automation signals
 - **Session cache** - solved cookies and browser identity stored in Redis; accepted sessions can avoid a fresh solve
 - **FlareSolverr compatible** - works with Prowlarr, Jackett, Sonarr, and the full \*arr ecosystem out of the box
-- **No paid solver API required** - reCAPTCHA audio can use Google's free STT endpoint or an optional local Whisper service
+- **No paid solver API required** - reCAPTCHA and AWS WAF audio can use the bundled STT path or an optional local Whisper service
 
 ## Sponsors
 
@@ -394,7 +394,7 @@ for pool and mounted-file examples.
 | `PROXY_LIST_FILE`                | —                        | File containing one Tier 3 proxy URL per line                                       |
 | `RESIDENTIAL_PROXY_URL`          | —                        | Enables Tier 4 proxy escalation                                                     |
 | `RESIDENTIAL_PROXY_LIST_FILE`    | —                        | File containing one Tier 4 proxy URL per line                                       |
-| `STT_URL`                        | —                        | Local Whisper endpoint for reCAPTCHA (optional)                                     |
+| `STT_URL`                        | —                        | Whisper-compatible endpoint for reCAPTCHA/AWS WAF audio (optional; recommended for AWS WAF) |
 | `PORT`                           | `8191`                   | API listen port                                                                     |
 | `MITM_PROXY_ENABLED`             | `false`                  | Enable the challenge-bypassing HTTP/HTTPS proxy                                     |
 | `MITM_PROXY_PORT`                | `8192`                   | Forward-proxy listen port                                                           |

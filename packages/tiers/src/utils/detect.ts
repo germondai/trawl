@@ -1,12 +1,49 @@
 export type ChallengeType =
   | "cloudflare-interstitial"
   | "cloudflare-turnstile"
+  | "aws-waf"
   | "hcaptcha"
   | "recaptcha"
   | "cap"
   | "imperva"
   | "akamai"
   | "none"
+
+export type AwsWafAction = "captcha" | "challenge" | "block"
+
+export function getAwsWafAction(headers: Record<string, string> = {}): AwsWafAction | undefined {
+  const value = Object.entries(headers).find(([name]) => name.toLowerCase() === "x-amzn-waf-action")?.[1]
+  const normalized = value?.trim().toLowerCase()
+  return normalized === "captcha" || normalized === "challenge" || normalized === "block" ? normalized : undefined
+}
+
+// AWS WAF rule-action interstitial. The response header is authoritative; the
+// gokuProps + challenge/captcha script pair is the HTML fallback used when a
+// proxy or browser API doesn't expose the header. Requiring both HTML markers
+// avoids flagging ordinary sites that merely load the AWS application SDK.
+export function hasAwsWafInterstitial(html: string, headers: Record<string, string> = {}): boolean {
+  const action = getAwsWafAction(headers)
+  if (action === "captcha" || action === "challenge") return true
+
+  const hasProps = /window\.gokuProps\s*=/i.test(html)
+  const hasInterstitialScript =
+    /https:\/\/[^"'\s>]+\.(?:token|captcha)\.awswaf\.com\/[^"'\s>]+\/(?:challenge|captcha)\.js/i.test(html)
+  return hasProps && hasInterstitialScript
+}
+
+// Interactive AWS WAF CAPTCHA widget, either already rendered or declared by
+// the official JS API. This is separate from hasAwsWafInterstitial so an
+// embedded widget on an otherwise valid page can be handled by the generic
+// page solver rather than being mistaken for a full-page wall.
+export function hasAwsWafCaptcha(html: string): boolean {
+  return (
+    /AwsWafCaptcha\.renderCaptcha/i.test(html) ||
+    /id=["'](?:captcha-container|amzn-captcha-verify-button|amzn-btn-(?:audio|verify|refresh)-internal)["']/i.test(
+      html,
+    ) ||
+    /class=["'][^"']*amzn-captcha-modal/i.test(html)
+  )
+}
 
 export function isCloudflarePage(html: string, headers: Record<string, string>): boolean {
   const cfMitigated = Object.entries(headers).find(([name]) => name.toLowerCase() === "cf-mitigated")?.[1]
@@ -109,6 +146,7 @@ export function hasAkamaiChallenge(html: string, _headers: Record<string, string
 }
 
 export function detectChallengeType(html: string, headers: Record<string, string> = {}): ChallengeType {
+  if (hasAwsWafInterstitial(html, headers)) return "aws-waf"
   if (hasTurnstile(html)) return "cloudflare-turnstile"
   if (isCloudflarePage(html, headers)) return "cloudflare-interstitial"
   if (hasImpervaChallenge(html, headers)) return "imperva"
@@ -119,9 +157,11 @@ export function detectChallengeType(html: string, headers: Record<string, string
   return "none"
 }
 
-export function isBlocked(status: number, html: string): boolean {
+export function isBlocked(status: number, html: string, headers: Record<string, string> = {}): boolean {
   // 202 is used by some CDNs (e.g. IMDB) as a bot-gate before the real response
   if (status === 202 || status === 403 || status === 429) return true
+  if (status === 405 && hasAwsWafInterstitial(html, headers)) return true
+  if (hasAwsWafInterstitial(html, headers)) return true
   if (isCloudflarePage(html, {})) return true
   if (hasImpervaChallenge(html)) return true
   if (hasAkamaiChallenge(html)) return true
@@ -129,7 +169,12 @@ export function isBlocked(status: number, html: string): boolean {
 }
 
 export function needsJs(html: string, headers: Record<string, string>): boolean {
-  return isCloudflarePage(html, headers) || hasImpervaChallenge(html, headers) || hasAkamaiChallenge(html, headers)
+  return (
+    isCloudflarePage(html, headers) ||
+    hasAwsWafInterstitial(html, headers) ||
+    hasImpervaChallenge(html, headers) ||
+    hasAkamaiChallenge(html, headers)
+  )
 }
 
 // Lean-body threshold per challenge type. When a known challenge returns a response
@@ -138,6 +183,7 @@ export function needsJs(html: string, headers: Record<string, string>): boolean 
 // body length alone (relies on 4xx/5xx instead).
 const LEAN_BODY_THRESHOLDS: Partial<Record<ChallengeType, number>> = {
   "cloudflare-interstitial": 3000,
+  "aws-waf": 10_000,
   imperva: 5000,
 }
 
@@ -147,6 +193,7 @@ const LEAN_BODY_THRESHOLDS: Partial<Record<ChallengeType, number>> = {
 // sensor cookie challenge can come at 200 with body < a few KB).
 export function isChallengeWall(status: number, bodyLength: number, challengeType: ChallengeType): boolean {
   if (challengeType === "none") return false
+  if (challengeType === "aws-waf" && (status === 202 || status === 405)) return true
   if (status === 403 || status === 503) return true
   if (challengeType === "akamai") return true
   const threshold = LEAN_BODY_THRESHOLDS[challengeType]

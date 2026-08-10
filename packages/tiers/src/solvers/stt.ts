@@ -1,8 +1,8 @@
-// Speech-to-text for reCAPTCHA v2 audio challenge solving.
+// Speech-to-text for audio CAPTCHA solving (reCAPTCHA v2 and AWS WAF).
 //
 // Default (zero-cost, no key): uses Google's own free Speech Recognition endpoint.
 // Google's reCAPTCHA audio is designed for screen-reader accessibility — their own
-// STT transcribes it perfectly. We download the MP3, convert to FLAC via ffmpeg
+// STT transcribes it well. We download the audio, convert it to FLAC via ffmpeg
 // (ships in the Docker image), and POST to Google's endpoint. No billing, no signup.
 // This is the same technique the open-source Buster accessibility extension uses.
 //
@@ -34,12 +34,13 @@ async function transcribeWhisper(audioUrl: string, signal?: AbortSignal): Promis
   try {
     const res = await fetch(audioUrl, {
       signal,
-      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/149" },
+      headers: audioFetchHeaders(audioUrl),
     })
     if (!res.ok) return
 
     const form = new FormData()
-    form.append("file", await res.blob(), "audio.mp3")
+    const audio = await res.blob()
+    form.append("file", audio, audioFilename(audio.type))
     form.append("model", "whisper-1")
     form.append("language", "en")
     form.append("response_format", "text")
@@ -55,23 +56,17 @@ async function transcribeWhisper(audioUrl: string, signal?: AbortSignal): Promis
   }
 }
 
-// Converts MP3 → FLAC via ffmpeg, sends to Google's free Speech API.
+// Converts the source audio → FLAC via ffmpeg, then sends it to Google's free Speech API.
 // Tries 8000 Hz first (reCAPTCHA audio is typically low-bitrate), then 16000 Hz.
 async function transcribeGoogle(audioUrl: string, signal?: AbortSignal): Promise<string | undefined> {
   const id = randomUUID().slice(0, 8)
-  const mp3 = `/tmp/trawl-${id}.mp3`
+  const input = `/tmp/trawl-${id}.audio`
   const flac8 = `/tmp/trawl-${id}-8k.flac`
   const flac16 = `/tmp/trawl-${id}-16k.flac`
   try {
     const res = await fetch(audioUrl, {
       signal,
-      headers: {
-        // Use Firefox UA to match Camoufox — Google may serve different content by browser
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0",
-        Referer: "https://www.google.com/recaptcha/api2/bframe",
-        Accept: "audio/webm,audio/ogg,audio/wav,audio/*;q=0.9,application/ogg;q=0.7,video/*;q=0.6,*/*;q=0.5",
-        "Accept-Language": "en-US,en;q=0.5",
-      },
+      headers: audioFetchHeaders(audioUrl),
     })
     if (!res.ok) {
       console.log("[stt] audio download failed:", res.status)
@@ -83,14 +78,14 @@ async function transcribeGoogle(audioUrl: string, signal?: AbortSignal): Promise
       console.log("[stt] audio too small")
       return
     }
-    await Bun.write(mp3, audioBytes)
+    await Bun.write(input, audioBytes)
 
     // Try both sample rates — reCAPTCHA audio varies (8kHz native, 16kHz after processing)
     for (const [rate, flac] of [
       [8000, flac8],
       [16000, flac16],
     ] as [number, string][]) {
-      const ff = await $`${FFMPEG} -i ${mp3} -ar ${rate} -ac 1 -c:a flac ${flac} -y -loglevel error`.nothrow()
+      const ff = await $`${FFMPEG} -i ${input} -ar ${rate} -ac 1 -c:a flac ${flac} -y -loglevel error`.nothrow()
       if (ff.exitCode !== 0) {
         console.log(`[stt] ffmpeg ${rate}Hz error:`, ff.stderr.toString().trim().slice(0, 120))
         continue
@@ -132,13 +127,32 @@ async function transcribeGoogle(audioUrl: string, signal?: AbortSignal): Promise
     console.log("[stt] error:", err instanceof Error ? err.message : err)
     return
   } finally {
-    await $`rm -f ${mp3} ${flac8} ${flac16}`.nothrow().catch(() => {})
+    await $`rm -f ${input} ${flac8} ${flac16}`.nothrow().catch(() => {})
   }
 }
 
-// reCAPTCHA audio challenges are now word/phrase-based (not digit sequences).
-// The user hears English words and types them verbatim. Keep the full phrase,
-// just normalize whitespace and lowercase (reCAPTCHA is case-insensitive).
+function audioFetchHeaders(audioUrl: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0",
+    Accept: "audio/webm,audio/ogg,audio/wav,audio/*;q=0.9,application/ogg;q=0.7,video/*;q=0.6,*/*;q=0.5",
+    "Accept-Language": "en-US,en;q=0.5",
+  }
+  if (/google\.com\/recaptcha|recaptcha\.net/i.test(audioUrl)) {
+    headers.Referer = "https://www.google.com/recaptcha/api2/bframe"
+  }
+  return headers
+}
+
+function audioFilename(contentType: string): string {
+  if (/aac|mp4/i.test(contentType)) return "audio.aac"
+  if (/wav/i.test(contentType)) return "audio.wav"
+  if (/ogg/i.test(contentType)) return "audio.ogg"
+  if (/webm/i.test(contentType)) return "audio.webm"
+  return "audio.mp3"
+}
+
+// Accessibility challenges are word/phrase-based. Keep the full answer and
+// normalize only case and whitespace before submitting it to the widget.
 function clean(text: string): string {
   return text.toLowerCase().trim().replace(/\s+/g, " ")
 }

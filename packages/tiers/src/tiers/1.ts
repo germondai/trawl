@@ -1,7 +1,10 @@
 import { FINGERPRINT } from "@trawl/browser"
 import type { TierResult } from "@trawl/types"
 import {
+  getAwsWafAction,
   hasAkamaiChallenge,
+  hasAwsWafCaptcha,
+  hasAwsWafInterstitial,
   hasHcaptcha,
   hasRecaptcha,
   hasTurnstile,
@@ -78,6 +81,20 @@ export async function runTier1(
       }
     }
 
+    if (hasAwsWafInterstitial(previewText, responseHeaders) || hasAwsWafCaptcha(previewText)) {
+      const action = getAwsWafAction(responseHeaders)
+      return {
+        tier: 1,
+        status: "needs-js",
+        durationMs: Date.now() - start,
+        reason: action === "captcha" || hasAwsWafCaptcha(previewText) ? "aws-waf-captcha" : "aws-waf-challenge",
+        responseHeaders,
+        contentType,
+        body: rawBytes,
+        statusCode: res.status,
+      }
+    }
+
     // JS-only challenges: the page's static HTML is just a shell that loads the
     // captcha widget via <script src="...api.js">. Plain fetch sees the shell and
     // would otherwise report success — but the real content (including the widget)
@@ -132,7 +149,7 @@ export async function runTier1(
       }
     }
 
-    if (isBlocked(res.status, previewText)) {
+    if (isBlocked(res.status, previewText, responseHeaders)) {
       return {
         tier: 1,
         status: "blocked",

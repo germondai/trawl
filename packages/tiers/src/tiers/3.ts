@@ -3,11 +3,13 @@ import { closeTemporaryContext, FINGERPRINT, newFreshContext } from "@trawl/brow
 import type { Cookie, TierResult } from "@trawl/types"
 import { solvePageCaptchas } from "../solvers"
 import { waitForAkamaiResolution } from "../utils/akamaiWait"
+import { waitForAwsWafResolution } from "../utils/awsWafWait"
 import { waitForChallengeResolution } from "../utils/challengeWait"
 import { toCookies } from "../utils/cookies"
 import {
   detectChallengeType,
   hasAkamaiChallenge,
+  hasAwsWafInterstitial,
   hasImpervaChallenge,
   isBlocked,
   isBrowserErrorPage,
@@ -85,13 +87,21 @@ export async function runTier3(
 
     const remaining = maxTimeout - (Date.now() - start)
     const peekHtml = await page.content().catch(() => "")
-    const challengeType = detectChallengeType(peekHtml)
-    const resolution =
-      challengeType === "imperva"
-        ? await waitForImpervaResolution(page, remaining, url)
-        : challengeType === "akamai"
-          ? await waitForAkamaiResolution(page, remaining, url)
-          : await waitForChallengeResolution(page, remaining, url, () => mainResponse.headers)
+    const challengeType = detectChallengeType(peekHtml, mainResponse.headers)
+    let captchasSolved: string[] = []
+    let resolution: "ok" | "ip-blocked" | "timeout"
+    if (challengeType === "aws-waf") {
+      const awsResolution = await waitForAwsWafResolution(page, remaining, url, () => mainResponse.headers)
+      resolution = awsResolution.status
+      if (awsResolution.captchaSolved) captchasSolved.push("aws-waf")
+    } else {
+      resolution =
+        challengeType === "imperva"
+          ? await waitForImpervaResolution(page, remaining, url)
+          : challengeType === "akamai"
+            ? await waitForAkamaiResolution(page, remaining, url)
+            : await waitForChallengeResolution(page, remaining, url, () => mainResponse.headers)
+    }
 
     if (resolution !== "ok") {
       return {
@@ -114,13 +124,12 @@ export async function runTier3(
     // captcha solver doesn't mistake the just-solved interstitial for an in-page widget.
     await new Promise((r) => setTimeout(r, 600))
 
-    // Attempt to solve any embedded captcha widgets on the page (Turnstile, reCaptcha, hCaptcha).
+    // Attempt to solve any embedded captcha widgets on the page (AWS WAF, Turnstile, reCaptcha, hCaptcha).
     // This handles sites where the page itself loads fine but has an in-page challenge widget.
     const solveRemaining = maxTimeout - (Date.now() - start)
-    let captchasSolved: string[] = []
     if (solveRemaining > 5000) {
       const solveResult = await solvePageCaptchas(page, solveRemaining).catch(() => ({ attempted: [], solved: [] }))
-      captchasSolved = solveResult.solved
+      captchasSolved = [...new Set([...captchasSolved, ...solveResult.solved])]
     }
 
     const html = await page.content()
@@ -148,6 +157,13 @@ export async function runTier3(
       return { tier: 3, status: "blocked", durationMs: Date.now() - start, reason: "cloudflare-persistent" }
     }
 
+    if (hasAwsWafInterstitial(html, mainResponse.headers)) {
+      const pageTitle = await page.title().catch(() => "?")
+      const pageUrl = page.url()
+      console.log(`[tier3] aws-waf-persistent: url="${pageUrl}" title="${pageTitle}" html=${html.length}b`)
+      return { tier: 3, status: "blocked", durationMs: Date.now() - start, reason: "aws-waf-persistent" }
+    }
+
     if (hasImpervaChallenge(html)) {
       const pageTitle = await page.title().catch(() => "?")
       const pageUrl = page.url()
@@ -162,7 +178,7 @@ export async function runTier3(
       return { tier: 3, status: "blocked", durationMs: Date.now() - start, reason: "akamai-persistent" }
     }
 
-    if (isBlocked(mainResponse.status, html)) {
+    if (isBlocked(mainResponse.status, html, mainResponse.headers)) {
       return { tier: 3, status: "blocked", durationMs: Date.now() - start, reason: `http-${mainResponse.status}` }
     }
 

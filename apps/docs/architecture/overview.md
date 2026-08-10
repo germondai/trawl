@@ -57,4 +57,4 @@ Redis is optional — if `REDIS_URL` is not set, the session cache is disabled a
 
 ### Tiers (`packages/tiers`)
 
-The escalation logic and challenge-specific browser waits. Cloudflare, Akamai Bot Manager, and Imperva/Incapsula walls are detected separately so Tier 3 and Tier 4 can run the appropriate resolution flow. Embedded Turnstile, reCAPTCHA v2, hCaptcha, and GeeTest slide widgets are attempted after the protected page loads. See [Tiered Execution](/architecture/tiered-execution) for the full breakdown.
+The escalation logic and challenge-specific browser waits. Cloudflare, AWS WAF, Akamai Bot Manager, and Imperva/Incapsula walls are detected separately so Tier 3 and Tier 4 can run the appropriate resolution flow. Embedded AWS WAF CAPTCHA, Turnstile, reCAPTCHA v2, hCaptcha, and GeeTest slide widgets are attempted after the protected page loads. See [Tiered Execution](/architecture/tiered-execution) for the full breakdown.

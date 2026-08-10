@@ -2,7 +2,13 @@ import type { BrowserHandle } from "@trawl/browser"
 import type { Cookie, SessionData, TierResult } from "@trawl/types"
 import { solvePageCaptchas } from "../solvers"
 import { normalizeSameSite, toCookies } from "../utils/cookies"
-import { hasAkamaiChallenge, isBlocked, isBrowserErrorPage, isCloudflarePage } from "../utils/detect"
+import {
+  hasAkamaiChallenge,
+  hasAwsWafInterstitial,
+  isBlocked,
+  isBrowserErrorPage,
+  isCloudflarePage,
+} from "../utils/detect"
 import { normalizeHtml } from "../utils/html"
 import { trackMainDocumentResponses } from "../utils/mainResponse"
 import { captureResponse, isTextContentType } from "../utils/response"
@@ -81,17 +87,21 @@ export async function runTier2(
       return { tier: 2, status: "blocked", durationMs: Date.now() - start, reason: "session-expired" }
     }
 
+    if (hasAwsWafInterstitial(html, mainResponse.headers)) {
+      return { tier: 2, status: "blocked", durationMs: Date.now() - start, reason: "aws-waf-session-expired" }
+    }
+
     // A cached session that lands back on Akamai's interstitial is stale — force a
     // fresh Tier-3 solve rather than returning the ~2KB challenge stub as content.
     if (hasAkamaiChallenge(html)) {
       return { tier: 2, status: "blocked", durationMs: Date.now() - start, reason: "akamai-session-expired" }
     }
 
-    if (isBlocked(mainResponse.status, html)) {
+    if (isBlocked(mainResponse.status, html, mainResponse.headers)) {
       return { tier: 2, status: "blocked", durationMs: Date.now() - start, reason: `http-${mainResponse.status}` }
     }
 
-    // Attempt to solve any embedded captcha widgets (Turnstile, reCAPTCHA, hCaptcha).
+    // Attempt to solve any embedded captcha widgets (AWS WAF, Turnstile, reCAPTCHA, hCaptcha).
     // Pages that load cleanly via session cache may still have in-page challenge widgets.
     const solveRemaining = maxTimeout - (Date.now() - start)
     let captchasSolved: string[] = []

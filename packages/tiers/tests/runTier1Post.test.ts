@@ -141,4 +141,28 @@ describe("runTier1 — POST support", () => {
       restore()
     }
   })
+
+  test("escalates an AWS WAF 405 CAPTCHA response", async () => {
+    const html = `<script>window.gokuProps={}</script>
+      <script src="https://abc.captcha.awswaf.com/abc/captcha.js"></script>`
+    const restore = installFetchMock(
+      () =>
+        new Response(html, {
+          status: 405,
+          headers: {
+            "content-type": "text/html; charset=utf-8",
+            "x-amzn-waf-action": "captcha",
+          },
+        }),
+    )
+    try {
+      const result = await runTier1("https://example.com/protected")
+      expect(result.status).toBe("needs-js")
+      expect(result.reason).toBe("aws-waf-captcha")
+      expect(result.statusCode).toBe(405)
+      expect(result.responseHeaders?.["x-amzn-waf-action"]).toBe("captcha")
+    } finally {
+      restore()
+    }
+  })
 })

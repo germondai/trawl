@@ -92,7 +92,7 @@ session when the target still accepts it.
 
 ::: tip Challenge requests take longer
 An unprotected target may finish in Tier 1 without opening a browser. A recognized Cloudflare,
-Akamai, or Imperva wall escalates to a fresh browser flow. Later requests can use Tier 2 while the
+AWS WAF, Akamai, or Imperva wall escalates to a fresh browser flow. Later requests can use Tier 2 while the
 saved session remains valid.
 :::
 

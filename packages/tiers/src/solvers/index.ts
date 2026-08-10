@@ -3,14 +3,17 @@
 //
 // Handles:
 //   Cloudflare Turnstile  — iframe checkbox click (embedded widget mode)
+//   AWS WAF CAPTCHA       — official audio accessibility challenge via STT
 //   reCAPTCHA v2          — checkbox auto-pass + audio challenge via Google's free STT
 //   hCaptcha              — checkbox click (auto-pass path only; image grids need AI)
 //   GeeTest slide         — human-like mouse drag with canvas gap detection
 //
-// Called after the page is loaded (post-CF-interstitial).
-// Interstitial-level CF challenges are handled separately in challengeWait.ts.
+// Called after the page is loaded (post-interstitial).
+// Full-page CF and AWS WAF challenges are handled by their dedicated waiters.
 
 import type { Page } from "patchright"
+import { hasAwsWafCaptcha } from "../utils/detect"
+import { hasAwsWafCaptchaWidget, solveAwsWafCaptcha } from "./awsWaf"
 import { hasGeetestSlide, solveGeetestSlide } from "./geetest"
 import { hasHcaptchaWidget, solveHcaptcha } from "./hcaptcha"
 import { hasRecaptchaV2, solveRecaptchaV2 } from "./recaptcha"
@@ -85,11 +88,12 @@ export async function solvePageCaptchas(page: Page, timeoutMs = 30_000): Promise
   // Quick HTML scan — skip detection entirely for pages with no widget markers
   const html = await page.content().catch(() => "")
   const mightHaveTurnstile = /cf-turnstile|cloudflare\.com\/turnstile/i.test(html)
+  const mightHaveAwsWaf = hasAwsWafCaptcha(html)
   const mightHaveRecaptcha = /g-recaptcha|google\.com\/recaptcha|recaptcha\.net|grecaptcha/i.test(html)
   const mightHaveHcaptcha = /h-captcha|hcaptcha\.com/i.test(html)
   const mightHaveGeetest = /geetest|gt_container|initGeetest/i.test(html)
 
-  if (!mightHaveTurnstile && !mightHaveRecaptcha && !mightHaveHcaptcha && !mightHaveGeetest) {
+  if (!mightHaveTurnstile && !mightHaveAwsWaf && !mightHaveRecaptcha && !mightHaveHcaptcha && !mightHaveGeetest) {
     return { attempted: [], solved: [] }
   }
 
@@ -113,18 +117,20 @@ export async function solvePageCaptchas(page: Page, timeoutMs = 30_000): Promise
   // GeeTest/hCaptcha detect via HTML markers (instant). If nothing in 3s, skip.
   const DETECT_MS = 3_000
 
-  const [hasTurnstile, hasHcaptcha, hasRecaptcha, hasGeetest] = await Promise.all([
+  const [hasTurnstile, hasAwsWaf, hasHcaptcha, hasRecaptcha, hasGeetest] = await Promise.all([
     mightHaveTurnstile ? detectTurnstile(page, DETECT_MS) : Promise.resolve(false),
+    mightHaveAwsWaf ? hasAwsWafCaptchaWidget(page, DETECT_MS) : Promise.resolve(false),
     mightHaveHcaptcha ? hasHcaptchaWidget(page, DETECT_MS) : Promise.resolve(false),
     mightHaveRecaptcha ? hasRecaptchaV2(page, DETECT_MS) : Promise.resolve(false),
     mightHaveGeetest ? hasGeetestSlide(page, DETECT_MS) : Promise.resolve(false),
   ])
 
-  const count = [hasTurnstile, hasHcaptcha, hasRecaptcha, hasGeetest].filter(Boolean).length
+  const count = [hasTurnstile, hasAwsWaf, hasHcaptcha, hasRecaptcha, hasGeetest].filter(Boolean).length
   if (count === 0) {
     console.log(
       `[solvers] markers found in HTML but no interactive widgets detected (${[
         mightHaveTurnstile && "turnstile",
+        mightHaveAwsWaf && "aws-waf",
         mightHaveRecaptcha && "recaptcha",
         mightHaveHcaptcha && "hcaptcha",
         mightHaveGeetest && "geetest",
@@ -140,6 +146,11 @@ export async function solvePageCaptchas(page: Page, timeoutMs = 30_000): Promise
   if (hasTurnstile) {
     attempted.push("turnstile")
     if (await solveTurnstile(page, perMs).catch(() => false)) solved.push("turnstile")
+  }
+
+  if (hasAwsWaf) {
+    attempted.push("aws-waf")
+    if (await solveAwsWafCaptcha(page, perMs).catch(() => false)) solved.push("aws-waf")
   }
 
   if (hasRecaptcha) {
