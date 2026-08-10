@@ -123,7 +123,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       libdrm2 libgbm1 \
       libasound2 \
       fonts-liberation \
-      ca-certificates unzip curl \
+      ca-certificates unzip curl ffmpeg \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /usr/share/locale /usr/share/doc /usr/share/man
 

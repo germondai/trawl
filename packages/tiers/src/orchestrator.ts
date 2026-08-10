@@ -49,6 +49,17 @@ const extractDomain = (url: string): string => {
 const hasUsablePayload = (result: { status: TierResult["status"]; html?: string; body?: Uint8Array }): boolean =>
   result.status === "success" && (result.body !== undefined || Boolean(result.html))
 
+export function tier4ProxyUnavailableMessage(
+  tier3: Pick<TierResult, "reason" | "status">,
+  residentialPool?: ProxyPool,
+): string {
+  const tier3Failure = `Tier 3 failed (${tier3.reason ?? tier3.status}).`
+  if (residentialPool && residentialPool.size > 0) {
+    return `${tier3Failure} Residential proxy pool is configured, but every proxy is temporarily cooling down; retry later.`
+  }
+  return `${tier3Failure} Set RESIDENTIAL_PROXY_URL (or pass a proxy per-request) to enable Tier 4 proxy escalation.`
+}
+
 export async function scrape(req: ScrapeRequest, deps: OrchestratorDeps): Promise<ScrapeResult> {
   const totalStart = Date.now()
   const maxTimeout = req.maxTimeout ?? 60_000
@@ -196,10 +207,7 @@ export async function scrape(req: ScrapeRequest, deps: OrchestratorDeps): Promis
     // supplied either per-request (req.proxy) or via the configured residential pool.
     let proxy4 = req.proxy ?? deps.residentialProxyPool?.next(domain)
     if (!proxy4) {
-      throw new ScrapeError(
-        `Tier 3 failed (${t3.reason ?? t3.status}). Set RESIDENTIAL_PROXY_URL (or pass a proxy per-request) to enable Tier 4 proxy escalation.`,
-        timings,
-      )
+      throw new ScrapeError(tier4ProxyUnavailableMessage(t3, deps.residentialProxyPool), timings)
     }
 
     let t4: Awaited<ReturnType<typeof runTier4>>

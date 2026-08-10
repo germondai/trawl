@@ -50,6 +50,9 @@ interface WidgetState {
   stage: WidgetStage
   answer?: string
   audioToggleClicked: boolean
+  audioHidden?: boolean
+  audioVersion?: number
+  refreshClicks?: number
   submitted: boolean
 }
 
@@ -72,9 +75,10 @@ class MockLocator {
     if (this.selector.includes(", ")) return this.state.stage !== "solved"
     if (this.selector.includes("amzn-captcha-verify-button")) return this.state.stage === "start"
     if (this.selector.includes("amzn-btn-audio-internal")) return this.state.stage === "visual"
-    if (this.selector.includes("audio")) return this.state.stage === "audio"
+    if (this.selector.includes("audio")) return this.state.stage === "audio" && !this.state.audioHidden
     if (this.selector.includes("input")) return this.state.stage === "audio"
     if (this.selector.includes("amzn-btn-verify-internal")) return this.state.stage === "audio"
+    if (this.selector.includes("amzn-btn-refresh-internal")) return this.state.stage === "audio"
     return false
   }
 
@@ -90,6 +94,9 @@ class MockLocator {
     } else if (this.selector.includes("amzn-btn-verify-internal")) {
       this.state.submitted = true
       this.state.stage = "solved"
+    } else if (this.selector.includes("amzn-btn-refresh-internal")) {
+      this.state.refreshClicks = (this.state.refreshClicks ?? 0) + 1
+      this.state.audioVersion = (this.state.audioVersion ?? 0) + 1
     }
   }
 
@@ -98,7 +105,7 @@ class MockLocator {
   }
 
   async evaluate(): Promise<string> {
-    return "data:audio/aac;base64,YXVkaW8="
+    return `data:audio/aac;base64,${Buffer.from(`audio-${this.state.audioVersion ?? 0}`).toString("base64")}`
   }
 }
 
@@ -132,10 +139,16 @@ describe("AWS WAF CAPTCHA browser flow", () => {
     )
     expect(extractAwsWafAudioAnswer("a doctrine of the analysis height")).toBe("height")
     expect(extractAwsWafAudioAnswer("insecurities")).toBe("insecurities")
+    expect(extractAwsWafAudioAnswer("type one of the two following words spoken by me")).toBeUndefined()
   })
 
   test("switches to audio, transcribes, submits, and observes the token", async () => {
-    const state: WidgetState = { stage: "start", audioToggleClicked: false, submitted: false }
+    const state: WidgetState = {
+      stage: "start",
+      audioToggleClicked: false,
+      audioHidden: true,
+      submitted: false,
+    }
     const page = mockAwsPage(state)
     let transcribedSource = ""
 
@@ -153,6 +166,33 @@ describe("AWS WAF CAPTCHA browser flow", () => {
     expect(state.submitted).toBe(true)
     expect(transcribedSource).toStartWith("data:audio/aac;base64,")
     expect(await getAwsWafToken(page, "shop.example.com")).toBe("fresh-token")
+  })
+
+  test("reads Eventbrite's hidden audio element and refreshes after each empty transcript", async () => {
+    const state: WidgetState = {
+      stage: "start",
+      audioToggleClicked: false,
+      audioHidden: true,
+      audioVersion: 0,
+      refreshClicks: 0,
+      submitted: false,
+    }
+    let transcriptionAttempts = 0
+
+    const solved = await solveAwsWafCaptcha(mockAwsPage(state), 5_000, {
+      maxAttempts: 3,
+      sleep: async () => {},
+      transcribe: async (source) => {
+        transcriptionAttempts++
+        expect(source).toStartWith("data:audio/aac;base64,")
+        return undefined
+      },
+    })
+
+    expect(solved).toBe(false)
+    expect(transcriptionAttempts).toBe(3)
+    expect(state.refreshClicks).toBe(3)
+    expect(state.submitted).toBe(false)
   })
 
   test("full-page waiter invokes the solver and waits for a stable cleared page", async () => {

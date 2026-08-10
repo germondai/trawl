@@ -120,6 +120,11 @@ export class ProxyPool {
   // by next()/random() until the cooldown expires. Also drops any sticky-domain mapping
   // pointing at it so the next call for that domain picks a different proxy.
   markBad(url: string): void {
+    // A cooldown only helps when rotation is possible. Cooling the sole proxy
+    // makes the next request incorrectly look unconfigured and cannot improve
+    // the current request, which already bounds retries by proxy identity.
+    if (this.proxies.length <= 1) return
+
     const entry = this.proxies.find((p) => p.url === url)
     if (entry) entry.badUntil = Date.now() + COOLDOWN_MS
     for (const [domain, sticky] of this.stickyByDomain) {

@@ -125,6 +125,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       fonts-liberation \
       ca-certificates \
       curl \
+      ffmpeg \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /usr/share/locale /usr/share/doc /usr/share/man
 

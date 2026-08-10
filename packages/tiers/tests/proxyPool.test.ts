@@ -33,7 +33,14 @@ describe("ProxyPool", () => {
     expect(after).toBeTruthy()
   })
 
-  test("returns undefined once every proxy is marked bad", () => {
+  test("keeps a sole configured proxy available after a blocked attempt", () => {
+    const pool = new ProxyPool(["http://home:8080"])
+    pool.markBad("http://home:8080")
+    expect(pool.next("example.com")).toBe("http://home:8080")
+    expect(pool.random()).toBe("http://home:8080")
+  })
+
+  test("returns undefined once every proxy in a rotatable pool is marked bad", () => {
     const pool = new ProxyPool(["http://p1:8080", "http://p2:8080"])
     pool.markBad("http://p1:8080")
     pool.markBad("http://p2:8080")

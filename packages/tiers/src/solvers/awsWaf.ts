@@ -81,7 +81,8 @@ export async function solveAwsWafCaptcha(
   if (timeoutMs <= 0) return false
 
   const sleep = options.sleep ?? defaultSleep
-  const transcribe = options.transcribe ?? transcribeAudio
+  const transcribe =
+    options.transcribe ?? ((audioUrl, signal) => transcribeAudio(audioUrl, signal, { challenge: "aws-waf" }))
   const maxAttempts = options.maxAttempts ?? 3
   const deadline = Date.now() + timeoutMs
   const targetHost = hostnameOf(page.url())
@@ -158,7 +159,7 @@ export async function solveAwsWafCaptcha(
         return true
       }
 
-      const nextAudio = await readCurrentAudioSource(page)
+      const nextAudio = await readCurrentAwsWafAudioSource(page)
       if (nextAudio && nextAudio !== previousAudio) break
       await sleep(250)
     }
@@ -204,7 +205,7 @@ async function findAudioTask(
   const deadline = Date.now() + Math.max(timeoutMs, 0)
   do {
     const input = await firstVisible(page, ANSWER_SELECTORS, 100)
-    const audioSource = await readCurrentAudioSource(page)
+    const audioSource = await readCurrentAwsWafAudioSource(page)
     if (input && audioSource && audioSource !== previousAudio) return { input, audioSource }
     if (Date.now() >= deadline) break
     await sleep(150)
@@ -212,7 +213,7 @@ async function findAudioTask(
   return undefined
 }
 
-async function readCurrentAudioSource(page: Page): Promise<string> {
+export async function readCurrentAwsWafAudioSource(page: Page): Promise<string> {
   for (const selector of AUDIO_SELECTORS) {
     const audio = page.locator(selector).first()
     if ((await audio.count().catch(() => 0)) === 0) continue
@@ -301,6 +302,10 @@ export function extractAwsWafAudioAnswer(transcript: string | undefined): string
     const answer = words.find((word) => !["a", "an", "the"].includes(word))
     if (answer) return answer
   }
+
+  // An instruction-only recognition is not an answer. Returning its final
+  // word (usually "me") submits a guaranteed failure instead of refreshing.
+  if (marker || spokenByMe >= 0) return
 
   const words = normalized.match(/[a-z0-9]+(?:['’-][a-z0-9]+)*/g) ?? []
   return words.at(-1)
