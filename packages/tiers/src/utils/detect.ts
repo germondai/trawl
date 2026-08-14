@@ -6,6 +6,7 @@ export type ChallengeType =
   | "cap"
   | "imperva"
   | "akamai"
+  | "aws-waf"
   | "none"
 
 export function isCloudflarePage(html: string, headers: Record<string, string>): boolean {
@@ -108,6 +109,12 @@ export function hasAkamaiChallenge(html: string, _headers: Record<string, string
   return false
 }
 
+// AWS WAF JavaScript challenge — the interstitial page that loads challenge.js to
+// issue an aws-waf-token cookie before redirecting to the protected resource.
+export function hasAwsWafChallenge(html: string): boolean {
+  return /awsWafCookieDomainList|window\.gokuProps|token\.awswaf\.com\/[^"']*challenge\.js/i.test(html)
+}
+
 export function detectChallengeType(html: string, headers: Record<string, string> = {}): ChallengeType {
   if (hasTurnstile(html)) return "cloudflare-turnstile"
   if (isCloudflarePage(html, headers)) return "cloudflare-interstitial"
@@ -116,6 +123,7 @@ export function detectChallengeType(html: string, headers: Record<string, string
   if (hasHcaptcha(html)) return "hcaptcha"
   if (hasRecaptcha(html)) return "recaptcha"
   if (hasCapChallenge(html)) return "cap"
+  if (hasAwsWafChallenge(html)) return "aws-waf"
   return "none"
 }
 
@@ -146,9 +154,12 @@ const LEAN_BODY_THRESHOLDS: Partial<Record<ChallengeType, number>> = {
 // checks are TRAWL-specific heuristics (CF's auto-resolving bootstrap and Imperva's
 // sensor cookie challenge can come at 200 with body < a few KB).
 export function isChallengeWall(status: number, bodyLength: number, challengeType: ChallengeType): boolean {
+  // AWS WAF returns 202 with an empty body as the JS-challenge gate; isBlocked() already
+  // handles 202, but isChallengeWall() is used independently in the MITM proxy path.
+  if (status === 202 && bodyLength === 0) return true
   if (challengeType === "none") return false
   if (status === 403 || status === 503) return true
-  if (challengeType === "akamai") return true
+  if (challengeType === "akamai" || challengeType === "aws-waf") return true
   const threshold = LEAN_BODY_THRESHOLDS[challengeType]
   if (threshold !== undefined && bodyLength < threshold) return true
   return false
