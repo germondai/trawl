@@ -547,7 +547,8 @@ function writeResponse(sock: net.Socket, status: number, body: Buffer, contentTy
 }
 
 // Buffered responses preserve end-to-end headers and derive a fresh body length.
-function writeResponseFromBuffer(
+// Exported for unit tests only — not part of the public proxy API.
+export function writeResponseFromBuffer(
   sock: net.Socket,
   status: number,
   upstreamHeaders: Record<string, string>,
@@ -562,6 +563,14 @@ function writeResponseFromBuffer(
     if (RESPONSE_HOP_BY_HOP_HEADERS.has(lower)) continue
     if (lower === "content-length") continue
     if (lower === "content-type") emittedContentType = true
+    // Playwright joins multiple Set-Cookie values with \n into one map entry.
+    // Emit each cookie as its own header line — RFC 6265 forbids comma-folding.
+    if (lower === "set-cookie") {
+      for (const cookie of value.split("\n")) {
+        if (cookie.trim()) headerLines.push(`${name}: ${cookie.trim()}`)
+      }
+      continue
+    }
     headerLines.push(`${name}: ${value}`)
   }
   if (!emittedContentType) headerLines.push(`Content-Type: ${ct}`)
