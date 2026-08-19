@@ -4,15 +4,24 @@ import type { Page, Response } from "patchright"
 import { isTextContentType } from "./response"
 
 // Captured bodies sit in memory next to a browser slot, so every dimension is bounded:
-// how many patterns are honoured, how many bodies are kept, how big one body may be and
-// how many bytes all of them together may take. A body over its budget is trimmed and
-// flagged `truncated`; anything else past a cap is dropped whole. All caps are
-// env-tunable.
+// how many patterns are honoured, how many bodies are kept, how big one body may be, how
+// many bytes all of them together may take, and — because a read cannot be cut short once
+// started — how large a body this process will agree to read at all. A body over its keep
+// budget is trimmed and flagged `truncated`; anything past a cap is dropped whole. All
+// caps are env-tunable.
 const MAX_PATTERNS = Number(process.env.CAPTURE_MAX_RESPONSE_PATTERNS ?? 10)
 const MAX_RESPONSES = Number(process.env.CAPTURE_MAX_RESPONSES ?? 5)
 const MAX_BODY_BYTES = Number(process.env.CAPTURE_MAX_RESPONSE_BYTES ?? 5_242_880)
 const MAX_TOTAL_BYTES = Number(process.env.CAPTURE_MAX_RESPONSE_TOTAL_BYTES ?? 10_485_760)
 const BODY_TIMEOUT_MS = Number(process.env.CAPTURE_BODY_TIMEOUT_MS ?? 5_000)
+// patchright 1.61 has no size-limited body read — see `onWireSize` — so a read is bounded
+// by declining to start it. Trimming to `MAX_BODY_BYTES` still needs the body in hand, so
+// the ceiling sits above that cap: past it the body is not read at all.
+const MAX_READ_BYTES = Number(process.env.CAPTURE_MAX_READ_BYTES ?? MAX_BODY_BYTES * 2)
+// A response of unknown length is charged this much while its read is in flight, so a
+// chunked body is never admitted for free. Capped at one read's share of the budget it is
+// charged against, so the floor never disables reads the read-count cap already bounds.
+const UNKNOWN_BODY_BYTES = Number(process.env.CAPTURE_UNKNOWN_BODY_BYTES ?? 262_144)
 
 // The settle window holds the page open after load so a late XHR still lands. It ends on
 // the first match, on `waitForSelector`, on network idle, or at the deadline.
@@ -21,6 +30,10 @@ const MAX_SETTLE_MS = Number(process.env.CAPTURE_MAX_SETTLE_MS ?? 60_000)
 // A data fetch on a delayed timer is indistinguishable from a quiet network until it
 // fires, so network idle is ignored for the first stretch of the window.
 const IDLE_FLOOR_MS = Number(process.env.CAPTURE_SETTLE_IDLE_FLOOR_MS ?? 5_000)
+
+const share = (budget: number, slots: number): number =>
+  Math.min(UNKNOWN_BODY_BYTES, Math.floor(budget / Math.max(1, slots)))
+const UNKNOWN_RESPONSE_CHARGE = share(MAX_TOTAL_BYTES, MAX_RESPONSES)
 
 const NEVER = new Promise<void>(() => {})
 
@@ -38,6 +51,33 @@ export interface ResponseCapture {
 const NO_RESPONSE_CAPTURE: ResponseCapture = { settle: async () => {}, drain: async () => undefined }
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err))
+
+const declaredLength = (response: Response): number => Math.max(0, Number(response.headers()["content-length"]) || 0)
+
+/**
+ * The size the body took on the wire, or 0 when it cannot be known.
+ *
+ * patchright 1.61 exposes no size-limited body read: the `Response.body` protocol call
+ * takes no parameters at all (`scheme.ResponseBodyParams = tOptional(tObject({}))`) and
+ * answers with the whole decoded buffer, and the one chunked reader in the client,
+ * `Stream.read({ size })`, hangs off artifacts and is unreachable from a response. So the
+ * only way to bound a read is to decline to start it, and `Request.sizes()` is what makes
+ * that decision possible for a chunked response: it reports the received body size even
+ * where no `Content-Length` was sent. It settles when the request finishes, which is what
+ * `body()` waits on anyway, so asking costs a protocol round trip and no extra wait.
+ *
+ * The size it reports is the encoded one; a compressed body still decodes to more than
+ * this in the browser and again in this process, which no API here can cap.
+ */
+const onWireSize = async (response: Response): Promise<number> => {
+  const declared = declaredLength(response)
+  if (declared > 0) return declared
+  try {
+    return Math.max(0, (await response.request().sizes()).responseBodySize || 0)
+  } catch {
+    return 0
+  }
+}
 
 /** A pattern with `*` or `?` is a glob matched against the whole URL, anything else a substring. */
 const compile = (pattern: string): ((url: string) => boolean) => {
@@ -80,6 +120,7 @@ export function attachResponseCapture(page: Page, options: ResponseCaptureOption
   const pending: Promise<void>[] = []
   const timers: ReturnType<typeof setTimeout>[] = []
   let bytesUsed = 0
+  let inflightBytes = 0
   let dropped = 0
   let markFirstBody: () => void = () => {}
   const firstBody = new Promise<void>((resolve) => {
@@ -110,12 +151,30 @@ export function attachResponseCapture(page: Page, options: ResponseCaptureOption
     }
   }
 
-  const readBody = async (response: Response, entry: CapturedResponseEntry): Promise<void> => {
+  const readBody = async (response: Response, entry: CapturedResponseEntry, charged: number): Promise<void> => {
+    let held = charged
     try {
-      encode(Buffer.from(await response.body()), response.headers()["content-type"] ?? "", entry)
+      const size = await onWireSize(response)
+      if (size > MAX_READ_BYTES) {
+        entry.error = `body of ${size} bytes is past the ${MAX_READ_BYTES} byte read ceiling`
+        return
+      }
+      // Measured before a byte is allocated, so the reads running at once are bounded by
+      // the budget rather than by the number of matches times the ceiling.
+      if (size > held) {
+        if (inflightBytes + size - held > MAX_TOTAL_BYTES) {
+          entry.error = "capture budget held by reads in flight"
+          return
+        }
+        inflightBytes += size - held
+        held = size
+      }
+      encode(await response.body(), response.headers()["content-type"] ?? "", entry)
       if (entry.body !== null) markFirstBody()
     } catch (err) {
       entry.error = `body read failed: ${message(err)}`
+    } finally {
+      inflightBytes -= held
     }
   }
 
@@ -139,7 +198,13 @@ export function attachResponseCapture(page: Page, options: ResponseCaptureOption
         truncated: false,
       }
       entries.push(entry)
-      pending.push(readBody(response, entry))
+      const charge = Math.min(Math.max(declaredLength(response), UNKNOWN_RESPONSE_CHARGE), MAX_READ_BYTES)
+      if (bytesUsed + inflightBytes + charge > MAX_TOTAL_BYTES) {
+        entry.error = "total capture budget exhausted"
+        return
+      }
+      inflightBytes += charge
+      pending.push(readBody(response, entry, charge))
     } catch {
       dropped++
     }

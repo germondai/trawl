@@ -16,16 +16,36 @@ const mainFrame = {}
 
 const response = (
   url: string,
-  options: { status?: number; contentType?: string | null; body?: Buffer | Error } = {},
+  options: {
+    status?: number
+    contentType?: string | null
+    body?: Buffer | Error
+    contentLength?: number
+    wireSize?: number
+    onRead?: () => void
+  } = {},
 ) => ({
   url: () => url,
   status: () => options.status ?? 200,
-  headers: () => (options.contentType === null ? {} : { "content-type": options.contentType ?? "application/json" }),
+  headers: () => ({
+    ...(options.contentType === null ? {} : { "content-type": options.contentType ?? "application/json" }),
+    ...(options.contentLength ? { "content-length": String(options.contentLength) } : {}),
+  }),
   body: async () => {
+    options.onRead?.()
     if (options.body instanceof Error) throw options.body
     return options.body ?? Buffer.from('{"items":[1,2]}')
   },
-  request: () => ({ isNavigationRequest: () => false, frame: () => mainFrame }),
+  request: () => ({
+    isNavigationRequest: () => false,
+    frame: () => mainFrame,
+    sizes: async () => ({
+      requestBodySize: 0,
+      requestHeadersSize: 0,
+      responseBodySize: options.wireSize ?? 0,
+      responseHeadersSize: 0,
+    }),
+  }),
 })
 
 const documentResponse = (url: string, status = 200) => ({
@@ -99,6 +119,7 @@ const poolHandle = (page: unknown): BrowserHandle =>
   }) satisfies BrowserHandle
 
 const MAX_BODY_BYTES = 5_242_880
+const MAX_READ_BYTES = MAX_BODY_BYTES * 2
 
 describe("attachResponseCapture", () => {
   test("attaches nothing and captures nothing without patterns", async () => {
@@ -189,6 +210,122 @@ describe("attachResponseCapture", () => {
     const entries = await capture.drain()
     expect(entries?.map((entry) => entry.body?.length ?? null)).toEqual([MAX_BODY_BYTES, MAX_BODY_BYTES, null])
     expect(entries?.[2].error).toBe("total capture budget exhausted")
+  })
+
+  test("never reads a body whose declared length is past the read ceiling", async () => {
+    const { page, emitter } = makePage()
+    let read = false
+
+    const capture = attachResponseCapture(page as never, { captureResponses: ["/api/search"] })
+    emitter.emit(
+      "response",
+      response("https://example.com/api/search", {
+        contentLength: MAX_READ_BYTES + 1,
+        onRead: () => {
+          read = true
+        },
+      }),
+    )
+
+    const entries = await capture.drain()
+    expect(read).toBe(false)
+    expect(entries?.[0].body).toBeNull()
+    expect(entries?.[0].error).toContain("read ceiling")
+  })
+
+  test("measures an undeclared body before reading it, and refuses an oversize one", async () => {
+    const { page, emitter } = makePage()
+    let read = false
+
+    const capture = attachResponseCapture(page as never, { captureResponses: ["/api/"] })
+    emitter.emit(
+      "response",
+      response("https://example.com/api/stream", {
+        wireSize: MAX_READ_BYTES + 1,
+        onRead: () => {
+          read = true
+        },
+      }),
+    )
+    emitter.emit("response", response("https://example.com/api/small", { wireSize: 15 }))
+
+    const entries = await capture.drain()
+    expect(read).toBe(false)
+    expect(entries?.[0].error).toContain("read ceiling")
+    expect(entries?.[1].body).toBe('{"items":[1,2]}')
+  })
+
+  test("still trims a body between the keep cap and the read ceiling", async () => {
+    const { page, emitter } = makePage()
+    const raw = Buffer.alloc(MAX_BODY_BYTES + 4_096, 0x61)
+
+    const capture = attachResponseCapture(page as never, { captureResponses: ["/api/search"] })
+    emitter.emit(
+      "response",
+      response("https://example.com/api/search", { body: raw, contentLength: raw.length, wireSize: raw.length }),
+    )
+
+    const entries = await capture.drain()
+    expect(entries?.[0].truncated).toBe(true)
+    expect(entries?.[0].body).toHaveLength(MAX_BODY_BYTES)
+  })
+
+  test("charges reads in flight, so a burst is refused before its bodies are read", async () => {
+    const { page, emitter } = makePage()
+    const reads: string[] = []
+    let release = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+
+    const capture = attachResponseCapture(page as never, { captureResponses: ["/api/"] })
+    for (let i = 0; i < 3; i++) {
+      const url = `https://example.com/api/page-${i}`
+      emitter.emit("response", {
+        ...response(url, { contentLength: MAX_BODY_BYTES }),
+        body: async () => {
+          reads.push(url)
+          await gate
+          return Buffer.from('{"items":[1,2]}')
+        },
+      })
+    }
+    release()
+
+    const entries = await capture.drain()
+    expect(reads).toHaveLength(2)
+    expect(entries?.[2].body).toBeNull()
+    expect(entries?.[2].error).toBe("total capture budget exhausted")
+  })
+
+  test("refuses a measured body that the reads already in flight leave no room for", async () => {
+    const { page, emitter } = makePage()
+    const reads: string[] = []
+    let release = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+
+    const capture = attachResponseCapture(page as never, { captureResponses: ["/api/"] })
+    for (let i = 0; i < 2; i++) {
+      const url = `https://example.com/api/page-${i}`
+      emitter.emit("response", {
+        ...response(url, { wireSize: 6_291_456 }),
+        body: async () => {
+          reads.push(url)
+          await gate
+          return Buffer.from('{"items":[1,2]}')
+        },
+      })
+    }
+    // Released off the microtask queue, so every read has been measured and either
+    // reserved or refused before the first body lands.
+    setTimeout(release, 0)
+
+    const entries = await capture.drain()
+    expect(reads).toEqual(["https://example.com/api/page-0"])
+    expect(entries?.[1].body).toBeNull()
+    expect(entries?.[1].error).toBe("capture budget held by reads in flight")
   })
 
   test("records the reason when a matched body cannot be read", async () => {

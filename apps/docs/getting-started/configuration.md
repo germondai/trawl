@@ -167,6 +167,8 @@ body is read.
 | `CAPTURE_MAX_RESPONSES` | `5` | Bodies kept per page, in arrival order |
 | `CAPTURE_MAX_RESPONSE_BYTES` | `5242880` | Bytes kept per body; past it the body is trimmed and flagged `truncated` |
 | `CAPTURE_MAX_RESPONSE_TOTAL_BYTES` | `10485760` | Bytes kept across all bodies of one page |
+| `CAPTURE_MAX_READ_BYTES` | `2 x CAPTURE_MAX_RESPONSE_BYTES` | Largest body this process will read at all; a larger one is reported with an `error` instead of a trimmed prefix |
+| `CAPTURE_UNKNOWN_BODY_BYTES` | `262144` | Charged against the budget while a body of unknown length is being read |
 | `CAPTURE_BODY_TIMEOUT_MS` | `5000` | Maximum wait for in-flight body reads when the capture is drained |
 | `CAPTURE_SETTLE_MS` | `15000` | Default settle window when a request does not set `settleTimeout` |
 | `CAPTURE_MAX_SETTLE_MS` | `60000` | Ceiling a request may ask for; the request's own time budget also caps it |
@@ -175,6 +177,13 @@ body is read.
 A response that matched but whose body could not be read is still returned, with `body`
 null and `error` set, so "nothing matched" stays distinguishable from "matched, retrieval
 failed".
+
+A body read cannot be cut short once it has started — the browser API returns whole bodies
+only — so the budgets above bound what is read, not just what is kept. A response is
+measured before it is read: from its `Content-Length`, or, where it declared none, from the
+size it actually took on the wire. Anything past `CAPTURE_MAX_READ_BYTES` is never read,
+and a read in flight is charged against `CAPTURE_MAX_RESPONSE_TOTAL_BYTES` for as long as
+it runs, so a burst of large matches is refused before it is held rather than after.
 
 ## Session Cache
 
