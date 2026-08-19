@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **DataDome support.** Detect Device Check, slider CAPTCHA and `t=bv` hard blocks from challenge markers and `x-dd-b`. Device Check uses a dedicated waiter and an optional headful Xvfb pool; the slider is reported as `datadome-captcha-required`. Enable startup-warmed capacity with `BROWSER_HEADFUL_POOL_SIZE=1` (off by default).
 - **AWS WAF Challenge support.** Detect the documented `202` Challenge and `405` CAPTCHA responses from their `x-amzn-waf-action` header, with a conservative two-marker HTML fallback. Silent challenges use a dedicated browser waiter for the domain-matching `aws-waf-token`; interactive CAPTCHA is surfaced as `aws-waf-captcha-required` for a future solver.
+- Optional viewport screenshot: `screenshot: true` on `POST /scrape` returns a base64 JPEG of the viewport in `ScrapeResult.screenshot`, captured by the browser tiers (2-4) immediately before the HTML read so image and markup describe the same moment. Off by default; a stock request attaches nothing and does no extra work. Settle wait, capture timeout, JPEG quality, and maximum image size are bounded and tunable via `SCREENSHOT_*`, and a capture failure leaves the field unset rather than failing the scrape.
 
 ### Fixed
 - Wait for the bundled Redis service to pass a `PING` healthcheck before starting TRAWL, preventing a transient Compose startup race from disabling the Tier 2 session cache for the process lifetime (#90).

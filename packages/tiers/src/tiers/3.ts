@@ -1,6 +1,7 @@
 import type { BrowserHandle } from "@trawl/browser"
 import { closeTemporaryContext, FINGERPRINT, newFreshContext } from "@trawl/browser"
 import type { Cookie, TierResult } from "@trawl/types"
+import { capturePageScreenshot } from "../screenshot"
 import { solvePageCaptchas } from "../solvers"
 import { routeChallengeWait } from "../utils/challengeRouter"
 import { snapshotChallengeCookies, toCookies } from "../utils/cookies"
@@ -49,6 +50,7 @@ export interface Tier3Result extends TierResult {
   userAgent?: string
   statusCode?: number
   captchasSolved?: string[]
+  screenshot?: string
 }
 
 export async function runTier3(
@@ -59,6 +61,7 @@ export async function runTier3(
   extraHeaders?: Record<string, string>,
   method?: string,
   body?: string,
+  screenshot?: boolean,
 ): Promise<Tier3Result> {
   const start = Date.now()
 
@@ -152,6 +155,10 @@ export async function runTier3(
       captchasSolved = solveResult.solved
     }
 
+    // Shot before the html read so the image and the returned html describe the same
+    // moment — the settle wait inside the capture can outlast a slow-clearing challenge.
+    const shot = screenshot ? await capturePageScreenshot(page) : undefined
+
     const html = await page.content()
 
     // Empty shell means the browser got nothing — treat as a load failure
@@ -233,6 +240,7 @@ export async function runTier3(
       userAgent: await page.evaluate(() => navigator.userAgent).catch(() => FINGERPRINT.userAgent),
       statusCode: mainResponse.status,
       captchasSolved: captchasSolved.length > 0 ? captchasSolved : undefined,
+      screenshot: shot,
     }
   } catch (err) {
     return {
