@@ -40,6 +40,18 @@ export interface ScrapeRequest {
   // Opt-in main-document redirect chain from the browser tiers (2-4), returned as
   // `ScrapeResult.redirectChain`. Off by default.
   redirectChain?: boolean
+  // Opt-in response-body capture from the browser tiers (2-4), returned as
+  // `ScrapeResult.capturedResponses`. Each entry is a URL substring, or a glob matched
+  // against the whole URL when it contains `*` or `?`. Off by default — no listener is
+  // attached without it.
+  captureResponses?: string[]
+  // How long (milliseconds) to hold the page open after load waiting for a match. Ends
+  // early on the first captured body, on `waitForSelector`, or on network idle. Only
+  // meaningful alongside `captureResponses`.
+  settleTimeout?: number
+  // CSS selector that also ends the settle window early. Only meaningful alongside
+  // `captureResponses`.
+  waitForSelector?: string
 }
 
 // One browser console message. Shaped after WebDriver's browser log so a consumer can
@@ -66,6 +78,20 @@ export interface NetworkLogEntry {
   transferSize: number | null
   encodedBodySize: number | null
   decodedBodySize: number | null
+}
+
+// One response whose URL matched a caller-supplied `captureResponses` pattern. `body` is
+// the response payload as text, or base64 when the content type is binary or unknown
+// (`base64Encoded`); it is `null` when the body could not be read, in which case `error`
+// says why. `truncated` marks a body trimmed to the configured byte budget.
+export interface CapturedResponseEntry {
+  url: string
+  status: number
+  headers: Record<string, string>
+  body: string | null
+  base64Encoded: boolean
+  truncated: boolean
+  error?: string
 }
 
 export interface TierResult {
@@ -109,6 +135,10 @@ export interface ScrapeResult {
   // URLs the main document walked, in order, first entry being the requested URL.
   // Same presence rules as `consoleLogs`.
   redirectChain?: string[]
+  // Bodies of the responses whose URL matched `captureResponses`, in arrival order.
+  // Present (possibly empty, meaning nothing matched) only when the request asked for
+  // capture and a browser tier served the page.
+  capturedResponses?: CapturedResponseEntry[]
 }
 
 export interface SessionData {

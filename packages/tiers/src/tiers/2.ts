@@ -1,5 +1,12 @@
 import type { BrowserHandle } from "@trawl/browser"
-import type { ConsoleLogEntry, Cookie, NetworkLogEntry, SessionData, TierResult } from "@trawl/types"
+import type {
+  CapturedResponseEntry,
+  ConsoleLogEntry,
+  Cookie,
+  NetworkLogEntry,
+  SessionData,
+  TierResult,
+} from "@trawl/types"
 import { capturePageScreenshot } from "../screenshot"
 import { solvePageCaptchas } from "../solvers"
 import { attachPageCapture, type CaptureOptions } from "../utils/capture"
@@ -32,6 +39,7 @@ export interface Tier2Result extends TierResult {
   consoleLogs?: ConsoleLogEntry[]
   networkLogs?: NetworkLogEntry[]
   redirectChain?: string[]
+  capturedResponses?: CapturedResponseEntry[]
 }
 
 export async function runTier2(
@@ -127,6 +135,10 @@ export async function runTier2(
       const result = await solvePageCaptchas(page, solveRemaining).catch(() => ({ attempted: [], solved: [] }))
       captchasSolved = result.solved
     }
+
+    // Hold the page open for the capture's settle window before reading anything, so a
+    // late XHR the caller is chasing lands in the same evidence as the markup.
+    await pageCapture.settle(maxTimeout - (Date.now() - start))
 
     // Shot before the html read so the image and the returned html describe the same
     // moment — the settle wait inside the capture can outlast a slow-clearing challenge.

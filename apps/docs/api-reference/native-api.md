@@ -22,6 +22,9 @@ interface ScrapeRequest {
   consoleLogs?: boolean                  // capture browser console messages, default false
   networkLogs?: boolean                  // capture per-request resource timings, default false
   redirectChain?: boolean                // capture the main document's redirect chain, default false
+  captureResponses?: string[]            // URL patterns whose response bodies to capture, default none
+  settleTimeout?: number                 // ms to wait after load for a match, default 15000
+  waitForSelector?: string               // CSS selector that ends the settle window early
 }
 ```
 
@@ -40,6 +43,9 @@ interface ScrapeRequest {
 | `consoleLogs` | boolean | false   | Capture the page's console messages on the browser tiers (2–4) and return them as `consoleLogs`                                                                                                 |
 | `networkLogs` | boolean | false   | Capture per-request resource timings on the browser tiers (2–4) and return them as `networkLogs`                                                                                                |
 | `redirectChain` | boolean | false | Capture the URLs the main document walked on the browser tiers (2–4) and return them as `redirectChain`                                                                                         |
+| `captureResponses` | string[] | — | URL patterns — a substring, or a glob matched against the whole URL when the pattern contains `*` or `?` — whose response bodies are returned as `capturedResponses` (browser tiers 2–4)     |
+| `settleTimeout` | number | 15000  | Milliseconds to hold the page open after load waiting for a match; ends early on the first captured body, on `waitForSelector`, or on network idle. Only read alongside `captureResponses`  |
+| `waitForSelector` | string | —    | CSS selector that also ends the settle window early. Only read alongside `captureResponses`                                                                                                 |
 
 ## Response
 
@@ -60,6 +66,7 @@ interface ScrapeResult {
   consoleLogs?: ConsoleLogEntry[]  // console messages, only when requested and a browser tier served the page
   networkLogs?: NetworkLogEntry[]  // resource timings, same presence rules as consoleLogs
   redirectChain?: string[]     // URLs the main document walked, same presence rules as consoleLogs
+  capturedResponses?: CapturedResponseEntry[]  // matched response bodies, [] when nothing matched
 }
 
 interface ConsoleLogEntry {
@@ -78,6 +85,16 @@ interface NetworkLogEntry {
   transferSize: number | null  // response body + headers on the wire
   encodedBodySize: number | null
   decodedBodySize: number | null  // always null — knowing it would mean reading every body
+}
+
+interface CapturedResponseEntry {
+  url: string
+  status: number
+  headers: Record<string, string>
+  body: string | null          // text, or base64 when binary/unknown; null when unreadable
+  base64Encoded: boolean
+  truncated: boolean           // body trimmed to CAPTURE_MAX_RESPONSE_BYTES
+  error?: string               // why the body is null (read failed, budget spent, ...)
 }
 
 interface TierResult {

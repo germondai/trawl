@@ -155,6 +155,27 @@ Anything past a cap is dropped whole rather than truncated, and the number of dr
 entries is logged once per scrape. A capture failure leaves the field unset and never
 fails the scrape.
 
+## Response-Body Capture
+
+Only read when a request sets `captureResponses` — see
+[Native API](/api-reference/native-api). Without patterns no listener is attached and no
+body is read.
+
+| Variable | Default | Purpose |
+| --- | ---: | --- |
+| `CAPTURE_MAX_RESPONSE_PATTERNS` | `10` | URL patterns honoured per request |
+| `CAPTURE_MAX_RESPONSES` | `5` | Bodies kept per page, in arrival order |
+| `CAPTURE_MAX_RESPONSE_BYTES` | `5242880` | Bytes kept per body; past it the body is trimmed and flagged `truncated` |
+| `CAPTURE_MAX_RESPONSE_TOTAL_BYTES` | `10485760` | Bytes kept across all bodies of one page |
+| `CAPTURE_BODY_TIMEOUT_MS` | `5000` | Maximum wait for in-flight body reads when the capture is drained |
+| `CAPTURE_SETTLE_MS` | `15000` | Default settle window when a request does not set `settleTimeout` |
+| `CAPTURE_MAX_SETTLE_MS` | `60000` | Ceiling a request may ask for; the request's own time budget also caps it |
+| `CAPTURE_SETTLE_IDLE_FLOOR_MS` | `5000` | Network idle is ignored for this long, so a data fetch on a delayed timer is not mistaken for a quiet page |
+
+A response that matched but whose body could not be read is still returned, with `body`
+null and `error` set, so "nothing matched" stays distinguishable from "matched, retrieval
+failed".
+
 ## Session Cache
 
 ### `SESSION_TTL_SECONDS`
