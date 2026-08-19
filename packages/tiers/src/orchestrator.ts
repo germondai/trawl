@@ -75,6 +75,12 @@ export async function scrape(
   const tier1Proxy = explicitProxy && /^https?:\/\//i.test(explicitProxy) ? explicitProxy : undefined
   const skipTier1ForProxy = Boolean(explicitProxy && !tier1Proxy)
 
+  const capture = {
+    consoleLogs: req.consoleLogs,
+    networkLogs: req.networkLogs,
+    redirectChain: req.redirectChain,
+  }
+
   const sanitizedHeaders = sanitizeHeaders(req.headers)
   requireContentTypeForBody(sanitizedHeaders, Boolean(req.body))
 
@@ -151,6 +157,7 @@ export async function scrape(
         req.method,
         req.body,
         req.screenshot,
+        capture,
       )
       if (t2.challenge === "datadome" && !handle.headful) {
         await switchToHeadful()
@@ -163,6 +170,7 @@ export async function scrape(
           req.method,
           req.body,
           req.screenshot,
+          capture,
         )
       }
       emit(t2)
@@ -190,6 +198,9 @@ export async function scrape(
           responseHeaders: t2.responseHeaders,
           contentType: t2.contentType,
           screenshot: t2.screenshot,
+          consoleLogs: t2.consoleLogs,
+          networkLogs: t2.networkLogs,
+          redirectChain: t2.redirectChain,
         }
       }
       // Session failed — purge it
@@ -219,6 +230,7 @@ export async function scrape(
         req.method,
         req.body,
         req.screenshot,
+        capture,
       )
       if (t3.challenge === "datadome" && !handle.headful) {
         await switchToHeadful()
@@ -231,6 +243,7 @@ export async function scrape(
           req.method,
           req.body,
           req.screenshot,
+          capture,
         )
       }
 
@@ -270,6 +283,9 @@ export async function scrape(
         responseHeaders: t3.responseHeaders,
         contentType: t3.contentType,
         screenshot: t3.screenshot,
+        consoleLogs: t3.consoleLogs,
+        networkLogs: t3.networkLogs,
+        redirectChain: t3.redirectChain,
       }
     }
 
@@ -301,6 +317,7 @@ export async function scrape(
         req.method,
         req.body,
         req.screenshot,
+        capture,
       )
       if (t4.challenge === "datadome" && !handle.headful) {
         await switchToHeadful()
@@ -313,6 +330,7 @@ export async function scrape(
           req.method,
           req.body,
           req.screenshot,
+          capture,
         )
       }
 
@@ -349,6 +367,9 @@ export async function scrape(
         responseHeaders: t4.responseHeaders,
         contentType: t4.contentType,
         screenshot: t4.screenshot,
+        consoleLogs: t4.consoleLogs,
+        networkLogs: t4.networkLogs,
+        redirectChain: t4.redirectChain,
       }
     }
 

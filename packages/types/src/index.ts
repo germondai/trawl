@@ -31,6 +31,41 @@ export interface ScrapeRequest {
   // `ScrapeResult.screenshot`. Off by default — it costs a settle wait and payload
   // size. Tier 1 is a plain HTTP fetch and never produces one.
   screenshot?: boolean
+  // Opt-in browser console capture from the browser tiers (2-4), returned as
+  // `ScrapeResult.consoleLogs`. Off by default — no listener is attached without it.
+  consoleLogs?: boolean
+  // Opt-in per-request resource timings from the browser tiers (2-4), returned as
+  // `ScrapeResult.networkLogs`. Off by default — no listener is attached without it.
+  networkLogs?: boolean
+  // Opt-in main-document redirect chain from the browser tiers (2-4), returned as
+  // `ScrapeResult.redirectChain`. Off by default.
+  redirectChain?: boolean
+}
+
+// One browser console message. Shaped after WebDriver's browser log so a consumer can
+// treat both sources alike: `level` is the severity vocabulary (SEVERE/WARNING/INFO/
+// DEBUG), `source` the console type that produced it, `timestamp` epoch milliseconds.
+export interface ConsoleLogEntry {
+  level: "SEVERE" | "WARNING" | "INFO" | "DEBUG"
+  message: string
+  timestamp: number
+  source: string
+}
+
+// One request's resource timing, shaped after PerformanceResourceTiming: `name` is the
+// URL, `startTime` is milliseconds since the capture attached, `duration` milliseconds
+// from request start to the last byte (0 for a request that never completed). Sizes are
+// null until the browser reports them; `decodedBodySize` stays null because knowing it
+// would mean reading every response body.
+export interface NetworkLogEntry {
+  name: string
+  entryType: "navigation" | "resource"
+  startTime: number
+  duration: number
+  initiatorType: string
+  transferSize: number | null
+  encodedBodySize: number | null
+  decodedBodySize: number | null
 }
 
 export interface TierResult {
@@ -65,6 +100,15 @@ export interface ScrapeResult {
   // Base64 JPEG of the viewport, present only when the request asked for it and a
   // browser tier served the page. No `data:` prefix.
   screenshot?: string
+  // Browser console messages, in the order the page logged them. Present (possibly
+  // empty) only when the request asked for them and a browser tier served the page.
+  consoleLogs?: ConsoleLogEntry[]
+  // Resource timings for the requests the page made, in completion order. Same
+  // presence rules as `consoleLogs`.
+  networkLogs?: NetworkLogEntry[]
+  // URLs the main document walked, in order, first entry being the requested URL.
+  // Same presence rules as `consoleLogs`.
+  redirectChain?: string[]
 }
 
 export interface SessionData {

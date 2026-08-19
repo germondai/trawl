@@ -136,6 +136,25 @@ Only read when a request sets `screenshot: true` — see [Native API](/api-refer
 A screenshot is never worth failing a scrape: exceeding any of these bounds leaves
 `screenshot` unset and logs the reason, and the scrape result is otherwise unchanged.
 
+## Console, Network and Redirect Capture
+
+Only read when a request sets `consoleLogs`, `networkLogs` or `redirectChain` — see
+[Native API](/api-reference/native-api). Without those flags no listener is attached and
+nothing is buffered.
+
+| Variable | Default | Purpose |
+| --- | ---: | --- |
+| `CAPTURE_MAX_CONSOLE_ENTRIES` | `500` | Console messages kept per page |
+| `CAPTURE_MAX_NETWORK_ENTRIES` | `1000` | Requests kept per page |
+| `CAPTURE_MAX_STRING_CHARS` | `2000` | Longest single console message or URL kept |
+| `CAPTURE_MAX_TOTAL_CHARS` | `1000000` | Total characters kept across both arrays |
+| `CAPTURE_MAX_REDIRECT_ENTRIES` | `50` | URLs kept in the redirect chain |
+| `CAPTURE_SIZES_TIMEOUT_MS` | `2000` | Maximum wait for the browser's per-request byte counts |
+
+Anything past a cap is dropped whole rather than truncated, and the number of dropped
+entries is logged once per scrape. A capture failure leaves the field unset and never
+fails the scrape.
+
 ## Session Cache
 
 ### `SESSION_TTL_SECONDS`

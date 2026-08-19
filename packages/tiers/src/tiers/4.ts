@@ -1,8 +1,9 @@
 import type { BrowserHandle } from "@trawl/browser"
 import { closeTemporaryContext, FINGERPRINT, newFreshContext } from "@trawl/browser"
-import type { Cookie, TierResult } from "@trawl/types"
+import type { ConsoleLogEntry, Cookie, NetworkLogEntry, TierResult } from "@trawl/types"
 import { capturePageScreenshot } from "../screenshot"
 import { solvePageCaptchas } from "../solvers"
+import { attachPageCapture, type CaptureOptions } from "../utils/capture"
 import { routeChallengeWait } from "../utils/challengeRouter"
 import { snapshotChallengeCookies, toCookies } from "../utils/cookies"
 import {
@@ -35,6 +36,9 @@ export interface Tier4Result extends TierResult {
   statusCode?: number
   captchasSolved?: string[]
   screenshot?: string
+  consoleLogs?: ConsoleLogEntry[]
+  networkLogs?: NetworkLogEntry[]
+  redirectChain?: string[]
 }
 
 export async function runTier4(
@@ -46,6 +50,7 @@ export async function runTier4(
   method?: string,
   body?: string,
   screenshot?: boolean,
+  capture: CaptureOptions = {},
 ): Promise<Tier4Result> {
   const start = Date.now()
 
@@ -72,7 +77,8 @@ export async function runTier4(
       })
     }
 
-    const mainResponse = trackMainDocumentResponses(page)
+    const pageCapture = attachPageCapture(page, capture)
+    const mainResponse = trackMainDocumentResponses(page, { redirectChain: capture.redirectChain })
 
     const gotoErr = await page
       .goto(url, {
@@ -130,6 +136,7 @@ export async function runTier4(
     // Shot before the html read so the image and the returned html describe the same
     // moment — the settle wait inside the capture can outlast a slow-clearing challenge.
     const shot = screenshot ? await capturePageScreenshot(page) : undefined
+    const evidence = await pageCapture.drain()
 
     const html = await page.content()
 
@@ -213,6 +220,8 @@ export async function runTier4(
       statusCode: mainResponse.status,
       captchasSolved: captchasSolved.length > 0 ? captchasSolved : undefined,
       screenshot: shot,
+      ...evidence,
+      redirectChain: capture.redirectChain ? mainResponse.redirectChain : undefined,
     }
   } catch (err) {
     return {

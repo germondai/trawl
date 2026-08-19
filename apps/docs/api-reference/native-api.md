@@ -19,6 +19,9 @@ interface ScrapeRequest {
   headers?: Record<string, string>       // custom headers forwarded to the target
   proxy?: string                         // per-request proxy override for Tier 3/4
   screenshot?: boolean                   // capture a viewport screenshot, default false
+  consoleLogs?: boolean                  // capture browser console messages, default false
+  networkLogs?: boolean                  // capture per-request resource timings, default false
+  redirectChain?: boolean                // capture the main document's redirect chain, default false
 }
 ```
 
@@ -34,6 +37,9 @@ interface ScrapeRequest {
 | `headers`    | object  | —        | Custom headers forwarded to the target across all tiers — see [Custom Headers](/api-reference/custom-headers)                                                                                  |
 | `proxy`      | string  | —        | Strict proxy route for this request. HTTP(S) proxies are used by Tier 1 and browser tiers; SOCKS proxies skip Tier 1. Direct Tier 1 and the unproxied Tier 2 cache are never used — see [Configuration § Proxies](/getting-started/configuration#proxies) |
 | `screenshot` | boolean | false    | Capture a base64 JPEG of the viewport on the browser tiers (2–4) and return it as `screenshot`. Tier 1 is a plain HTTP fetch and never produces one                                             |
+| `consoleLogs` | boolean | false   | Capture the page's console messages on the browser tiers (2–4) and return them as `consoleLogs`                                                                                                 |
+| `networkLogs` | boolean | false   | Capture per-request resource timings on the browser tiers (2–4) and return them as `networkLogs`                                                                                                |
+| `redirectChain` | boolean | false | Capture the URLs the main document walked on the browser tiers (2–4) and return them as `redirectChain`                                                                                         |
 
 ## Response
 
@@ -51,6 +57,27 @@ interface ScrapeResult {
   captchasSolved?: string[]    // captcha types solved on the page itself (e.g. ['turnstile'])
   proxyUsed?: boolean          // true if the winning tier routed through a proxy (Tier 3 datacenter pool or Tier 4 residential pool/override)
   screenshot?: string          // base64 JPEG of the viewport, only when requested and a browser tier served the page
+  consoleLogs?: ConsoleLogEntry[]  // console messages, only when requested and a browser tier served the page
+  networkLogs?: NetworkLogEntry[]  // resource timings, same presence rules as consoleLogs
+  redirectChain?: string[]     // URLs the main document walked, same presence rules as consoleLogs
+}
+
+interface ConsoleLogEntry {
+  level: 'SEVERE' | 'WARNING' | 'INFO' | 'DEBUG'
+  message: string
+  timestamp: number            // epoch milliseconds
+  source: string               // console type that produced the message (e.g. 'error')
+}
+
+interface NetworkLogEntry {
+  name: string                 // request URL
+  entryType: 'navigation' | 'resource'
+  startTime: number            // ms since the capture attached
+  duration: number             // ms from request start to last byte, 0 if it never completed
+  initiatorType: string        // resource type (document, script, xhr, image, ...)
+  transferSize: number | null  // response body + headers on the wire
+  encodedBodySize: number | null
+  decodedBodySize: number | null  // always null — knowing it would mean reading every body
 }
 
 interface TierResult {
