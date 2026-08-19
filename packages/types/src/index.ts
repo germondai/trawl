@@ -27,6 +27,10 @@ export interface ScrapeRequest {
   body?: string
   // Strict per-request route: target traffic must use this proxy and never fall back direct.
   proxy?: string
+  // Opt-in viewport screenshot from the browser tiers (2-4), returned as
+  // `ScrapeResult.screenshot`. Off by default — it costs a settle wait and payload
+  // size. Tier 1 is a plain HTTP fetch and never produces one.
+  screenshot?: boolean
 }
 
 export interface TierResult {
@@ -58,6 +62,9 @@ export interface ScrapeResult {
   responseHeaders?: Record<string, string>
   // Convenience: extracted Content-Type header. Same as responseHeaders['content-type'].
   contentType?: string
+  // Base64 JPEG of the viewport, present only when the request asked for it and a
+  // browser tier served the page. No `data:` prefix.
+  screenshot?: string
 }
 
 export interface SessionData {

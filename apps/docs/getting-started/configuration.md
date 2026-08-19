@@ -122,6 +122,20 @@ BROWSER_HEADFUL_POOL_SIZE=1   # required for DataDome targets, ~380 MB on first 
 
 These bounds keep an unresponsive Firefox process from permanently consuming a pool slot. The defaults are suitable for most installations.
 
+## Screenshots
+
+Only read when a request sets `screenshot: true` — see [Native API](/api-reference/native-api).
+
+| Variable | Default | Purpose |
+| --- | ---: | --- |
+| `SCREENSHOT_SETTLE_MS` | `3000` | Maximum wait for the network to go idle before capturing |
+| `SCREENSHOT_TIMEOUT_MS` | `10000` | Maximum wait for the capture itself |
+| `SCREENSHOT_JPEG_QUALITY` | `60` | JPEG quality, 1–100 |
+| `SCREENSHOT_MAX_BYTES` | `4000000` | Images larger than this are dropped rather than returned |
+
+A screenshot is never worth failing a scrape: exceeding any of these bounds leaves
+`screenshot` unset and logs the reason, and the scrape result is otherwise unchanged.
+
 ## Session Cache
 
 ### `SESSION_TTL_SECONDS`

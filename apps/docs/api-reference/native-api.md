@@ -18,6 +18,7 @@ interface ScrapeRequest {
   sessionId?: string                     // sticky session override key
   headers?: Record<string, string>       // custom headers forwarded to the target
   proxy?: string                         // per-request proxy override for Tier 3/4
+  screenshot?: boolean                   // capture a viewport screenshot, default false
 }
 ```
 
@@ -32,6 +33,7 @@ interface ScrapeRequest {
 | `sessionId`  | string  | hostname | Override the Redis session key                                                                                                                                                                 |
 | `headers`    | object  | —        | Custom headers forwarded to the target across all tiers — see [Custom Headers](/api-reference/custom-headers)                                                                                  |
 | `proxy`      | string  | —        | Strict proxy route for this request. HTTP(S) proxies are used by Tier 1 and browser tiers; SOCKS proxies skip Tier 1. Direct Tier 1 and the unproxied Tier 2 cache are never used — see [Configuration § Proxies](/getting-started/configuration#proxies) |
+| `screenshot` | boolean | false    | Capture a base64 JPEG of the viewport on the browser tiers (2–4) and return it as `screenshot`. Tier 1 is a plain HTTP fetch and never produces one                                             |
 
 ## Response
 
@@ -48,6 +50,7 @@ interface ScrapeResult {
   totalMs: number
   captchasSolved?: string[]    // captcha types solved on the page itself (e.g. ['turnstile'])
   proxyUsed?: boolean          // true if the winning tier routed through a proxy (Tier 3 datacenter pool or Tier 4 residential pool/override)
+  screenshot?: string          // base64 JPEG of the viewport, only when requested and a browser tier served the page
 }
 
 interface TierResult {

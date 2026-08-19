@@ -142,7 +142,16 @@ export async function scrape(
     if (session && maxTier >= 2) {
       const remaining = maxTimeout - (Date.now() - totalStart)
       const tier2Runner = runners.tier2 ?? runTier2
-      let t2 = await tier2Runner(req.url, handle, session, remaining, sanitizedHeaders, req.method, req.body)
+      let t2 = await tier2Runner(
+        req.url,
+        handle,
+        session,
+        remaining,
+        sanitizedHeaders,
+        req.method,
+        req.body,
+        req.screenshot,
+      )
       if (t2.challenge === "datadome" && !handle.headful) {
         await switchToHeadful()
         t2 = await tier2Runner(
@@ -153,6 +162,7 @@ export async function scrape(
           sanitizedHeaders,
           req.method,
           req.body,
+          req.screenshot,
         )
       }
       emit(t2)
@@ -179,6 +189,7 @@ export async function scrape(
           body: t2.body,
           responseHeaders: t2.responseHeaders,
           contentType: t2.contentType,
+          screenshot: t2.screenshot,
         }
       }
       // Session failed — purge it
@@ -199,7 +210,16 @@ export async function scrape(
     for (let attempt = 0; ; attempt++) {
       const remaining3 = maxTimeout - (Date.now() - totalStart)
       const tier3Runner = runners.tier3 ?? runTier3
-      t3 = await tier3Runner(req.url, handle, remaining3, proxy3, sanitizedHeaders, req.method, req.body)
+      t3 = await tier3Runner(
+        req.url,
+        handle,
+        remaining3,
+        proxy3,
+        sanitizedHeaders,
+        req.method,
+        req.body,
+        req.screenshot,
+      )
       if (t3.challenge === "datadome" && !handle.headful) {
         await switchToHeadful()
         t3 = await tier3Runner(
@@ -210,6 +230,7 @@ export async function scrape(
           sanitizedHeaders,
           req.method,
           req.body,
+          req.screenshot,
         )
       }
 
@@ -248,6 +269,7 @@ export async function scrape(
         body: t3.body,
         responseHeaders: t3.responseHeaders,
         contentType: t3.contentType,
+        screenshot: t3.screenshot,
       }
     }
 
@@ -270,7 +292,16 @@ export async function scrape(
     for (let attempt = 0; ; attempt++) {
       console.log(`[orchestrator] Tier 4 via residential proxy: ${proxy4.replace(/\/\/[^@]*@/, "//**@")}`)
       const remaining4 = maxTimeout - (Date.now() - totalStart)
-      t4 = await runTier4Lazy(req.url, handle, remaining4, proxy4, sanitizedHeaders, req.method, req.body)
+      t4 = await runTier4Lazy(
+        req.url,
+        handle,
+        remaining4,
+        proxy4,
+        sanitizedHeaders,
+        req.method,
+        req.body,
+        req.screenshot,
+      )
       if (t4.challenge === "datadome" && !handle.headful) {
         await switchToHeadful()
         t4 = await runTier4Lazy(
@@ -281,6 +312,7 @@ export async function scrape(
           sanitizedHeaders,
           req.method,
           req.body,
+          req.screenshot,
         )
       }
 
@@ -316,6 +348,7 @@ export async function scrape(
         body: t4.body,
         responseHeaders: t4.responseHeaders,
         contentType: t4.contentType,
+        screenshot: t4.screenshot,
       }
     }
 
