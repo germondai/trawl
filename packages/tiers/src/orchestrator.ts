@@ -27,8 +27,16 @@ export class ScrapeError extends Error {
   }
 }
 
+// DataDome is the only wall TRAWL handles that reads headless signals directly: a headless
+// browser fails its Device Check whatever the fingerprint says, while Cloudflare, Akamai,
+// Imperva and DDoS-Guard all resolve headless. Asking for a headful browser only when the
+// wall calls for it keeps the common path on the faster headless pool.
+export interface AcquireOptions {
+  headful?: boolean
+}
+
 export interface OrchestratorDeps {
-  acquireBrowser(domain: string, budgetMs?: number): Promise<BrowserHandle>
+  acquireBrowser(domain: string, budgetMs?: number, options?: AcquireOptions): Promise<BrowserHandle>
   releaseBrowser(id: number, lease?: number): void
   loadSession(domain: string): Promise<SessionData | undefined>
   saveSession(domain: string, data: SessionData): Promise<void>
@@ -64,6 +72,10 @@ export async function scrape(req: ScrapeRequest, deps: OrchestratorDeps): Promis
     deps.onTierAttempt?.(r)
   }
 
+  // Tier 1 is the only look at the wall that happens before a browser is checked out, so
+  // it is also the only chance to pick the right kind of browser for the tiers below.
+  let headful = false
+
   // Tier 1: plain HTTP fetch
   if (!req.skipHttp && maxTier >= 1) {
     const t1 = await runTier1(req.url, sanitizedHeaders, req.method, req.body)
@@ -88,6 +100,7 @@ export async function scrape(req: ScrapeRequest, deps: OrchestratorDeps): Promis
         contentType: t1.contentType,
       }
     }
+    headful = t1.challenge === "datadome"
   }
 
   if (maxTier < 2) {
@@ -97,7 +110,7 @@ export async function scrape(req: ScrapeRequest, deps: OrchestratorDeps): Promis
   // Acquire browser for tiers 2-4
   // Pass our own budget so the pool's stall detector doesn't reclaim this browser
   // while the request is still inside the time the caller asked for.
-  const handle = await deps.acquireBrowser(domain, Math.max(maxTimeout - (Date.now() - totalStart), 0))
+  const handle = await deps.acquireBrowser(domain, Math.max(maxTimeout - (Date.now() - totalStart), 0), { headful })
 
   try {
     // Tier 2: browser with cached session

@@ -1,4 +1,4 @@
-export type { OrchestratorDeps } from "./orchestrator"
+export type { AcquireOptions, OrchestratorDeps } from "./orchestrator"
 export { ScrapeError, scrape } from "./orchestrator"
 export { type SolveResult, solvePageCaptchas } from "./solvers"
 export { runTier1, type Tier1Result } from "./tiers/1"
