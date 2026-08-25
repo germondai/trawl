@@ -13,6 +13,7 @@ import {
   residentialProxyPool,
   SESSION_TTL,
   STALL_TIMEOUT_MS,
+  VIRTUAL_DISPLAY,
 } from "./config"
 
 const state: {
@@ -43,6 +44,7 @@ export const initPool = async (): Promise<void> => {
     acquireTimeoutMs: ACQUIRE_TIMEOUT_MS,
     recycleAfterTemporaryContexts: RECYCLE_AFTER_TEMPORARY_CONTEXTS,
     contentProcesses: CONTENT_PROCESSES,
+    virtualDisplay: VIRTUAL_DISPLAY,
     stallAfterMs: STALL_TIMEOUT_MS,
     closeTimeoutMs: CLOSE_TIMEOUT_MS,
     launchTimeoutMs: LAUNCH_TIMEOUT_MS,

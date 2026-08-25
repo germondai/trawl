@@ -122,6 +122,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       libdrm2 libgbm1 \
       libasound2 \
       fonts-liberation \
+      xvfb \
       ca-certificates \
       curl \
       tini \

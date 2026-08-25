@@ -83,6 +83,7 @@ export class BrowserPool {
   private pollIntervalMs: number
   private recycleAfterTemporaryContexts: number
   private contentProcesses!: number
+  private virtualDisplay: boolean
   private stallAfterMs: number
   private closeTimeoutMs: number
   private launchTimeoutMs: number
@@ -100,6 +101,7 @@ export class BrowserPool {
     pollIntervalMs = 100,
     recycleAfterTemporaryContexts = 8,
     contentProcesses = 2,
+    virtualDisplay = false,
     stallAfterMs = 180_000,
     closeTimeoutMs = CLOSE_TIMEOUT_MS,
     launchTimeoutMs = LAUNCH_TIMEOUT_MS,
@@ -112,6 +114,7 @@ export class BrowserPool {
     pollIntervalMs?: number
     recycleAfterTemporaryContexts?: number
     contentProcesses?: number
+    virtualDisplay?: boolean
     stallAfterMs?: number
     closeTimeoutMs?: number
     launchTimeoutMs?: number
@@ -124,6 +127,7 @@ export class BrowserPool {
     this.pollIntervalMs = pollIntervalMs
     this.recycleAfterTemporaryContexts = recycleAfterTemporaryContexts
     this.contentProcesses = contentProcesses
+    this.virtualDisplay = virtualDisplay
     this.stallAfterMs = stallAfterMs
     this.closeTimeoutMs = closeTimeoutMs
     this.launchTimeoutMs = launchTimeoutMs
@@ -217,7 +221,11 @@ export class BrowserPool {
     //   `main_world_eval` — required for Turnstile's shadow-DOM checkbox.
     //   `forceScopeAccess` — C++-level cross-origin frame scope, COOP-friendly.
     const browser = await Camoufox({
-      headless: true,
+      // DataDome's Device Check scores headless signals directly, so a headless run fails it
+      // however clean the fingerprint is. `"virtual"` gives Camoufox a real Xvfb display and
+      // launches the browser headful behind it; camoufox-js kills the display on
+      // browser.close(). Needs the Xvfb binary, hence the opt-in.
+      headless: this.virtualDisplay ? "virtual" : true,
       os: [camoufoxOs],
       // Screen + window randomization — Camoufox picks from the constraints per launch.
       // `screen` lets us set min/max bounds; `window` is a single fixed tuple per type

@@ -15,6 +15,10 @@ export const RECYCLE_AFTER_TEMPORARY_CONTEXTS = Number(process.env.BROWSER_RECYC
 // minimal while still allowing CF/Imperva challenges to resolve. Raise if specific
 // targets fail with empty content (rare).
 export const CONTENT_PROCESSES = Number(process.env.BROWSER_CONTENT_PROCESSES ?? "2")
+// Run the browsers headful behind an Xvfb display instead of headless. DataDome's Device
+// Check reads headless signals directly and fails the run whatever the fingerprint says.
+// Off by default: it needs the Xvfb binary and one display process per pooled browser.
+export const VIRTUAL_DISPLAY = /^(1|true|yes)$/i.test(process.env.BROWSER_VIRTUAL_DISPLAY ?? "")
 // How long a browser may stay checked out before the pool calls it wedged rather than
 // busy. A scrape's own budget is req.maxTimeout (default 60s), so 3x that is well clear
 // of anything legitimate while still catching a hung checkout within a few minutes.
