@@ -29,7 +29,8 @@ const DATACENTER_BLOCKED_REASONS: Partial<Record<ChallengeType, string>> = {
   "ddos-guard":
     "datacenter-ip-blocked (DDoS-Guard clearance cookie obtained but challenge persisted — needs residential proxy)",
   "aws-waf": "datacenter-ip-blocked (AWS WAF token obtained but challenge persisted — needs residential proxy)",
-  datadome: "datacenter-ip-blocked (DataDome refused the datacenter IP, needs residential proxy)",
+  datadome:
+    "datadome-persistent (Device Check never cleared — try BROWSER_VIRTUAL_DISPLAY=true, then a residential proxy)",
 }
 
 const DEFAULT_DATACENTER_BLOCKED_REASON =
