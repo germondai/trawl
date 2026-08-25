@@ -2,7 +2,13 @@ import type { BrowserHandle } from "@trawl/browser"
 import type { Cookie, SessionData, TierResult } from "@trawl/types"
 import { solvePageCaptchas } from "../solvers"
 import { normalizeSameSite, toCookies } from "../utils/cookies"
-import { hasAkamaiChallenge, isBlocked, isBrowserErrorPage, isCloudflarePage } from "../utils/detect"
+import {
+  hasAkamaiChallenge,
+  hasDataDomeChallenge,
+  isBlocked,
+  isBrowserErrorPage,
+  isCloudflarePage,
+} from "../utils/detect"
 import { normalizeHtml } from "../utils/html"
 import { trackMainDocumentResponses } from "../utils/mainResponse"
 import { captureResponse, isTextContentType } from "../utils/response"
@@ -85,6 +91,12 @@ export async function runTier2(
     // fresh Tier-3 solve rather than returning the ~2KB challenge stub as content.
     if (hasAkamaiChallenge(html)) {
       return { tier: 2, status: "blocked", durationMs: Date.now() - start, reason: "akamai-session-expired" }
+    }
+
+    // Same reasoning for DataDome: isBlocked() already catches the 403, but a stale
+    // `datadome` cookie is worth telling apart from any other 403 in the logs.
+    if (hasDataDomeChallenge(html)) {
+      return { tier: 2, status: "blocked", durationMs: Date.now() - start, reason: "datadome-session-expired" }
     }
 
     if (isBlocked(mainResponse.status, html)) {
