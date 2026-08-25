@@ -62,6 +62,21 @@ function makeFactory() {
   return { factory, browsers, contexts }
 }
 
+describe("BrowserPool identity", () => {
+  test("keeps a sub-pool's browser ids in its own range so releases can be routed", async () => {
+    const { factory } = makeFactory()
+    const pool = createPool({ poolSize: 2, idOffset: 1000, browserFactory: factory })
+    await pool.init()
+
+    const first = await pool.acquire()
+    const second = await pool.acquire()
+    expect([first.id, second.id].sort((a, b) => a - b)).toEqual([1000, 1001])
+
+    pool.release(first.id, first.lease)
+    expect(pool.getStats().available).toBe(1)
+  })
+})
+
 describe("BrowserPool recycling", () => {
   test("publishes the first browser before warming remaining capacity concurrently", async () => {
     const { factory: baseFactory } = makeFactory()

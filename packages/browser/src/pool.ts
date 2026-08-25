@@ -84,6 +84,8 @@ export class BrowserPool {
   private recycleAfterTemporaryContexts: number
   private contentProcesses!: number
   private virtualDisplay: boolean
+  private idOffset: number
+  private label: string
   private stallAfterMs: number
   private closeTimeoutMs: number
   private launchTimeoutMs: number
@@ -102,6 +104,8 @@ export class BrowserPool {
     recycleAfterTemporaryContexts = 8,
     contentProcesses = 2,
     virtualDisplay = false,
+    idOffset = 0,
+    label = "pool",
     stallAfterMs = 180_000,
     closeTimeoutMs = CLOSE_TIMEOUT_MS,
     launchTimeoutMs = LAUNCH_TIMEOUT_MS,
@@ -115,6 +119,10 @@ export class BrowserPool {
     recycleAfterTemporaryContexts?: number
     contentProcesses?: number
     virtualDisplay?: boolean
+    // Keeps the browser ids of two pools in disjoint ranges, so a caller holding a handle
+    // can route its release back to the pool that issued it.
+    idOffset?: number
+    label?: string
     stallAfterMs?: number
     closeTimeoutMs?: number
     launchTimeoutMs?: number
@@ -128,6 +136,8 @@ export class BrowserPool {
     this.recycleAfterTemporaryContexts = recycleAfterTemporaryContexts
     this.contentProcesses = contentProcesses
     this.virtualDisplay = virtualDisplay
+    this.idOffset = idOffset
+    this.label = label
     this.stallAfterMs = stallAfterMs
     this.closeTimeoutMs = closeTimeoutMs
     this.launchTimeoutMs = launchTimeoutMs
@@ -159,7 +169,7 @@ export class BrowserPool {
       // never fails either. Throwing lets the startup probe restart the container.
       const { browser, context } = await this.launchWithin(fingerprint, this.launchTimeoutMs)
       this.entries.push({
-        id: i,
+        id: this.idOffset + i,
         busy: false,
         lease: 0,
         restartCount: 0,
@@ -169,7 +179,7 @@ export class BrowserPool {
         temporaryContextUses: 0,
         fingerprint,
       })
-      console.log(`[pool] browser ${i + 1}/${this.poolSize} ready (UA=${fingerprint.platform})`)
+      console.log(`[${this.label}] browser ${i + 1}/${this.poolSize} ready (UA=${fingerprint.platform})`)
     }
 
     // Camoufox performs one-time shared addon setup during its first launch; racing
@@ -411,7 +421,7 @@ export class BrowserPool {
     this.replacementRunning = true
     const reason = entry.replacementRequested as string
     entry.replacementRequested = undefined
-    console.warn(`[pool] browser ${entry.id} warming replacement: ${reason}`)
+    console.warn(`[${this.label}] browser ${entry.id} warming replacement: ${reason}`)
 
     let replacement: { browser: Browser; context: BrowserContext } | undefined
     try {
@@ -442,7 +452,7 @@ export class BrowserPool {
       entry.restartCount++
       entry.healthy = true
       entry.lease++
-      console.log(`[pool] browser ${entry.id} rolling replacement installed (total: ${entry.restartCount})`)
+      console.log(`[${this.label}] browser ${entry.id} rolling replacement installed (total: ${entry.restartCount})`)
 
       await settleWithin(pendingPageCloses ? () => pendingPageCloses : undefined, this.closeTimeoutMs)
       await settleWithin(() => retiredContext?.close(), this.closeTimeoutMs)
@@ -450,7 +460,7 @@ export class BrowserPool {
     } catch (err) {
       // A failed warm-up never disturbs the browser currently serving the entry.
       entry.replacementRequested ??= reason
-      console.error(`[pool] browser ${entry.id} failed to warm replacement:`, err)
+      console.error(`[${this.label}] browser ${entry.id} failed to warm replacement:`, err)
     } finally {
       if (replacement) {
         await settleWithin(() => replacement?.context?.close(), this.closeTimeoutMs)
@@ -514,14 +524,14 @@ export class BrowserPool {
         // alone, the entry is subtracted from the pool for the rest of the process.
         if (this.isStalled(entry, now)) {
           const heldSec = Math.round((now - (entry.busySince ?? now)) / 1000)
-          console.warn(`[pool] browser ${entry.id} stalled — checked out for ${heldSec}s, reclaiming`)
+          console.warn(`[${this.label}] browser ${entry.id} stalled — checked out for ${heldSec}s, reclaiming`)
           await this.restartEntry(entry, "checkout stalled")
         }
         continue
       }
 
       if (!(entry.browser?.isConnected() ?? false)) {
-        console.warn(`[pool] browser ${entry.id} disconnected, restarting`)
+        console.warn(`[${this.label}] browser ${entry.id} disconnected, restarting`)
         await this.restartEntry(entry, "browser disconnected")
       } else {
         entry.healthy = true
@@ -603,7 +613,7 @@ export class BrowserPool {
     entry.stallAt = undefined
     entry.lease++
     entry.restartReason = undefined
-    console.warn(`[pool] browser ${entry.id} restarting: ${reason}`)
+    console.warn(`[${this.label}] browser ${entry.id} restarting: ${reason}`)
     const dyingContext = entry.context
     const dyingBrowser = entry.browser
     const pendingPageCloses = entry.pendingPageCloses
@@ -640,11 +650,11 @@ export class BrowserPool {
       entry.healthy = true
       entry.temporaryContextUses = 0
       entry.restartCount++
-      console.log(`[pool] browser ${entry.id} restarted (total: ${entry.restartCount})`)
+      console.log(`[${this.label}] browser ${entry.id} restarted (total: ${entry.restartCount})`)
     } catch (err) {
       // Leave the entry unhealthy with no browser attached. `restarting` clears in the
       // finally, so the next health-check tick retries this entry from scratch.
-      console.error(`[pool] browser ${entry.id} failed to restart:`, err)
+      console.error(`[${this.label}] browser ${entry.id} failed to restart:`, err)
     } finally {
       entry.restarting = false
     }
