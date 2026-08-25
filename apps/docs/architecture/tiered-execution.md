@@ -88,9 +88,15 @@ Tier 3 and Tier 4 detect the three DataDome responses. All of them arrive throug
 The `x-dd-b` response header marks every DataDome response. The MITM proxy escalates on
 that header alone, before the body arrives.
 
-**Caveat:** DataDome reads headless signals directly. A headless browser fails the Device
-Check whatever its fingerprint says. Set `BROWSER_VIRTUAL_DISPLAY=true` to run the pool
-headful behind an Xvfb display. See [Configuration](/getting-started/configuration).
+DataDome reads headless signals directly. A headless browser fails the Device Check
+whatever its fingerprint says, while Cloudflare, Akamai, Imperva and DDoS-Guard all resolve
+headless. TRAWL therefore keeps the main pool headless and sends only DataDome escalations
+to a small headful sub-pool that runs behind an Xvfb virtual display.
+
+Tier 1 names the wall it meets, and the orchestrator picks the pool from that name before it
+checks a browser out. The sub-pool is warmed on the first DataDome escalation, so a
+deployment that never meets DataDome never launches it. See `BROWSER_HEADFUL_POOL_SIZE` in
+[Configuration](/getting-started/configuration).
 
 ## Tier 4 — Residential Proxy Escalation
 
