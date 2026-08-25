@@ -21,3 +21,8 @@ export const DATADOME_JSON_HARD_BLOCK = `{"url":"https://geo.captcha-delivery.co
 export const DATADOME_TAGGED_PAGE = `<html><head><title>Shop</title>
 <script src="https://js.datadome.co/tags.js" async></script></head>
 <body><h1>Results</h1><p>12 items</p></body></html>`
+
+// Verbatim shape of a live idealista.it block (session identifiers replaced). The hard
+// block carries `t` inside the `dd` object, not as a query parameter, and pairs it with
+// `rt: 'c'`: reading `rt` alone would call this a solvable slider.
+export const DATADOME_HTML_HARD_BLOCK = `<html lang="it"><head><title>idealista.it</title><style>#cmsg{animation: A 1.5s;}@keyframes A{0%{opacity:0;}99%{opacity:0;}100%{opacity:1;}}</style></head><body style="margin:0"><p id="cmsg">Please enable JS and disable any ad blocker</p><script data-cfasync="false">var dd={'rt':'c','cid':'AHrlqAAAAAMA_OZ7HfRgX2wAufK3kA==','hsh':'AC81AADC3279CA4C7B968B717FBB30','t':'bv','qp':'','s':17156,'e':'3ce1daac82b52b53723d1cea77f9f9f2','host':'geo.captcha-delivery.com','cookie':'3VF_ImHd7bW6O63Zb~4Kxl0LtFajjaBn'}</script><script data-cfasync="false" src="https://ct.captcha-delivery.com/c.js"></script></body></html>`

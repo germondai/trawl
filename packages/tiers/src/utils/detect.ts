@@ -161,7 +161,13 @@ export function hasAwsWafCaptcha(html: string, headers: Record<string, string> =
 // challenge paths and the `dd` object count.
 export type DataDomeAction = "interstitial" | "captcha" | "blocked"
 
-const DD_OBJECT = /\bdd\s*=\s*\{[^}]{0,400}?["']rt["']\s*:\s*["']([ic])["']/i
+// Read the fields out of a window that starts at the object, rather than capturing up to
+// the first `}`: a nested object would truncate the capture and hide `t`. `rt` and `t` sit
+// in the first few fields of every observed block page, well inside the window.
+const DD_OBJECT = /\bdd\s*=\s*\{/i
+const DD_WINDOW = 600
+const DD_RT = /["']rt["']\s*:\s*["']([^"']*)["']/i
+const DD_T = /["']t["']\s*:\s*["']([^"']*)["']/i
 
 export function getDataDomeAction(
   html: string,
@@ -169,18 +175,29 @@ export function getDataDomeAction(
   _status?: number,
 ): DataDomeAction | undefined {
   if (/captcha-delivery\.com/i.test(html)) {
+    const ddAt = html.match(DD_OBJECT)?.index
+    const dd = ddAt === undefined ? undefined : html.slice(ddAt, ddAt + DD_WINDOW)
     // `t=bv` is DataDome's hard block ("Access denied"). No widget clears it, only a
     // different egress IP does, so it must not be waited on like a solvable challenge.
-    if (/[?&]t=bv\b/i.test(html)) return "blocked"
-    if (/\/interstitial\//i.test(html) || /src=["'][^"']*\/i\.js/i.test(html)) return "interstitial"
-    if (/\/captcha\//i.test(html) || /src=["'][^"']*\/c\.js/i.test(html)) return "captcha"
-    const rt = html.match(DD_OBJECT)?.[1]?.toLowerCase()
+    // It reaches us two ways: a field of the inline `dd` object on an HTML block page,
+    // or a query parameter on the challenge URL of a JSON block.
+    if (dd?.match(DD_T)?.[1]?.toLowerCase() === "bv" || /[?&]t=bv\b/i.test(html)) return "blocked"
+    // `rt` is the variant DataDome itself declares, so it outranks the script guesses below.
+    const rt = dd?.match(DD_RT)?.[1]?.toLowerCase()
     if (rt === "i") return "interstitial"
     if (rt === "c") return "captcha"
+    if (/\/interstitial\//i.test(html) || /src=["'][^"']*\/i\.js/i.test(html)) return "interstitial"
+    if (/\/captcha\//i.test(html) || /src=["'][^"']*\/c\.js/i.test(html)) return "captcha"
   }
-  // Header-only fallback: DataDome stamps x-dd-b on the responses it generates itself.
-  // The proxy path inspects headers before the body arrives, so the variant is still
-  // unknown here: escalate to a browser, which reclassifies from the page.
+  // Header-only fallback: x-dd-b appears ONLY on the responses DataDome generates itself
+  // (observed values 1, 2 and 3, all on blocks). The proxy path inspects headers before
+  // the body arrives, so the variant is still unknown here: escalate to a browser, which
+  // reclassifies from the page.
+  //
+  // DO NOT widen this to `x-datadome`. That header reads `protected` on every ordinary
+  // page of a protected site, and isChallengeWall() below trusts a "datadome" verdict
+  // unconditionally, so widening it turns every good page into a wall. `x-datadome-cid`
+  // is block-only like x-dd-b and is the one safe second signal if you ever need it.
   if (headerValue(headers, "x-dd-b") !== undefined) return "interstitial"
   return undefined
 }
@@ -249,6 +266,8 @@ const LEAN_BODY_THRESHOLDS: Partial<Record<ChallengeType, number>> = {
 export function isChallengeWall(status: number, bodyLength: number, challengeType: ChallengeType): boolean {
   if (challengeType === "none") return false
   if (status === 403 || status === 503) return true
+  // These three never serve real content alongside their wall, so the type alone settles
+  // it. For datadome that leans on the header invariant documented in getDataDomeAction().
   if (challengeType === "akamai" || challengeType === "aws-waf" || challengeType === "datadome") return true
   const threshold = LEAN_BODY_THRESHOLDS[challengeType]
   if (threshold !== undefined && bodyLength < threshold) return true

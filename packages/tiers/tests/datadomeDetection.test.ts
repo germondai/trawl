@@ -11,6 +11,7 @@ import {
 } from "../src/utils/detect"
 import {
   DATADOME_CAPTCHA,
+  DATADOME_HTML_HARD_BLOCK,
   DATADOME_INTERSTITIAL,
   DATADOME_JSON_CAPTCHA,
   DATADOME_JSON_HARD_BLOCK,
@@ -32,6 +33,12 @@ describe("DataDome detection", () => {
     expect(hasDataDomeCaptcha(DATADOME_CAPTCHA)).toBe(true)
     expect(hasDataDomeCaptcha(DATADOME_INTERSTITIAL)).toBe(false)
     expect(detectChallengeType(DATADOME_CAPTCHA)).toBe("datadome")
+  })
+
+  test("reads the hard block from the dd object, not only from the challenge URL", () => {
+    expect(getDataDomeAction(DATADOME_HTML_HARD_BLOCK)).toBe("blocked")
+    expect(hasDataDomeCaptcha(DATADOME_HTML_HARD_BLOCK)).toBe(false)
+    expect(detectChallengeType(DATADOME_HTML_HARD_BLOCK, { "x-dd-b": "2" }, 403)).toBe("datadome")
   })
 
   test("reads the JSON block shape XHR requests receive", () => {
