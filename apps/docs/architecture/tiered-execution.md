@@ -74,6 +74,24 @@ Tier 3 and Tier 4 also detect and resolve supported Imperva/Incapsula WAF challe
 
 **Caveat:** unlike Turnstile, Imperva's script sometimes layers in TLS/JA3 and behavioral checks beyond plain cookie generation, and its obfuscation changes periodically — success isn't guaranteed at the same rate as Cloudflare. Some Imperva deployments also show a visible interactive CAPTCHA widget (distinct from hCaptcha/reCAPTCHA) instead of the passive sensor-only path; that variant isn't solved yet.
 
+### DataDome challenges
+
+Tier 3 and Tier 4 detect the three DataDome responses. All of them arrive through
+`captcha-delivery.com`:
+
+| Response | Marker | TRAWL action |
+| --- | --- | --- |
+| Device Check | `i.js` script, `dd.rt = 'i'` | Runs `packages/tiers/src/utils/datadomeWait.ts` and waits for a new `datadome` cookie |
+| Slider CAPTCHA | `c.js` script, `dd.rt = 'c'` | Reports `datadome-captcha-required`. No solver yet |
+| Hard block | `t=bv` on the challenge URL | Reports the IP as blocked and escalates to Tier 4 |
+
+The `x-dd-b` response header marks every DataDome response. The MITM proxy escalates on
+that header alone, before the body arrives.
+
+**Caveat:** DataDome reads headless signals directly. A headless browser fails the Device
+Check whatever its fingerprint says. Set `BROWSER_VIRTUAL_DISPLAY=true` to run the pool
+headful behind an Xvfb display. See [Configuration](/getting-started/configuration).
+
 ## Tier 4 — Residential Proxy Escalation
 
 Same as Tier 3 but launches the browser with `RESIDENTIAL_PROXY_URL` set as the proxy. Only triggered when:

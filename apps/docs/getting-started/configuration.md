@@ -85,6 +85,22 @@ BROWSER_CONTENT_PROCESSES=2   # default - conservative cap, lowest RAM/CPU
 BROWSER_CONTENT_PROCESSES=4   # raise if CF/Imperva challenges stall
 ```
 
+### `BROWSER_VIRTUAL_DISPLAY`
+
+**Default:** `false`
+
+Runs the pooled browsers headful behind an Xvfb virtual display instead of headless.
+DataDome reads headless signals directly and fails the Device Check whatever the
+fingerprint says. Cloudflare, Akamai and Imperva do not need this.
+
+The container images ship the `xvfb` binary. Each pooled browser gets its own display
+process, so RAM use grows with `BROWSER_POOL_SIZE`.
+
+```ini
+BROWSER_VIRTUAL_DISPLAY=false  # default - headless
+BROWSER_VIRTUAL_DISPLAY=true   # required for DataDome targets
+```
+
 ### Browser recovery timeouts
 
 | Variable | Default | Purpose |

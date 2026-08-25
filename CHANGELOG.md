@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **DataDome support.** Detect the Device Check interstitial, the slider CAPTCHA and the `t=bv` hard block from their `captcha-delivery.com` markers, plus the `x-dd-b` header for header-only proxy escalation. The Device Check runs through a dedicated browser waiter that waits for a fresh `datadome` cookie; the slider is surfaced as `datadome-captcha-required` for a future solver. `BROWSER_VIRTUAL_DISPLAY=true` runs the pool headful behind Xvfb, which DataDome requires.
 - **AWS WAF Challenge support.** Detect the documented `202` Challenge and `405` CAPTCHA responses from their `x-amzn-waf-action` header, with a conservative two-marker HTML fallback. Silent challenges use a dedicated browser waiter for the domain-matching `aws-waf-token`; interactive CAPTCHA is surfaced as `aws-waf-captcha-required` for a future solver.
 
 ### Fixed
