@@ -1,10 +1,11 @@
 import { BrowserPool, SessionCache } from "@trawl/browser"
-import type { OrchestratorDeps } from "@trawl/tiers"
+import type { AcquireOptions, OrchestratorDeps } from "@trawl/tiers"
 import type { SessionData } from "@trawl/types"
 import {
   ACQUIRE_TIMEOUT_MS,
   CLOSE_TIMEOUT_MS,
   CONTENT_PROCESSES,
+  HEADFUL_POOL_SIZE,
   LAUNCH_TIMEOUT_MS,
   POOL_SIZE,
   proxyPool,
@@ -13,15 +14,49 @@ import {
   residentialProxyPool,
   SESSION_TTL,
   STALL_TIMEOUT_MS,
-  VIRTUAL_DISPLAY,
 } from "./config"
+
+// Keeps the two pools' browser ids disjoint, so releaseBrowser() can route a handle back
+// to the pool that issued it.
+const HEADFUL_ID_OFFSET = 1000
 
 const state: {
   pool?: BrowserPool
+  headfulPool?: BrowserPool
+  headfulReady?: Promise<void>
   sessionCache?: SessionCache
 } = {}
 
 export const getPool = () => state.pool
+export const getHeadfulPool = () => state.headfulPool
+
+// Warmed on the first DataDome escalation rather than at startup: a deployment that never
+// meets DataDome should not pay for an idle browser and its X display, and readiness must
+// not wait on a pool most requests never touch. The first such request pays the cold start.
+const warmHeadfulPool = async (): Promise<BrowserPool | undefined> => {
+  const pool = state.headfulPool
+  if (!pool) return undefined
+  if (!state.headfulReady) {
+    state.headfulReady = pool.init().then(() => {
+      pool.startHealthCheck()
+      console.log(`[api] headful pool warm (${HEADFUL_POOL_SIZE} browser${HEADFUL_POOL_SIZE === 1 ? "" : "s"})`)
+    })
+    // Let a later request retry the launch instead of caching the failure forever.
+    state.headfulReady.catch(() => {
+      state.headfulReady = undefined
+    })
+  }
+  try {
+    await state.headfulReady
+    return pool
+  } catch (err) {
+    console.warn(
+      "[api] headful pool unavailable, falling back to the headless pool:",
+      err instanceof Error ? err.message : err,
+    )
+    return undefined
+  }
+}
 
 const initSessionCache = async (): Promise<void> => {
   try {
@@ -44,11 +79,25 @@ export const initPool = async (): Promise<void> => {
     acquireTimeoutMs: ACQUIRE_TIMEOUT_MS,
     recycleAfterTemporaryContexts: RECYCLE_AFTER_TEMPORARY_CONTEXTS,
     contentProcesses: CONTENT_PROCESSES,
-    virtualDisplay: VIRTUAL_DISPLAY,
     stallAfterMs: STALL_TIMEOUT_MS,
     closeTimeoutMs: CLOSE_TIMEOUT_MS,
     launchTimeoutMs: LAUNCH_TIMEOUT_MS,
   })
+
+  if (HEADFUL_POOL_SIZE > 0) {
+    state.headfulPool = new BrowserPool({
+      poolSize: HEADFUL_POOL_SIZE,
+      acquireTimeoutMs: ACQUIRE_TIMEOUT_MS,
+      recycleAfterTemporaryContexts: RECYCLE_AFTER_TEMPORARY_CONTEXTS,
+      contentProcesses: CONTENT_PROCESSES,
+      virtualDisplay: true,
+      idOffset: HEADFUL_ID_OFFSET,
+      label: "pool:headful",
+      stallAfterMs: STALL_TIMEOUT_MS,
+      closeTimeoutMs: CLOSE_TIMEOUT_MS,
+      launchTimeoutMs: LAUNCH_TIMEOUT_MS,
+    })
+  }
   // Publish the pool before its first await. Tier 1 can serve immediately and
   // browser-backed requests can wait in acquire() while capacity warms.
   state.pool = pool
@@ -63,8 +112,17 @@ export const getDeps = (): OrchestratorDeps => {
   if (!state.pool) throw new Error("pool not ready")
   const p = state.pool
   return {
-    acquireBrowser: (d: string, budgetMs?: number) => p.acquire(d, budgetMs),
-    releaseBrowser: (id: number, lease?: number) => p.release(id, lease),
+    acquireBrowser: async (d: string, budgetMs?: number, options?: AcquireOptions) => {
+      if (options?.headful) {
+        const headful = await warmHeadfulPool()
+        if (headful) return headful.acquire(d, budgetMs)
+      }
+      return p.acquire(d, budgetMs)
+    },
+    releaseBrowser: (id: number, lease?: number) => {
+      if (id >= HEADFUL_ID_OFFSET) state.headfulPool?.release(id, lease)
+      else p.release(id, lease)
+    },
     loadSession: (d: string) =>
       state.sessionCache ? state.sessionCache.load(d).catch(() => undefined) : Promise.resolve(undefined),
     saveSession: (d: string, data: SessionData) =>
