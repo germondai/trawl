@@ -95,8 +95,10 @@ to a small headful sub-pool that runs behind an Xvfb virtual display.
 
 Tier 1 names the wall it meets, and the orchestrator picks the pool from that name before it
 checks a browser out. The sub-pool is warmed on the first DataDome escalation, so a
-deployment that never meets DataDome never launches it. See `BROWSER_HEADFUL_POOL_SIZE` in
-[Configuration](/getting-started/configuration).
+deployment that never meets DataDome never launches it.
+
+The sub-pool is off by default: set `BROWSER_HEADFUL_POOL_SIZE=1` to scrape DataDome
+targets. See [Configuration](/getting-started/configuration).
 
 ## Tier 4 — Residential Proxy Escalation
 

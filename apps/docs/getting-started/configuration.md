@@ -87,7 +87,7 @@ BROWSER_CONTENT_PROCESSES=4   # raise if CF/Imperva challenges stall
 
 ### `BROWSER_HEADFUL_POOL_SIZE`
 
-**Default:** `1`
+**Default:** `0` (disabled)
 
 Browsers in the headful sub-pool. This pool runs behind an Xvfb virtual display and serves
 only DataDome escalations: DataDome reads headless signals directly and fails its Device
@@ -95,15 +95,25 @@ Check whatever the fingerprint says, while Cloudflare, Akamai, Imperva and DDoS-
 resolve headless. The main pool stays headless, which is faster, and only the requests that
 need a display pay for one.
 
+Set it to `1` to scrape DataDome targets. It is off by default because the sub-pool is
+**additional to `BROWSER_POOL_SIZE`**: one headful browser plus its X display measures about
+380 MB (a headful browser is roughly twice a headless one, and Xvfb adds ~65 MB), so leaving
+it on would move the memory ceiling of deployments that never meet DataDome. Account for it
+in `mem_limit` before enabling.
+
 The sub-pool is warmed on the first DataDome escalation, not at startup, so it costs nothing
-until a DataDome target appears. That first request pays the browser cold start. Readiness at
-`/health` reports the main pool only; the sub-pool appears under `headful` at `/stats`.
+until a DataDome target appears. That first request pays the browser cold start (~1s).
+Readiness at `/health` reports the main pool only; the sub-pool appears under `headful` at
+`/stats`, and reads `null` while disabled.
+
+With the sub-pool disabled, DataDome escalations run on the headless pool and are expected
+to fail with `datadome-persistent`.
 
 The container images ship the `xvfb` binary.
 
 ```ini
-BROWSER_HEADFUL_POOL_SIZE=1   # default - one headful browser, warmed on demand
-BROWSER_HEADFUL_POOL_SIZE=0   # disabled - DataDome targets are expected to fail
+BROWSER_HEADFUL_POOL_SIZE=0   # default - no headful browser
+BROWSER_HEADFUL_POOL_SIZE=1   # required for DataDome targets, ~380 MB on first use
 ```
 
 ### Browser recovery timeouts

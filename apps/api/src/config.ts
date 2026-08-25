@@ -18,9 +18,12 @@ export const CONTENT_PROCESSES = Number(process.env.BROWSER_CONTENT_PROCESSES ??
 // Size of the headful sub-pool, launched behind an Xvfb virtual display and used only for
 // DataDome escalations. DataDome reads headless signals directly and fails the Device Check
 // whatever the fingerprint says, while every other supported wall resolves headless, so the
-// main pool stays headless and faster. Launched on first use, not at startup; 0 disables it
-// and sends DataDome to the headless pool, where it is expected to fail.
-export const HEADFUL_POOL_SIZE = Number(process.env.BROWSER_HEADFUL_POOL_SIZE ?? "1")
+// main pool stays headless and faster.
+//
+// Off by default because this pool sits ON TOP of BROWSER_POOL_SIZE: one headful browser
+// plus its X display measures ~380 MB, which would silently move the memory ceiling of a
+// deployment that never meets DataDome. Set it to 1 to scrape DataDome targets.
+export const HEADFUL_POOL_SIZE = Number(process.env.BROWSER_HEADFUL_POOL_SIZE ?? "0")
 
 // How long a browser may stay checked out before the pool calls it wedged rather than
 // busy. A scrape's own budget is req.maxTimeout (default 60s), so 3x that is well clear
