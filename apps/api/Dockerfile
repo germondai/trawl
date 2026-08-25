@@ -78,8 +78,10 @@ RUN --mount=type=secret,id=GITHUB_TOKEN,env=GITHUB_TOKEN \
 # Baking a verified copy into the image makes startup deterministic and removes the
 # runtime GitHub dependency + first-launch download latency. The size check fails the
 # build if the download is truncated, so a corrupt file can never be baked in.
-ARG GEOLITE_RELEASE=2026.08.19
-ARG GEOLITE_CITY_SHA256=839a900122e9aedb51cc1506504e3824fd6685bbe87cba1699b3d19669094ab8
+# P3TERX/GeoLite.mmdb keeps only the last few daily releases, so a pin more than a few days
+# old stops resolving and the build fails on a 404 here. Bump both values together.
+ARG GEOLITE_RELEASE=2026.08.25
+ARG GEOLITE_CITY_SHA256=b481e34bdfbeb937434d09b47d89622c36051560c5f64853b54e081678c7df74
 RUN curl -fsSL \
       "https://github.com/P3TERX/GeoLite.mmdb/releases/download/${GEOLITE_RELEASE}/GeoLite2-City.mmdb" \
       -o /opt/camoufox/GeoLite2-City.mmdb && \
