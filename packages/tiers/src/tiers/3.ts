@@ -3,9 +3,11 @@ import { closeTemporaryContext, FINGERPRINT, newFreshContext } from "@trawl/brow
 import type { Cookie, TierResult } from "@trawl/types"
 import { solvePageCaptchas } from "../solvers"
 import { routeChallengeWait } from "../utils/challengeRouter"
-import { toCookies } from "../utils/cookies"
+import { snapshotChallengeCookies, toCookies } from "../utils/cookies"
 import {
+  type ChallengeType,
   hasAkamaiChallenge,
+  hasDataDomeChallenge,
   hasDdosGuardChallenge,
   hasImpervaChallenge,
   isBlocked,
@@ -18,6 +20,20 @@ import { isHardNetworkFailure } from "../utils/network"
 import { captureResponse, isTextContentType } from "../utils/response"
 import type { RouteLike } from "../utils/sanitize"
 import { routeContinueOverrides } from "../utils/sanitize"
+
+// Why a wall survived its waiter on a datacenter IP. The clearance token was obtained in
+// every one of these cases, so what is left is the egress IP, not the challenge logic.
+const DATACENTER_BLOCKED_REASONS: Partial<Record<ChallengeType, string>> = {
+  imperva: "datacenter-ip-blocked (imperva sensor cookie obtained but challenge persisted — needs residential proxy)",
+  akamai: "datacenter-ip-blocked (Akamai sensor cookie obtained but challenge persisted — needs residential proxy)",
+  "ddos-guard":
+    "datacenter-ip-blocked (DDoS-Guard clearance cookie obtained but challenge persisted — needs residential proxy)",
+  "aws-waf": "datacenter-ip-blocked (AWS WAF token obtained but challenge persisted — needs residential proxy)",
+  datadome: "datacenter-ip-blocked (DataDome refused the datacenter IP, needs residential proxy)",
+}
+
+const DEFAULT_DATACENTER_BLOCKED_REASON =
+  "datacenter-ip-blocked (cf_clearance obtained but redirect never completed — needs residential proxy)"
 
 export interface Tier3Result extends TierResult {
   tier: 3
@@ -57,10 +73,7 @@ export async function runTier3(
       requestReplacement: handle.requestBrowserReplacement,
     })
     const page = await freshCtx.newPage()
-    const initialAwsWafTokens = new Set<string>()
-    for (const cookie of await freshCtx.cookies()) {
-      if (cookie.name === "aws-waf-token") initialAwsWafTokens.add(`${cookie.domain}:${cookie.value}`)
-    }
+    const initialCookies = snapshotChallengeCookies(await freshCtx.cookies())
     if ((extraHeaders && Object.keys(extraHeaders).length > 0) || method === "POST") {
       await page.route(url, (route: RouteLike) => {
         route.continue(routeContinueOverrides(route, extraHeaders, method, body))
@@ -95,7 +108,7 @@ export async function runTier3(
       url,
       undefined,
       mainResponse.status,
-      initialAwsWafTokens,
+      initialCookies,
     )
 
     if (resolution !== "ok") {
@@ -105,17 +118,9 @@ export async function runTier3(
         durationMs: Date.now() - start,
         reason:
           resolution === "captcha-required"
-            ? "aws-waf-captcha-required"
+            ? `${challengeType}-captcha-required`
             : resolution === "ip-blocked"
-              ? challengeType === "imperva"
-                ? "datacenter-ip-blocked (imperva sensor cookie obtained but challenge persisted — needs residential proxy)"
-                : challengeType === "akamai"
-                  ? "datacenter-ip-blocked (Akamai sensor cookie obtained but challenge persisted — needs residential proxy)"
-                  : challengeType === "ddos-guard"
-                    ? "datacenter-ip-blocked (DDoS-Guard clearance cookie obtained but challenge persisted — needs residential proxy)"
-                    : challengeType === "aws-waf"
-                      ? "datacenter-ip-blocked (AWS WAF token obtained but challenge persisted — needs residential proxy)"
-                      : "datacenter-ip-blocked (cf_clearance obtained but redirect never completed — needs residential proxy)"
+              ? (DATACENTER_BLOCKED_REASONS[challengeType] ?? DEFAULT_DATACENTER_BLOCKED_REASON)
               : `${challengeType === "none" ? "cloudflare" : challengeType}-challenge-timeout`,
       }
     }
@@ -178,6 +183,13 @@ export async function runTier3(
       const pageUrl = page.url()
       console.log(`[tier3] ddos-guard-persistent: url="${pageUrl}" title="${pageTitle}" html=${html.length}b`)
       return { tier: 3, status: "blocked", durationMs: Date.now() - start, reason: "ddos-guard-persistent" }
+    }
+
+    if (hasDataDomeChallenge(html)) {
+      const pageTitle = await page.title().catch(() => "?")
+      const pageUrl = page.url()
+      console.log(`[tier3] datadome-persistent: url="${pageUrl}" title="${pageTitle}" html=${html.length}b`)
+      return { tier: 3, status: "blocked", durationMs: Date.now() - start, reason: "datadome-persistent" }
     }
 
     if (isBlocked(mainResponse.status, html)) {

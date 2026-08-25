@@ -2,6 +2,7 @@ import { FINGERPRINT } from "@trawl/browser"
 import type { TierResult } from "@trawl/types"
 import {
   getAwsWafAction,
+  getDataDomeAction,
   hasAkamaiChallenge,
   hasAwsWafCaptcha,
   hasAwsWafChallenge,
@@ -170,6 +171,28 @@ export async function runTier1(
         status: "needs-js",
         durationMs: Date.now() - start,
         reason: "aws-waf-challenge",
+        responseHeaders,
+        contentType,
+        body: rawBytes,
+        statusCode: res.status,
+      }
+    }
+
+    // DataDome answers with 403 for every wall, so this must run before the generic
+    // isBlocked() check: only the Device Check is worth a browser, the slider and the
+    // hard block are not.
+    const dataDomeAction = getDataDomeAction(previewText, responseHeaders, res.status)
+    if (dataDomeAction) {
+      return {
+        tier: 1,
+        status: dataDomeAction === "interstitial" ? "needs-js" : "blocked",
+        durationMs: Date.now() - start,
+        reason:
+          dataDomeAction === "interstitial"
+            ? "datadome-interstitial"
+            : dataDomeAction === "captcha"
+              ? "datadome-captcha-required"
+              : "datadome-blocked",
         responseHeaders,
         contentType,
         body: rawBytes,

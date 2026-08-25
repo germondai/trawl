@@ -32,3 +32,23 @@ export function toCookies(rawCookies: RawCookie[]): Cookie[] {
     sameSite: c.sameSite,
   }))
 }
+
+// Cookie values a challenge waiter must be able to tell apart from the ones it earns itself.
+// Both AWS WAF and DataDome hand out their cookie on the block page too, so a waiter proves
+// nothing by finding one: it has to find a value that was not there before the run.
+export interface ChallengeCookieSnapshot {
+  awsWaf: ReadonlySet<string>
+  dataDome: ReadonlySet<string>
+}
+
+export function snapshotChallengeCookies(
+  rawCookies: Array<{ name: string; domain: string; value: string }>,
+): ChallengeCookieSnapshot {
+  const awsWaf = new Set<string>()
+  const dataDome = new Set<string>()
+  for (const cookie of rawCookies) {
+    if (cookie.name === "aws-waf-token") awsWaf.add(`${cookie.domain}:${cookie.value}`)
+    else if (cookie.name === "datadome") dataDome.add(`${cookie.domain}:${cookie.value}`)
+  }
+  return { awsWaf, dataDome }
+}

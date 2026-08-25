@@ -3,9 +3,10 @@ import { closeTemporaryContext, FINGERPRINT, newFreshContext } from "@trawl/brow
 import type { Cookie, TierResult } from "@trawl/types"
 import { solvePageCaptchas } from "../solvers"
 import { routeChallengeWait } from "../utils/challengeRouter"
-import { toCookies } from "../utils/cookies"
+import { snapshotChallengeCookies, toCookies } from "../utils/cookies"
 import {
   hasAkamaiChallenge,
+  hasDataDomeChallenge,
   hasDdosGuardChallenge,
   hasImpervaChallenge,
   isBlocked,
@@ -58,10 +59,7 @@ export async function runTier4(
     state.proxyContext = proxyContext
 
     const page = await proxyContext.newPage()
-    const initialAwsWafTokens = new Set<string>()
-    for (const cookie of await proxyContext.cookies()) {
-      if (cookie.name === "aws-waf-token") initialAwsWafTokens.add(`${cookie.domain}:${cookie.value}`)
-    }
+    const initialCookies = snapshotChallengeCookies(await proxyContext.cookies())
 
     if ((extraHeaders && Object.keys(extraHeaders).length > 0) || method === "POST") {
       await page.route(url, (route: RouteLike) => {
@@ -92,7 +90,7 @@ export async function runTier4(
       url,
       undefined,
       mainResponse.status,
-      initialAwsWafTokens,
+      initialCookies,
     )
 
     if (resolution !== "ok") {
@@ -102,7 +100,7 @@ export async function runTier4(
         durationMs: Date.now() - start,
         reason:
           resolution === "captcha-required"
-            ? "aws-waf-captcha-required"
+            ? `${challengeType}-captcha-required`
             : resolution === "ip-blocked"
               ? "proxy-ip-blocked"
               : `${challengeType === "none" ? "cloudflare" : challengeType}-challenge-timeout`,
@@ -167,6 +165,13 @@ export async function runTier4(
       const pageUrl = page.url()
       console.log(`[tier4] ddos-guard-persistent: url="${pageUrl}" title="${pageTitle}" html=${html.length}b`)
       return { tier: 4, status: "blocked", durationMs: Date.now() - start, reason: "ddos-guard-persistent" }
+    }
+
+    if (hasDataDomeChallenge(html)) {
+      const pageTitle = await page.title().catch(() => "?")
+      const pageUrl = page.url()
+      console.log(`[tier4] datadome-persistent: url="${pageUrl}" title="${pageTitle}" html=${html.length}b`)
+      return { tier: 4, status: "blocked", durationMs: Date.now() - start, reason: "datadome-persistent" }
     }
 
     if (isBlocked(mainResponse.status, html)) {
