@@ -1,5 +1,6 @@
 import { FINGERPRINT } from "@trawl/browser"
 import type { TierResult } from "@trawl/types"
+import type { ChallengeType } from "../utils/detect"
 import {
   getAwsWafAction,
   getDataDomeAction,
@@ -17,6 +18,9 @@ import { isTextContentType } from "../utils/response"
 
 export interface Tier1Result extends TierResult {
   tier: 1
+  // The wall Tier 1 recognized, when it recognized one. The orchestrator routes the
+  // browser it acquires for the later tiers on this: DataDome needs a headful one.
+  challenge?: ChallengeType
   effectiveUrl?: string
   html?: string
   body?: Uint8Array
@@ -70,6 +74,7 @@ export async function runTier1(
         status: awsAction === "captcha" ? "blocked" : "needs-js",
         durationMs: Date.now() - start,
         reason: awsAction === "captcha" ? "aws-waf-captcha-required" : "aws-waf-challenge",
+        challenge: "aws-waf",
         responseHeaders,
         contentType,
         body: new Uint8Array(),
@@ -93,6 +98,7 @@ export async function runTier1(
         status: "needs-js",
         durationMs: Date.now() - start,
         reason: "cloudflare-challenge",
+        challenge: "cloudflare-interstitial",
         responseHeaders,
         contentType,
         body: rawBytes,
@@ -111,6 +117,7 @@ export async function runTier1(
         status: "needs-js",
         durationMs: Date.now() - start,
         reason: "hcaptcha-shell",
+        challenge: "hcaptcha",
         responseHeaders,
         contentType,
         body: rawBytes,
@@ -123,6 +130,7 @@ export async function runTier1(
         status: "needs-js",
         durationMs: Date.now() - start,
         reason: "recaptcha-shell",
+        challenge: "recaptcha",
         responseHeaders,
         contentType,
         body: rawBytes,
@@ -135,6 +143,7 @@ export async function runTier1(
         status: "needs-js",
         durationMs: Date.now() - start,
         reason: "turnstile-shell",
+        challenge: "cloudflare-turnstile",
         responseHeaders,
         contentType,
         body: rawBytes,
@@ -147,6 +156,7 @@ export async function runTier1(
         status: "needs-js",
         durationMs: Date.now() - start,
         reason: "akamai-interstitial",
+        challenge: "akamai",
         responseHeaders,
         contentType,
         body: rawBytes,
@@ -159,6 +169,7 @@ export async function runTier1(
         status: "blocked",
         durationMs: Date.now() - start,
         reason: "aws-waf-captcha-required",
+        challenge: "aws-waf",
         responseHeaders,
         contentType,
         body: rawBytes,
@@ -171,6 +182,7 @@ export async function runTier1(
         status: "needs-js",
         durationMs: Date.now() - start,
         reason: "aws-waf-challenge",
+        challenge: "aws-waf",
         responseHeaders,
         contentType,
         body: rawBytes,
@@ -193,6 +205,7 @@ export async function runTier1(
             : dataDomeAction === "captcha"
               ? "datadome-captcha-required"
               : "datadome-blocked",
+        challenge: "datadome",
         responseHeaders,
         contentType,
         body: rawBytes,
