@@ -243,7 +243,9 @@ async function readHttpResponse(
   const headerChallengeType = detectChallengeType("", headers, status)
   if (
     !skipChallengeDetection &&
-    (headerChallengeType === "cloudflare-interstitial" || headerChallengeType === "aws-waf")
+    (headerChallengeType === "cloudflare-interstitial" ||
+      headerChallengeType === "aws-waf" ||
+      headerChallengeType === "datadome")
   ) {
     socket.destroy()
     return {

@@ -205,6 +205,38 @@ describe("directForwardHttp — buffered by default", () => {
     }
   })
 
+  test("escalates a DataDome block from its header before waiting for an open body", async () => {
+    const sockets = new Set<net.Socket>()
+    const hangingServer = net.createServer((socket) => {
+      sockets.add(socket)
+      socket.once("close", () => sockets.delete(socket))
+      socket.write("HTTP/1.1 403 Forbidden\r\nContent-Type: text/html\r\nX-DD-B: 1\r\nConnection: keep-alive\r\n\r\n")
+    })
+    hangingServer.listen(0, "127.0.0.1")
+    await once(hangingServer, "listening")
+    const address = hangingServer.address()
+    if (!address || typeof address === "string") throw new Error("test server did not bind a TCP port")
+
+    try {
+      const startedAt = performance.now()
+      const result = await directForwardHttp({
+        url: `http://127.0.0.1:${address.port}/challenge`,
+        method: "GET",
+        headers: {},
+        timeoutMs: 2_000,
+      })
+      expect(performance.now() - startedAt).toBeLessThan(500)
+      expect(result.mode).toBe("buffer")
+      if (result.mode !== "buffer") return
+      expect(result.status).toBe(403)
+      expect(result.challengeDetected).toBe(true)
+      expect(result.body.length).toBe(0)
+    } finally {
+      for (const socket of sockets) socket.destroy()
+      await new Promise<void>((resolve, reject) => hangingServer.close((error) => (error ? reject(error) : resolve())))
+    }
+  })
+
   test("escalates an AWS WAF Challenge header before waiting for an open body", async () => {
     const sockets = new Set<net.Socket>()
     const hangingServer = net.createServer((socket) => {
