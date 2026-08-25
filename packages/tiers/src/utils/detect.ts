@@ -8,6 +8,7 @@ export type ChallengeType =
   | "akamai"
   | "ddos-guard"
   | "aws-waf"
+  | "datadome"
   | "none"
 
 export function hasCloudflareChallengeHeader(headers: Record<string, string> = {}): boolean {
@@ -150,6 +151,48 @@ export function hasAwsWafCaptcha(html: string, headers: Record<string, string> =
   return /window\.gokuProps/i.test(html) && /token\.awswaf\.com\/[^"']*captcha\.js/i.test(html)
 }
 
+// DataDome serves every wall through captcha-delivery.com. The domain is exclusive to the
+// product, and the inline `dd` object plus the two challenge scripts separate the variants:
+// i.js is the passive Device Check, c.js the interactive slider.
+//
+// CAUTION: the `js.datadome.co/tags.js` client tag is NOT a marker. Protected sites ship
+// it on every ordinary page as passive telemetry, the same trap as Cloudflare's
+// __CF$cv$params. A bare captcha-delivery.com mention is not enough either: only the
+// challenge paths and the `dd` object count.
+export type DataDomeAction = "interstitial" | "captcha" | "blocked"
+
+const DD_OBJECT = /\bdd\s*=\s*\{[^}]{0,400}?["']rt["']\s*:\s*["']([ic])["']/i
+
+export function getDataDomeAction(
+  html: string,
+  headers: Record<string, string> = {},
+  _status?: number,
+): DataDomeAction | undefined {
+  if (/captcha-delivery\.com/i.test(html)) {
+    // `t=bv` is DataDome's hard block ("Access denied"). No widget clears it, only a
+    // different egress IP does, so it must not be waited on like a solvable challenge.
+    if (/[?&]t=bv\b/i.test(html)) return "blocked"
+    if (/\/interstitial\//i.test(html) || /src=["'][^"']*\/i\.js/i.test(html)) return "interstitial"
+    if (/\/captcha\//i.test(html) || /src=["'][^"']*\/c\.js/i.test(html)) return "captcha"
+    const rt = html.match(DD_OBJECT)?.[1]?.toLowerCase()
+    if (rt === "i") return "interstitial"
+    if (rt === "c") return "captcha"
+  }
+  // Header-only fallback: DataDome stamps x-dd-b on the responses it generates itself.
+  // The proxy path inspects headers before the body arrives, so the variant is still
+  // unknown here: escalate to a browser, which reclassifies from the page.
+  if (headerValue(headers, "x-dd-b") !== undefined) return "interstitial"
+  return undefined
+}
+
+export function hasDataDomeChallenge(html: string, headers: Record<string, string> = {}, status?: number): boolean {
+  return getDataDomeAction(html, headers, status) !== undefined
+}
+
+export function hasDataDomeCaptcha(html: string, headers: Record<string, string> = {}, status?: number): boolean {
+  return getDataDomeAction(html, headers, status) === "captcha"
+}
+
 export function detectChallengeType(
   html: string,
   headers: Record<string, string> = {},
@@ -157,6 +200,7 @@ export function detectChallengeType(
 ): ChallengeType {
   if (hasAwsWafChallenge(html, headers, status) || hasAwsWafCaptcha(html, headers, status)) return "aws-waf"
   if (hasCloudflareChallengeHeader(headers)) return "cloudflare-interstitial"
+  if (hasDataDomeChallenge(html, headers, status)) return "datadome"
   if (hasTurnstile(html)) return "cloudflare-turnstile"
   if (hasDdosGuardChallenge(html, headers)) return "ddos-guard"
   if (isCloudflarePage(html, headers)) return "cloudflare-interstitial"
@@ -174,6 +218,7 @@ export function isBlocked(status: number, html: string): boolean {
   if (hasImpervaChallenge(html)) return true
   if (hasAkamaiChallenge(html)) return true
   if (hasDdosGuardChallenge(html)) return true
+  if (hasDataDomeChallenge(html)) return true
   return false
 }
 
@@ -182,7 +227,8 @@ export function needsJs(html: string, headers: Record<string, string>): boolean 
     isCloudflarePage(html, headers) ||
     hasImpervaChallenge(html, headers) ||
     hasAkamaiChallenge(html, headers) ||
-    hasDdosGuardChallenge(html, headers)
+    hasDdosGuardChallenge(html, headers) ||
+    hasDataDomeChallenge(html, headers)
   )
 }
 
@@ -203,7 +249,7 @@ const LEAN_BODY_THRESHOLDS: Partial<Record<ChallengeType, number>> = {
 export function isChallengeWall(status: number, bodyLength: number, challengeType: ChallengeType): boolean {
   if (challengeType === "none") return false
   if (status === 403 || status === 503) return true
-  if (challengeType === "akamai" || challengeType === "aws-waf") return true
+  if (challengeType === "akamai" || challengeType === "aws-waf" || challengeType === "datadome") return true
   const threshold = LEAN_BODY_THRESHOLDS[challengeType]
   if (threshold !== undefined && bodyLength < threshold) return true
   return false

@@ -7,11 +7,15 @@ export { runTier3, type Tier3Result } from "./tiers/3"
 export { runTier4, type Tier4Result } from "./tiers/4"
 export {
   type ChallengeType,
+  type DataDomeAction,
   detectChallengeType,
   getAwsWafAction,
+  getDataDomeAction,
   hasAkamaiChallenge,
   hasAwsWafCaptcha,
   hasAwsWafChallenge,
+  hasDataDomeCaptcha,
+  hasDataDomeChallenge,
   hasDdosGuardChallenge,
   hasHcaptcha,
   hasImpervaChallenge,
