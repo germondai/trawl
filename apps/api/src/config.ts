@@ -1,6 +1,9 @@
 import { ProxyPool } from "@trawl/tiers"
 
 export const REDIS_URL = process.env.REDIS_URL?.trim() || undefined
+// Session cache driver: "redis" (default, shared across instances) or
+// "memory" (in-process Map, zero dependencies, per-instance only).
+export const SESSION_CACHE_DRIVER = (process.env.SESSION_CACHE_DRIVER ?? "redis").toLowerCase() as "redis" | "memory"
 const integerInRange = (value: string | undefined, fallback: number, min: number, max = Number.MAX_SAFE_INTEGER) => {
   if (value === undefined || value.trim() === "") return fallback
   const parsed = Number(value)

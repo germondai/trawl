@@ -1,4 +1,4 @@
-import { BrowserPool, SessionCache } from "@trawl/browser"
+import { BrowserPool, MemorySessionCache, SessionCache } from "@trawl/browser"
 import type { AcquireOptions, OrchestratorDeps } from "@trawl/tiers"
 import type { SessionData } from "@trawl/types"
 import {
@@ -15,6 +15,7 @@ import {
   REDIS_SESSION_TTL_SECONDS,
   REDIS_URL,
   residentialProxyPool,
+  SESSION_CACHE_DRIVER,
   STALL_TIMEOUT_MS,
 } from "./config"
 
@@ -94,21 +95,28 @@ export class SessionCacheRecovery {
 }
 
 const redisUrl = REDIS_URL
-const sessionCacheRecovery = redisUrl
+const sessionCacheRecovery = SESSION_CACHE_DRIVER === "memory"
   ? new SessionCacheRecovery({
-      createCache: () => new SessionCache({ redisUrl, ttlSeconds: REDIS_SESSION_TTL_SECONDS }),
-      connectTimeoutMs: REDIS_CONNECT_TIMEOUT_MS,
-      retryDelayMs: REDIS_RETRY_DELAY_MS,
-      onConnected: () => console.log("[api] session cache connected  (Tier 2 fast-path enabled)"),
-      onUnavailable: (err) => {
-        const retry = REDIS_RETRY_DELAY_MS > 0 ? `; retrying in ${REDIS_RETRY_DELAY_MS}ms` : ""
-        console.warn(
-          `[api] session cache unavailable — Tier 2 disabled${retry}:`,
-          err instanceof Error ? err.message : err,
-        )
-      },
+      createCache: () => new MemorySessionCache({ ttlSeconds: REDIS_SESSION_TTL_SECONDS }),
+      connectTimeoutMs: 0,
+      retryDelayMs: 0,
+      onConnected: () => console.log("[api] session cache: memory  (Tier 2 fast-path enabled, per-instance)"),
     })
-  : undefined
+  : redisUrl
+    ? new SessionCacheRecovery({
+        createCache: () => new SessionCache({ redisUrl, ttlSeconds: REDIS_SESSION_TTL_SECONDS }),
+        connectTimeoutMs: REDIS_CONNECT_TIMEOUT_MS,
+        retryDelayMs: REDIS_RETRY_DELAY_MS,
+        onConnected: () => console.log("[api] session cache connected  (Tier 2 fast-path enabled)"),
+        onUnavailable: (err) => {
+          const retry = REDIS_RETRY_DELAY_MS > 0 ? `; retrying in ${REDIS_RETRY_DELAY_MS}ms` : ""
+          console.warn(
+            `[api] session cache unavailable — Tier 2 disabled${retry}:`,
+            err instanceof Error ? err.message : err,
+          )
+        },
+      })
+    : undefined
 
 interface InitPoolOptions {
   poolSize?: number
