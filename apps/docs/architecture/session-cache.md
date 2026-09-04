@@ -1,13 +1,36 @@
 ---
 title: Session Cache
-description: How TRAWL caches solved browser sessions in Redis to avoid unnecessary challenge work.
+description: How TRAWL caches solved browser sessions to avoid unnecessary challenge work, with a pluggable Redis or in-memory driver.
 ---
 
 # Session Cache
 
 The session cache is what makes Tier 2 possible. After a successful Tier 3 or Tier 4 solve, TRAWL
-saves the extracted cookies and browser user agent in Redis. The next request to the same hostname
-injects that state into a browser context and attempts to reuse the solved session.
+saves the extracted cookies and browser user agent in the configured cache backend. The next request
+to the same hostname injects that state into a browser context and attempts to reuse the solved
+session.
+
+## Cache driver
+
+TRAWL supports two session cache drivers, selected at startup via `SESSION_CACHE_DRIVER`:
+
+| Driver | Value | Shared across instances | External dependencies |
+| --- | --- | --- | --- |
+| Redis (default) | `redis` | Yes | Redis 8.8 |
+| In-memory | `memory` | No (per-process) | None |
+
+```ini
+SESSION_CACHE_DRIVER=redis   # default — shared across instances
+SESSION_CACHE_DRIVER=memory  # in-process Map, zero dependencies
+```
+
+Use `redis` when running multiple API instances behind a load balancer — sessions solved on one
+instance are visible to all others. Use `memory` for single-instance deployments where the
+operational overhead of Redis is not justified; sessions are scoped to the process and lost on
+restart.
+
+Both drivers implement the `ISessionCache` interface, so additional backends (e.g. SQLite, Valkey,
+KeyDB) can be added without touching the orchestrator or tier logic.
 
 ## Storage format
 
@@ -61,7 +84,7 @@ This handles provider cookies expiring or being rejected before the Redis TTL en
 
 ## Redis
 
-TRAWL's cache backend is Redis 8.8. TRAWL talks to it with `new RedisClient(REDIS_URL)` from Bun's native Redis client (not ioredis).
+When `SESSION_CACHE_DRIVER=redis` (the default), TRAWL talks to Redis 8.8 with `new RedisClient(REDIS_URL)` from Bun's native Redis client (not ioredis).
 
 The cache is optional. When `REDIS_URL` is empty or unset, TRAWL does not create a Redis client and
 Tier 2 remains disabled.
@@ -78,3 +101,12 @@ const redis = new RedisClient('redis://localhost:6379')
 await redis.set('session:example.com', JSON.stringify(data), 'EX', 3600)
 const raw = await redis.get('session:example.com')
 ```
+
+## In-memory
+
+When `SESSION_CACHE_DRIVER=memory`, TRAWL uses an in-process `Map` with TTL-based expiry. There is
+no `connect()` step and no network I/O — the cache is available immediately on startup. Entries
+are lazily expired on read and can be proactively pruned via `MemorySessionCache.prune()`.
+
+Because the cache lives in the API process, sessions are **not shared** across instances. A solve
+on instance A is invisible to instance B. Use this driver only for single-instance deployments.

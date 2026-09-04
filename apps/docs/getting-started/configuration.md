@@ -34,6 +34,24 @@ match an entry in this list.
 MCP_ALLOWED_ORIGINS=https://chat.example.com,https://admin.example.com
 ```
 
+## Session Cache Driver
+
+### `SESSION_CACHE_DRIVER`
+
+**Default:** `redis`
+
+Selects the backend used for the Tier 2 session cache. Redis remains the default to preserve
+cross-instance session sharing and backward compatibility.
+
+```ini
+SESSION_CACHE_DRIVER=redis   # default — shared across instances, requires Redis
+SESSION_CACHE_DRIVER=memory  # in-process Map, zero external dependencies
+```
+
+Use `memory` for single-instance deployments where running Redis is not justified. Sessions are
+scoped to the API process and lost on restart — they are **not shared** across instances. See
+[Session Cache](/architecture/session-cache) for details.
+
 ## Redis
 
 ### `REDIS_URL`
