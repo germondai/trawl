@@ -73,6 +73,7 @@ export async function runTier3(
   validateOutboundUrl?: OutboundUrlValidator,
   screenshot?: boolean,
   capture: CaptureOptions = {},
+  ignoreCertificateErrors?: boolean,
 ): Promise<Tier3Result> {
   const start = Date.now()
 
@@ -88,6 +89,7 @@ export async function runTier3(
       proxy: proxyUrl,
       onCreated: handle.noteTemporaryContext,
       requestReplacement: handle.requestBrowserReplacement,
+      ignoreHttpsErrors: ignoreCertificateErrors,
     })
     const page = await freshCtx.newPage()
     await installOutboundPolicy(page, validateOutboundUrl)

@@ -27,6 +27,7 @@ interface ScrapeRequest {
   waitForSelector?: string               // CSS selector that ends the settle window early
   blockedEvidence?: boolean              // return the challenge wall on the error, default false
   mhtml?: boolean                        // assemble an MHTML archive of the page, default false
+  ignoreCertificateErrors?: boolean      // load the page even if its TLS certificate fails verification, default false
 }
 ```
 
@@ -50,6 +51,7 @@ interface ScrapeRequest {
 | `waitForSelector` | string | —    | CSS selector that also ends the settle window early. Only read alongside `captureResponses`                                                                                                 |
 | `blockedEvidence` | boolean | false | When no tier clears the challenge, attach the wall the last browser tier stopped at to the 500 body as `blockedEvidence`. It is never attached to a successful result — see the note below. The image rides along only when `screenshot` is also set |
 | `mhtml` | boolean | false        | Assemble a `multipart/related` MHTML archive of the page on the browser tiers (2–4) and return it as `mhtml`. An approximation of "Save as MHTML", not an engine snapshot — see the note below |
+| `ignoreCertificateErrors` | boolean | false | Load the page even when its TLS certificate fails verification (expired, self-signed, issued for another host) instead of failing the fetch. Off by default, so every other caller keeps a verified connection. An unverified connection no longer proves whose page came back, so the request also gets the crossed-landing guard — see the note below |
 
 Captured response bodies, headers, console messages, URLs, blocked-page HTML, screenshots,
 and MHTML archives can contain credentials, tokens, personal data, or active scripts.
@@ -76,6 +78,7 @@ interface ScrapeResult {
   redirectChain?: string[]     // URLs the main document walked, same presence rules as consoleLogs
   capturedResponses?: CapturedResponseEntry[]  // matched response bodies, [] when nothing matched
   mhtml?: string               // bounded multipart/related archive, only for requested successful HTML browser results
+  certificateError?: string    // why the certificate failed verification, only when ignoreCertificateErrors was set and a verified attempt observed it
 }
 
 interface ConsoleLogEntry {
@@ -169,6 +172,44 @@ The field is excluded from `timings` and tier telemetry. Bounds are tunable via 
 MHTML may contain credentials, personal data and executable JavaScript from the target.
 Treat it as sensitive untrusted content; do not log it or open it outside an appropriate
 sandbox unless you trust the page.
+
+## Invalid Certificates
+
+`ignoreCertificateErrors: true` lets a page load even though its certificate is expired,
+self-signed or issued for another host — without it the fetch fails outright and nothing
+about the page is readable. The relaxation is per request: Tier 1 retries the fetch
+unverified only after a verified attempt failed on the certificate, Tiers 3 and 4 set it on
+the temporary context they create for that one request, and the pooled contexts every other
+caller uses stay verified. Tier 2 is skipped for these requests (it replays its session
+inside the shared pool context, whose TLS policy cannot be changed per request) and shows up
+in `timings` as `skipped`.
+
+When the verified attempt is what failed, its reason comes back as `certificateError`, e.g.
+`"DEPTH_ZERO_SELF_SIGNED_CERT: self signed certificate"`. The field is absent when the
+certificate verified, when the flag was not set, and when no verified attempt was made
+(`skipHttp: true`) — absence means "not observed", not "the certificate was valid".
+
+### The crossed-landing guard
+
+A verified certificate is what normally proves the bytes came from the host that was asked
+for. With verification off, a connection that reaches the wrong origin would be accepted in
+silence and another site's page returned under the requested domain's name. So an opted-in
+request also runs a landing check: if the scrape ends on a host the requested URL is not part
+of, TRAWL fetches the same URL over the same egress with a plain HTTP client. Only when that
+probe stays on the requested host is the landing treated as crossed; the tier's attempt is
+recorded as `crossed-landing on <host>` and the ladder moves to the next tier, which reaches
+the origin over a different egress. A probe that fails, or that lands off-host as well (an
+ordinary redirect, or cloaking), is inconclusive and the page is kept. The same off-host
+landing reached from two independent egresses is taken as a redirect only a browser performs
+and accepted. The probe runs inside what is left of the request's `maxTimeout`, with a 2s
+floor so a spent budget cannot turn the check into a no-op, and it validates every redirect
+hop against the same outbound policy the tiers enforce. If no tier returns an uncrossed page
+the request fails, and the error names the refused landing rather than returning another
+site's page.
+
+An unverified page is untrusted content by definition. The guard establishes only that the
+connection reached the host that was asked for; it says nothing about whether that host is
+who it claims to be, which is exactly what the unverified certificate failed to establish.
 
 ## Examples
 

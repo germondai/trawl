@@ -1,5 +1,6 @@
 import { FINGERPRINT } from "@trawl/browser"
 import type { TierResult } from "@trawl/types"
+import { describeCertificateError, isCertificateError } from "../utils/certificate"
 import type { ChallengeType } from "../utils/detect"
 import {
   getAwsWafAction,
@@ -32,19 +33,25 @@ export interface Tier1Result extends TierResult {
   responseHeaders?: Record<string, string>
   contentType?: string
   statusCode?: number
+  // Why the origin's certificate failed verification. Set on the failed verified attempt,
+  // and carried onto the unverified retry's result so the fact survives the retry.
+  certificateError?: string
 }
 
 // Methods that may carry a request body per RFC 7231/9341. CONNECT is excluded
 // (tunneling verb), TRACE/GET/HEAD/OPTIONS excluded (no body semantics).
 const METHODS_WITH_BODY = new Set(["POST", "PUT", "PATCH", "DELETE", "QUERY"])
 
-export async function runTier1(
+// One HTTP attempt. `insecure` disables TLS verification for this attempt only — runTier1
+// owns the decision to make one, never the caller's headers or the environment.
+async function attemptTier1(
   url: string,
-  extraHeaders?: Record<string, string>,
-  method?: string,
-  body?: string,
-  proxy?: string,
-  validateOutboundUrl?: OutboundUrlValidator,
+  extraHeaders: Record<string, string> | undefined,
+  method: string | undefined,
+  body: string | undefined,
+  proxy: string | undefined,
+  validateOutboundUrl: OutboundUrlValidator | undefined,
+  insecure: boolean,
 ): Promise<Tier1Result> {
   const start = Date.now()
   try {
@@ -70,6 +77,7 @@ export async function runTier1(
         headers,
         redirect: validateOutboundUrl ? "manual" : "follow",
         ...(proxy ? { proxy } : {}),
+        ...(insecure ? { tls: { rejectUnauthorized: false } } : {}),
       })
       if (!validateOutboundUrl || ![301, 302, 303, 307, 308].includes(res.status)) break
       const location = res.headers.get("location")
@@ -332,6 +340,30 @@ export async function runTier1(
       status: "error",
       durationMs: Date.now() - start,
       reason: proxy ? normalizeProxyError(err) : err instanceof Error ? err.message : String(err),
+      certificateError: isCertificateError(err) ? describeCertificateError(err) : undefined,
     }
+  }
+}
+
+export async function runTier1(
+  url: string,
+  extraHeaders?: Record<string, string>,
+  method?: string,
+  body?: string,
+  proxy?: string,
+  validateOutboundUrl?: OutboundUrlValidator,
+  ignoreCertificateErrors?: boolean,
+): Promise<Tier1Result> {
+  const verified = await attemptTier1(url, extraHeaders, method, body, proxy, validateOutboundUrl, false)
+  if (!ignoreCertificateErrors || verified.certificateError === undefined) return verified
+
+  // The verified attempt is the only place the bad certificate is ever observed: retry it
+  // unverified and the connection succeeds with nothing to report, so keep the reason from
+  // the attempt that failed and hand it to the caller alongside the page.
+  const unverified = await attemptTier1(url, extraHeaders, method, body, proxy, validateOutboundUrl, true)
+  return {
+    ...unverified,
+    durationMs: verified.durationMs + unverified.durationMs,
+    certificateError: verified.certificateError,
   }
 }

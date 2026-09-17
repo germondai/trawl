@@ -37,6 +37,22 @@ describe("newFreshContext", () => {
     })
   })
 
+  test("relaxes certificate verification only when the request asked for it", async () => {
+    const seen: Record<string, unknown>[] = []
+    const browser = {
+      newContext: async (options: Record<string, unknown>) => {
+        seen.push(options)
+        return { addInitScript: async () => {} }
+      },
+    }
+
+    await newFreshContext(browser, { ignoreHttpsErrors: true })
+    await newFreshContext(browser)
+
+    expect(seen[0]).toMatchObject({ ignoreHTTPSErrors: true })
+    expect(seen[1]).not.toHaveProperty("ignoreHTTPSErrors")
+  })
+
   test("closes a partially initialized context", async () => {
     let closed = false
     let created = 0

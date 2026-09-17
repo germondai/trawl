@@ -713,11 +713,20 @@ type FreshBrowser = any
 type FreshContext = any
 export const newFreshContext = async (
   browser: FreshBrowser,
-  options?: { proxy?: string; onCreated?: () => void; requestReplacement?: (reason: string) => void },
+  options?: {
+    proxy?: string
+    onCreated?: () => void
+    requestReplacement?: (reason: string) => void
+    // Load the page even when its certificate fails verification. Per-context on purpose:
+    // the pooled contexts every other scrape uses keep a verified connection, and only the
+    // temporary context created for an opted-in request relaxes it.
+    ignoreHttpsErrors?: boolean
+  },
 ): Promise<FreshContext> => {
   const context = await browser.newContext({
     viewport: null,
     ...(options?.proxy ? { proxy: toPlaywrightProxy(options.proxy) } : {}),
+    ...(options?.ignoreHttpsErrors ? { ignoreHTTPSErrors: true } : {}),
   })
   options?.onCreated?.()
   try {

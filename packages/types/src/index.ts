@@ -62,6 +62,13 @@ export interface ScrapeRequest {
   // not snapshotted by the engine — Firefox has no Page.captureSnapshot. Off by default;
   // only bounded, identity-encoded responses with a declared length are read.
   mhtml?: boolean
+  // Opt-in: load the page even when its TLS certificate fails verification (expired,
+  // self-signed, issued for another host). Off by default, so every other caller keeps a
+  // verified connection. Because an unverified connection no longer proves whose page came
+  // back, a landing on a host the requested URL does not demonstrably lead to is refused
+  // instead of returned — see `certificateError` and the crossed-landing guard in
+  // @trawl/tiers.
+  ignoreCertificateErrors?: boolean
 }
 
 // One browser console message. Shaped after WebDriver's browser log so a consumer can
@@ -172,6 +179,11 @@ export interface ScrapeResult {
   // presence rules as `consoleLogs`. An approximation of browser "Save as MHTML", not a
   // byte-faithful snapshot; omissions are counted inside the archive.
   mhtml?: string
+  // Why the requested origin's certificate failed verification, when `ignoreCertificateErrors`
+  // was set and the page was served anyway (e.g. "self-signed certificate"). Absent when the
+  // certificate verified, when the caller did not opt in, and when no verified attempt was
+  // made (`skipHttp`) — absence is "not observed", not "the certificate was valid".
+  certificateError?: string
 }
 
 export interface SessionData {

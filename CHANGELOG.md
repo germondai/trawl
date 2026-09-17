@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Optional invalid-certificate loading: `ignoreCertificateErrors: true` on `POST /scrape` loads a page whose TLS certificate fails verification (expired, self-signed, issued for another host) instead of failing the fetch, and reports why verification failed in `ScrapeResult.certificateError`. Off by default and per request: Tier 1 retries unverified only after a verified attempt failed on the certificate, Tiers 3 and 4 set it on the temporary context created for that one request, and the pooled contexts every other caller uses stay verified. Tier 2 is skipped for these requests — it replays its session inside the shared pool context, whose TLS policy cannot be changed per request — and is reported as `skipped` in `timings`. Because an unverified connection no longer proves whose page came back, an opted-in request also runs a crossed-landing guard: a scrape that ends on a host the requested URL is not part of is re-checked with a plain HTTP fetch over the same egress, and only when that probe stays on the requested host is the landing refused (`crossed-landing on <host>` in `timings`, the ladder moving to the next tier, and a terminal error naming the refused landing when no tier returns an uncrossed page). An inconclusive or equally off-host probe keeps the page, and the same off-host landing reached from two independent egresses is accepted as a browser-only redirect. The probe runs inside the request's remaining `maxTimeout` with a 2s floor and validates every redirect hop against the configured outbound policy.
+
 ## [1.6.2] - 2026-09-17
 
 ### Changed

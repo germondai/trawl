@@ -57,6 +57,7 @@ export async function runTier4(
   validateOutboundUrl?: OutboundUrlValidator,
   screenshot?: boolean,
   capture: CaptureOptions = {},
+  ignoreCertificateErrors?: boolean,
 ): Promise<Tier4Result> {
   const start = Date.now()
 
@@ -71,6 +72,7 @@ export async function runTier4(
       proxy: proxyUrl,
       onCreated: handle.noteTemporaryContext,
       requestReplacement: handle.requestBrowserReplacement,
+      ignoreHttpsErrors: ignoreCertificateErrors,
     })
     state.proxyContext = proxyContext
 
