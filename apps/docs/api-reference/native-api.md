@@ -27,6 +27,7 @@ interface ScrapeRequest {
   waitForSelector?: string               // CSS selector that ends the settle window early
   blockedEvidence?: boolean              // return the challenge wall on the error, default false
   mhtml?: boolean                        // assemble an MHTML archive of the page, default false
+  favicons?: boolean                     // fetch the page's declared icons from inside the page, default false
 }
 ```
 
@@ -50,6 +51,7 @@ interface ScrapeRequest {
 | `waitForSelector` | string | —    | CSS selector that also ends the settle window early. Only read alongside `captureResponses`                                                                                                 |
 | `blockedEvidence` | boolean | false | When no tier clears the challenge, attach the wall the last browser tier stopped at to the 500 body as `blockedEvidence`. It is never attached to a successful result — see the note below. The image rides along only when `screenshot` is also set |
 | `mhtml` | boolean | false        | Assemble a `multipart/related` MHTML archive of the page on the browser tiers (2–4) and return it as `mhtml`. An approximation of "Save as MHTML", not an engine snapshot — see the note below |
+| `favicons` | boolean | false | Fetch the apex `/favicon.ico` and every declared `<link rel~="icon">` from inside the page on the browser tiers (2–4) and return them as `favicons` — see the note below |
 
 Captured response bodies, headers, console messages, URLs, blocked-page HTML, screenshots,
 and MHTML archives can contain credentials, tokens, personal data, or active scripts.
@@ -76,6 +78,7 @@ interface ScrapeResult {
   redirectChain?: string[]     // URLs the main document walked, same presence rules as consoleLogs
   capturedResponses?: CapturedResponseEntry[]  // matched response bodies, [] when nothing matched
   mhtml?: string               // bounded multipart/related archive, only for requested successful HTML browser results
+  favicons?: FaviconEntry[]    // the page's icons, only when requested and a browser tier served the page
 }
 
 interface ConsoleLogEntry {
@@ -104,6 +107,13 @@ interface CapturedResponseEntry {
   base64Encoded: boolean
   truncated: boolean           // body trimmed to CAPTURE_MAX_BODY_BYTES
   error?: string               // why the body is null (read failed, budget spent, ...)
+}
+
+interface FaviconEntry {
+  url: string                  // absolute icon URL, or `data:<mime>` for an inline icon
+  contentType?: string         // the icon response's Content-Type
+  data?: string                // base64 bytes, no data: prefix; absent when the icon could not be read
+  error?: string               // why `data` is absent (http-403, a fetch error, a byte cap, ...)
 }
 
 interface TierResult {
@@ -169,6 +179,47 @@ The field is excluded from `timings` and tier telemetry. Bounds are tunable via 
 MHTML may contain credentials, personal data and executable JavaScript from the target.
 Treat it as sensitive untrusted content; do not log it or open it outside an appropriate
 sandbox unless you trust the page.
+
+## Favicons
+
+A page may declare several icons — size and device variants, `apple-touch-icon`,
+`mask-icon`, `shortcut icon` — and the browser renders exactly one of them. `favicons: true`
+returns the whole declared set instead, plus the apex icon, so a caller that wants the
+icons a site actually publishes is not limited to the one that happened to fit a tab.
+
+They are fetched **from inside the page**, via `fetch()` in the document's own context, so
+each request carries the origin's cookies, the session's challenge clearance and the same
+egress the page itself was served over. Fetching an icon afterwards from outside the browser
+arrives as a stranger with none of that, which is what a bot wall answers 403 to.
+
+Two things are collected, in this order:
+
+1. The apex `/favicon.ico`, whether or not the page declares it. It is what a browser falls
+   back to, and a headless browser paints no tab — so it requests at most the single icon it
+   would have drawn and never the apex one. A page declaring no icon at all yields nothing
+   whatsoever on the response stream.
+2. Every `<link>` whose `rel` contains `icon` — so `apple-touch-icon`, `mask-icon`,
+   `shortcut icon` and `alternate icon` all count — resolved against the document base. An
+   inline `data:` icon is fetched the same way and reported as `data:<mime>`: its href is the
+   payload rather than a name, and repeating it next to the bytes decoded from it would carry
+   the icon twice.
+
+Duplicates are collapsed, and an icon that could not be read is still returned, with `data`
+absent and `error` set, so "the site declares no icon there" stays distinguishable from "we
+could not fetch it". `fetch()` hands back whole bodies, so a read is bounded by declining to
+start it: an icon declaring more than `FAVICON_MAX_BYTES` is refused on its `Content-Length`,
+and an inline `data:` href too long to decode within that cap is refused before it is
+fetched. Collection is capped at `FAVICON_TIMEOUT_MS` and at whatever is left of the
+request's own `maxTimeout`, and is skipped once that budget is spent.
+
+Two limits are worth knowing. The in-page `fetch` is subject to the page's CORS policy, so a
+cross-origin icon whose host sends no `Access-Control-Allow-Origin` fails and is reported as
+an error entry. And collection runs after the response listeners are drained, so these
+fetches never appear in `networkLogs`, `capturedResponses` or the MHTML archive. Bounds are
+tunable via `FAVICON_*` — see [Configuration](/getting-started/configuration#favicons).
+
+Icon bytes come from the target like any other scraped content. Treat them as untrusted:
+an `image/svg+xml` icon is a document that can carry script.
 
 ## Examples
 

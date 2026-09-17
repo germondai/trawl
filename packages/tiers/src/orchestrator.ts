@@ -102,6 +102,7 @@ export async function scrape(
     networkLogs: req.networkLogs,
     redirectChain: req.redirectChain,
     captureResponses: req.captureResponses,
+    favicons: req.favicons,
     settleTimeout: req.settleTimeout,
     waitForSelector: req.waitForSelector,
     blockedEvidence: req.blockedEvidence
@@ -264,6 +265,7 @@ export async function scrape(
           networkLogs: t2.networkLogs,
           redirectChain: t2.redirectChain,
           capturedResponses: t2.capturedResponses,
+          favicons: t2.favicons,
           mhtml: t2.mhtml,
         }
       }
@@ -355,6 +357,7 @@ export async function scrape(
           networkLogs: t3.networkLogs,
           redirectChain: t3.redirectChain,
           capturedResponses: t3.capturedResponses,
+          favicons: t3.favicons,
           mhtml: t3.mhtml,
         }
       }
@@ -448,6 +451,7 @@ export async function scrape(
         networkLogs: t4.networkLogs,
         redirectChain: t4.redirectChain,
         capturedResponses: t4.capturedResponses,
+        favicons: t4.favicons,
         mhtml: t4.mhtml,
       }
     }

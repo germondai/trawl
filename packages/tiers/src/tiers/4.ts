@@ -1,6 +1,14 @@
 import type { BrowserHandle } from "@trawl/browser"
 import { closeTemporaryContext, FINGERPRINT, newFreshContext } from "@trawl/browser"
-import type { CapturedResponseEntry, ConsoleLogEntry, Cookie, NetworkLogEntry, TierResult } from "@trawl/types"
+import type {
+  CapturedResponseEntry,
+  ConsoleLogEntry,
+  Cookie,
+  FaviconEntry,
+  NetworkLogEntry,
+  TierResult,
+} from "@trawl/types"
+import { capturePageFavicons } from "../favicons"
 import { capturePageScreenshot } from "../screenshot"
 import { solvePageCaptchas } from "../solvers"
 import { reportBlocked } from "../utils/blockedEvidence"
@@ -39,6 +47,7 @@ export interface Tier4Result extends TierResult {
   statusCode?: number
   captchasSolved?: string[]
   screenshot?: string
+  favicons?: FaviconEntry[]
   consoleLogs?: ConsoleLogEntry[]
   networkLogs?: NetworkLogEntry[]
   redirectChain?: string[]
@@ -322,6 +331,10 @@ export async function runTier4(
       return { tier: 4, status: "blocked", durationMs: Date.now() - start, reason }
     }
 
+    // After the capture is drained, so these fetches never land in the captured
+    // responses, the network log or the MHTML archive.
+    const icons = capture.favicons ? await capturePageFavicons(page, maxTimeout - (Date.now() - start)) : undefined
+
     const cookies: Cookie[] = toCookies(await proxyContext.cookies())
 
     const captured = await captureResponse(mainResponse.response)
@@ -338,6 +351,7 @@ export async function runTier4(
       statusCode: mainResponse.status,
       captchasSolved: captchasSolved.length > 0 ? captchasSolved : undefined,
       screenshot: shot,
+      favicons: icons,
       ...evidence,
       redirectChain: capture.redirectChain ? mainResponse.redirectChain : undefined,
       mhtml: isHtmlContentType(captured.contentType) ? pageCapture.archive(page.url(), html) : undefined,

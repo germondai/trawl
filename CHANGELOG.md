@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Optional favicon collection: `favicons: true` on `POST /scrape` returns the page's icons in `ScrapeResult.favicons` (`url`, `contentType`, base64 `data`, or `error`). A page may declare several icons — size and device variants, `apple-touch-icon`, `mask-icon` — and the browser renders exactly one; this returns the whole declared set plus the apex `/favicon.ico`, resolved against `document.baseURI` and de-duplicated. Each is fetched with `fetch()` **in page context**, so the requests carry the origin's cookies and the session's challenge clearance rather than arriving as an unauthenticated stranger a bot wall answers 403. Off by default — without the flag nothing is resolved and no request is made. Icon count, per-icon bytes, per-fetch time and total collection time are bounded and tunable via `FAVICON_*`, and the request's own remaining `maxTimeout` caps the last of them. An icon that could not be read comes back with its own `error` rather than vanishing, and collection runs after the response listeners are drained so these fetches never land in `networkLogs`, `capturedResponses` or the MHTML archive.
+
 ## [1.6.2] - 2026-09-17
 
 ### Changed

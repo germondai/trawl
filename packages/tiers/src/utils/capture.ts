@@ -29,6 +29,11 @@ export interface CaptureOptions extends ResponseCaptureOptions {
   consoleLogs?: boolean
   networkLogs?: boolean
   redirectChain?: boolean
+  // Served by `capturePageFavicons` rather than by this module, for the same reason as
+  // `redirectChain`: it rides along so a tier still takes one capture argument. It reads
+  // the page after the listeners are drained, so its own fetches never land in the
+  // captured responses, the network log or the MHTML archive.
+  favicons?: boolean
   // Where a tier hands back the challenge wall it could not clear. Attaches no listener
   // and buffers nothing — the tier reads the page once, on the branch that gives up.
   blockedEvidence?: BlockedEvidenceSink
