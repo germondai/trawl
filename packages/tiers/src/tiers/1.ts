@@ -121,8 +121,10 @@ export async function runTier1(
       }
     }
 
-    // Preserve raw bytes — required for binary content (.torrent, images, etc.).
-    // The MITM proxy (:8192) consumes `body`; /scrape still consumes `html`.
+    // Preserve the response body bytes — required for binary content (.torrent,
+    // images, etc.). Fetch may already have decoded content according to the
+    // Content-Encoding header. The MITM proxy (:8192) consumes `body`;
+    // /scrape still consumes `html`.
     const rawBytes = new Uint8Array(await res.arrayBuffer())
 
     // Decode a bounded preview losslessly for challenge detection — keeps the original

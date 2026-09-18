@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Document local HTTP/HTTPS proxy setup and expose Redis for local development.
+
+### Fixed
+- Remove stale response headers from decoded Tier 1 proxy responses. This prevents clients from trying to decode the response a second time.
+
 ## [1.6.2] - 2026-09-17
 
 ### Changed

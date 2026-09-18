@@ -26,6 +26,16 @@ bun install
 cp .env.example .env
 ```
 
+Start the API from the repository root and load the root `.env` file into its
+environment:
+
+```bash
+bun --env-file=.env run dev:api
+```
+
+You can also copy `.env` to `apps/api/.env` and run `bun run dev:api`.
+Find the required variables in `.env.example`, or the documentation at <https://docs.trawl.germondai.com/proxy/configuration>
+
 ### Running the apps
 
 ```bash
@@ -35,6 +45,25 @@ bun run dev:docs    # VitePress docs site
 ```
 
 The API requires Redis. The fastest way is `docker compose up -d redis`.
+
+### Developing the HTTP/HTTPS proxy
+
+The proxy listens on port `8192` only when `MITM_ENABLED=true`. The API creates
+a root certificate to `MITM_CA_DIR` the first time that it starts the proxy.
+
+Test the API and proxy from the host with:
+
+```bash
+curl -fsS http://localhost:8191/health
+curl http://localhost:8191/proxy-ca.crt -o <MITM_CA_DIR>/ca.crt
+curl --proxy http://localhost:8192 \
+  --cacert <MITM_CA_DIR>/ca.crt \
+  https://example.com/
+```
+
+Use `docker compose down` to stop the test stack. Use
+`docker compose down -v` only when you also want to delete the Redis data and
+the generated proxy CA.
 
 ### Linting & formatting
 
