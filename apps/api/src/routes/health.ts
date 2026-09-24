@@ -1,9 +1,13 @@
 import type { PoolStats } from "@trawl/types"
 import { Elysia } from "elysia"
-import { startTime } from "../config"
+import { HEADFUL_POOL_SIZE, POOL_SIZE, startTime } from "../config"
 import { getPool } from "../deps"
+import { type RuntimeMemory, readRuntimeMemory } from "../runtimeMemory"
 
-export function healthRoute(getStats = () => getPool()?.getStats()) {
+export function healthRoute(
+  getStats = () => getPool()?.getStats(),
+  getMemory = (): RuntimeMemory | undefined => readRuntimeMemory(POOL_SIZE, HEADFUL_POOL_SIZE),
+) {
   return new Elysia().get("/health", ({ set }) => {
     const stats = getStats()
     // `pool` is assigned before `await pool.init()` completes, so a non-null pool does
@@ -20,9 +24,11 @@ export function healthRoute(getStats = () => getPool()?.getStats()) {
     // It still counts genuinely in-flight work, so a merely saturated pool won't flap.
     const ready = Boolean(stats && stats.live > 0)
     if (!ready) set.status = 503
+    const memory = getMemory()
     return {
       status: ready ? "ok" : "starting",
       uptime: Math.floor((Date.now() - startTime) / 1000),
+      ...(memory ? { memory } : {}),
       pool:
         stats ??
         ({

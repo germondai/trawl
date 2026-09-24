@@ -1,5 +1,6 @@
 import { createApiApp } from "./app"
 import {
+  HEADFUL_POOL_SIZE,
   MITM_ALWAYS_SCRAPE,
   MITM_CA_DIR,
   MITM_DEBUG,
@@ -15,6 +16,7 @@ import {
 import { getDeps, initPool } from "./deps"
 import { registerLifecycleHandlers } from "./lifecycle"
 import { type MitmProxyHandle, shutdownMitmProxy, startMitmProxy } from "./proxy/server"
+import { startMemoryMonitor } from "./runtimeMemory"
 
 createApiApp().listen(PORT)
 
@@ -23,6 +25,7 @@ if (SCRAPE_MIN_TIER > 1) console.log(`[api] scraper tier floor: ${SCRAPE_MIN_TIE
 if (SCRAPE_PROXY_SELECTION !== "failover") console.log(`[api] proxy selection: ${SCRAPE_PROXY_SELECTION}`)
 
 const state: { proxyHandle?: MitmProxyHandle } = {}
+const stopMemoryMonitor = startMemoryMonitor(POOL_SIZE, HEADFUL_POOL_SIZE)
 
 const poolReady = initPool()
 
@@ -47,6 +50,7 @@ poolReady.catch((err) => {
 
 registerLifecycleHandlers({
   onShutdown: async () => {
+    stopMemoryMonitor()
     if (state.proxyHandle) await shutdownMitmProxy(state.proxyHandle)
   },
 })

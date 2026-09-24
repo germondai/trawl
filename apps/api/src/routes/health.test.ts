@@ -14,10 +14,24 @@ const stats = (live: number): PoolStats => ({
 
 describe("GET /health", () => {
   test("returns 200 while the pool has live capacity", async () => {
-    const response = await healthRoute(() => stats(1)).handle(new Request("http://localhost/health"))
+    const response = await healthRoute(
+      () => stats(1),
+      () => ({
+        currentBytes: 10,
+        limitBytes: 100,
+        recommendedLimitBytes: 200,
+        underProvisioned: true,
+        oomEvents: 2,
+        oomKills: 1,
+      }),
+    ).handle(new Request("http://localhost/health"))
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toMatchObject({ status: "ok", pool: { live: 1 } })
+    expect(await response.json()).toMatchObject({
+      status: "ok",
+      pool: { live: 1 },
+      memory: { underProvisioned: true, oomKills: 1 },
+    })
   })
 
   test("returns 503 when no live capacity remains", async () => {
