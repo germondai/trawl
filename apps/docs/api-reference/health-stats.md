@@ -42,13 +42,21 @@ Full system health check. Used by Docker Compose health checks and monitoring sy
   "status": "ok",
   "uptime": 3842,
   "pool": {
-    "total": 5,
+    "total": 1,
     "busy": 1,
-    "available": 4,
+    "available": 0,
     "restarts": 0,
     "avgRestarts": 0,
     "stalled": 0,
-    "live": 5
+    "live": 1
+  },
+  "memory": {
+    "currentBytes": 734003200,
+    "limitBytes": 1073741824,
+    "recommendedLimitBytes": 1073741824,
+    "underProvisioned": false,
+    "oomEvents": 0,
+    "oomKills": 0
   }
 }
 ```
@@ -64,8 +72,15 @@ Full system health check. Used by Docker Compose health checks and monitoring sy
 | `pool.avgRestarts` | number | Average restarts per browser             |
 | `pool.stalled`     | number | Checked-out browsers past their deadline |
 | `pool.live`        | number | Connected, non-stalled browser capacity  |
+| `memory.currentBytes` | number | Current cgroup memory usage |
+| `memory.limitBytes` | number | Cgroup memory limit |
+| `memory.recommendedLimitBytes` | number | Recommended minimum for the configured browser pools |
+| `memory.underProvisioned` | boolean | Whether the detected limit is below the recommendation |
+| `memory.oomEvents` | number | OOM events reported by the cgroup |
+| `memory.oomKills` | number | OOM kills reported by the cgroup |
 
 `/health` returns HTTP 503 while the pool is warming up or has no live browser capacity. A saturated but healthy pool remains ready because active, connected requests still count as live.
+The optional `memory` object is included when Linux cgroup memory data is available; its presence does not affect readiness.
 
 ### Curl
 

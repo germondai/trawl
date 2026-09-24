@@ -28,7 +28,7 @@ docker run -d \
   -p 8191:8191 \
   --shm-size=1gb \
   -e REDIS_URL=redis://your-redis-host:6379 \
-  -e BROWSER_POOL_SIZE=3 \
+  -e BROWSER_POOL_SIZE=1 \
   ghcr.io/germondai/trawl:latest
 ```
 

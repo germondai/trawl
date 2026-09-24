@@ -146,31 +146,41 @@ Set `MITM_ALWAYS_SCRAPE=true` as well when the proxy's direct Tier 0 probe must 
 
 ## Browser Pool
 
+### `LOG_LEVEL`
+
+**Default:** `info`
+
+Controls correlated operational logging. `info` records every scrape start, tier outcome, and final success or failure with a correlation ID. In these correlated entries, URLs omit credentials, query strings, and fragments, and request bodies, headers, cookies, and proxy credentials are not logged. Use `warn`, `error`, or `silent` to reduce these entries; `debug` also admits future verbose operational events. Solver progress writes separate diagnostic lines that can include CAPTCHA answers, token previews, transcription output, frame URLs, and audio URLs. Treat logs as sensitive and configure access control and Docker log rotation accordingly.
+
+```ini
+LOG_LEVEL=info
+```
+
 ### `BROWSER_POOL_SIZE`
 
-**Default:** `3`
+**Default:** `1`
 
 Number of Camoufox Firefox instances to keep warm. Each instance uses ~350–500 MB RAM under load. Start conservative and raise if you need higher concurrency.
 
 ```ini
-BROWSER_POOL_SIZE=1   # minimal (1 GB host RAM)
-BROWSER_POOL_SIZE=3   # default — good for most self-hosted setups
+BROWSER_POOL_SIZE=1   # default — recommended for Prowlarr and ordinary scraping
+BROWSER_POOL_SIZE=3   # concurrent browser solves; allow at least 2 GB RAM
 BROWSER_POOL_SIZE=8   # high-throughput (6+ GB host RAM)
 ```
 
-> **Note:** The API container sets `shm_size: 1gb` by default. If you raise `BROWSER_POOL_SIZE` above 5, also raise `shm_size` in your `docker-compose.yml` to at least `2gb`.
+> **Note:** Pool size controls concurrency, not solver capability. The API container sets `shm_size: 1gb` by default. Shared memory does not replace the container memory limit.
 
 ### `BROWSER_ACQUIRE_TIMEOUT_MS`
 
 **Default:** `15000` (15 seconds)
 
-How long `BrowserPool.acquire()` will poll for a free browser before rejecting with `PoolExhaustedError`. With `BROWSER_POOL_SIZE=3` and a typical Cloudflare challenge taking 5–8s per request, the 15s default lets a full burst of 10 concurrent requests drain without any 429s.
+How long `BrowserPool.acquire()` will poll for a free browser before rejecting with `PoolExhaustedError`. The default pool intentionally favors low memory use; raise the pool when sustained concurrent browser solves are expected.
 
 Lower it for fail-fast client feedback (Prowlarr will see 429s sooner and retry on its own). Raise it for very heavy upstream targets or when you've bumped `BROWSER_POOL_SIZE` higher.
 
 ```ini
 BROWSER_ACQUIRE_TIMEOUT_MS=5000    # fail fast — 429s after 5s
-BROWSER_ACQUIRE_TIMEOUT_MS=15000   # default — absorbs a full burst on pool=3
+BROWSER_ACQUIRE_TIMEOUT_MS=15000   # default — bounded queue before HTTP 429
 BROWSER_ACQUIRE_TIMEOUT_MS=30000   # tolerate longer queueing on slow targets
 ```
 

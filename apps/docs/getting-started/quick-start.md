@@ -43,7 +43,7 @@ docker compose logs -f trawl
 
 You'll see:
 ```
-[api] TRAWL starting on :8191  (pool: 3 browsers)
+[api] TRAWL starting on :8191  (pool: 1 browser)
 [api] session cache connected  (Tier 2 fast-path enabled)
 [pool] browser 1/3 ready
 [pool] browser 2/3 ready

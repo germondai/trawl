@@ -108,7 +108,7 @@ docker compose up -d --force-recreate
 
 **Symptom:** Request returns **HTTP 429** (not 500) with a FlareSolverr v2 envelope and `message: "Browser pool saturated, retry shortly"`.
 
-**Cause:** TRAWL polled for `BROWSER_ACQUIRE_TIMEOUT_MS` (default 15s) without finding an idle browser. With `BROWSER_POOL_SIZE=3` and 10 concurrent requests, this only fires under sustained burst pressure.
+**Cause:** TRAWL polled for `BROWSER_ACQUIRE_TIMEOUT_MS` (default 15s) without finding an idle browser. The default pool contains one browser to keep ordinary Prowlarr and scraper deployments memory-efficient.
 
 **Fixes (in order of preference):**
 
@@ -160,9 +160,9 @@ settings.
 
 ## High memory usage / OOM kills
 
-Each Camoufox instance uses 350–500 MB. With 3 browsers, expect ~1.5 GB total. If the API is being killed:
+Each Camoufox instance uses 350–500 MB, and temporary contexts or rolling replacement create short peaks. If the API is being killed:
 
-1. Reduce `BROWSER_POOL_SIZE` to 1 or 2
+1. Keep `BROWSER_POOL_SIZE=1` for a 1 GB container, or allow at least 2 GB for pool 3
 2. Upgrade the server (more RAM or more cores)
 3. Ensure `shm_size: 1gb` is set — Firefox uses `/dev/shm` heavily
 

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Default the browser pool to one warm Camoufox instance for memory-efficient Prowlarr and ordinary scraper deployments; larger pools remain opt-in for concurrent browser solves (#164).
+- Emit correlated request, tier, success, failure, and memory-pressure logs at the default `info` level. Add `LOG_LEVEL` controls, redact sensitive request metadata from correlated entries, and expose cgroup memory/OOM diagnostics on `/health` (#164).
+
 ## [1.6.4] - 2026-09-23
 
 ### Changed

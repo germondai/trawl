@@ -41,7 +41,7 @@ Both thresholds are configurable via the `BrowserPool` constructor:
 
 ```typescript
 new BrowserPool({
-  poolSize: 3,                // BROWSER_POOL_SIZE (default 3)
+  poolSize: 1,                // BROWSER_POOL_SIZE (default 1)
   acquireTimeoutMs: 15000,    // BROWSER_ACQUIRE_TIMEOUT_MS — 15s default
   pollIntervalMs: 100,        // how often to re-check for an idle browser
   recycleAfterTemporaryContexts: 8,
@@ -95,7 +95,7 @@ const browser = await Camoufox({
 
 ## Memory usage
 
-Each Camoufox instance uses ~350–500 MB. With the default pool of 3:
+Each Camoufox instance uses ~350–500 MB. The default pool of 1 is intended for ordinary scraper and Prowlarr workloads:
 
 | Pool size | RAM usage (browser only) |
 | --------- | ------------------------ |
