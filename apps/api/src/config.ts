@@ -34,7 +34,7 @@ export const parseProxySelection = (value: string | undefined): ProxySelection =
 }
 
 export const PORT = integerInRange(process.env.PORT, 8_191, 1, 65_535)
-export const POOL_SIZE = positiveInteger(process.env.BROWSER_POOL_SIZE, 3)
+export const POOL_SIZE = positiveInteger(process.env.BROWSER_POOL_SIZE, 1)
 // How long acquire() will poll for a free browser before rejecting with PoolExhaustedError.
 // 15s covers a full CF challenge burst with pool=3 (queue depth 7, slowest finishes at ~12s).
 // Tune lower for fast-fail feedback in dev; tune higher for very heavy upstream targets.

@@ -118,7 +118,7 @@ describe("environment configuration", () => {
       sessionCacheDriver: "redis",
       redisSessionTtlSeconds: 3600,
       memorySessionCacheMaxEntries: 1000,
-      poolSize: 3,
+      poolSize: 1,
       maxContentProcesses: 2,
       acquireTimeoutMs: 15000,
       recycleAfterContexts: 8,
