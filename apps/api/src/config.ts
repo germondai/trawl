@@ -36,8 +36,7 @@ export const parseProxySelection = (value: string | undefined): ProxySelection =
 export const PORT = integerInRange(process.env.PORT, 8_191, 1, 65_535)
 export const POOL_SIZE = positiveInteger(process.env.BROWSER_POOL_SIZE, 1)
 // How long acquire() will poll for a free browser before rejecting with PoolExhaustedError.
-// 15s covers a full CF challenge burst with pool=3 (queue depth 7, slowest finishes at ~12s).
-// Tune lower for fast-fail feedback in dev; tune higher for very heavy upstream targets.
+// Tune lower for fast-fail feedback; tune higher to let a small pool absorb longer browser queues.
 export const ACQUIRE_TIMEOUT_MS = positiveInteger(process.env.BROWSER_ACQUIRE_TIMEOUT_MS, 15_000)
 export const REDIS_SESSION_TTL_SECONDS = positiveInteger(process.env.REDIS_SESSION_TTL_SECONDS, 3_600)
 export const MEMORY_SESSION_CACHE_MAX_ENTRIES = positiveInteger(process.env.MEMORY_SESSION_CACHE_MAX_ENTRIES, 1_000)
