@@ -8,6 +8,8 @@ import {
   ScrapeError,
   scrape,
 } from "@trawl/tiers"
+import { safeUrl } from "../logger"
+import { runLoggedScrape } from "../requestLogging"
 import { MitmCa } from "./ca"
 import { ChallengeCache, type ChallengeMode } from "./challengeCache"
 import { directForwardHttp, directForwardHttps, type ForwardResult } from "./directForward"
@@ -327,7 +329,7 @@ async function proxyRequest(
   // a CF challenge here and jump straight to scrape().
   const cachedMode = challengeCache.get(domain)
   if (shouldBypassTier0(opts.alwaysScrape, cachedMode)) {
-    if (opts.debug && opts.alwaysScrape) console.log(`[proxy] Tier 0 bypassed for ${url} -> scrape()`)
+    if (opts.debug && opts.alwaysScrape) console.log(`[proxy] Tier 0 bypassed for ${safeUrl(url)} -> scrape()`)
     return await serveViaScrape(stream, url, method, clientHeaders, body, opts)
   }
 
@@ -363,12 +365,12 @@ async function proxyRequest(
   }
 
   if (tier0.mode === "error") {
-    if (opts.debug) console.log(`[proxy] Tier 0 error for ${url}: ${tier0.error.message}`)
+    if (opts.debug) console.log(`[proxy] Tier 0 error for ${safeUrl(url)}: ${tier0.error.message}`)
     return await serveViaScrape(stream, url, method, clientHeaders, body, opts)
   }
 
   if (tier0.mode === "stream") {
-    if (opts.debug) console.log(`[proxy] Tier 0 stream for ${url} -> ${tier0.status}`)
+    if (opts.debug) console.log(`[proxy] Tier 0 stream for ${safeUrl(url)} -> ${tier0.status}`)
     challengeCache.set(domain, "direct")
     writeResponseFromStream(
       stream,
@@ -383,7 +385,7 @@ async function proxyRequest(
   }
 
   if (tier0.challengeDetected) {
-    if (opts.debug) console.log(`[proxy] Tier 0 challenge for ${url} -> escalating to scrape()`)
+    if (opts.debug) console.log(`[proxy] Tier 0 challenge for ${safeUrl(url)} -> escalating to scrape()`)
     challengeCache.set(domain, "cf")
     return await serveViaScrape(stream, url, method, clientHeaders, body, opts)
   }
@@ -423,7 +425,8 @@ export async function serveViaScrape(
       writeResponse(stream, 400, Buffer.from(`unsupported method: ${method}`), "text/plain; charset=utf-8")
       return
     }
-    const scrapeResult = await scrape(
+    const scrapeResult = await runLoggedScrape(
+      "proxy",
       {
         url,
         method,
@@ -434,6 +437,7 @@ export async function serveViaScrape(
         blockedEvidence: true,
       },
       opts.deps,
+      scrape,
     )
     if (opts.debug)
       console.log(
@@ -475,7 +479,7 @@ export async function serveViaScrape(
       return
     }
 
-    console.error("[proxy] scrape() failed for", url, err instanceof Error ? err.message : err)
+    console.error("[proxy] scrape() failed for", safeUrl(url), err instanceof Error ? err.message : err)
     writeResponseFromBuffer(
       stream,
       502,

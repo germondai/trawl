@@ -5,6 +5,7 @@ import type { ScrapeRequest } from "@trawl/types"
 import { Elysia } from "elysia"
 import { flareSolverrError } from "../adapters/flaresolverr"
 import { getDeps, getPool } from "../deps"
+import { runLoggedScrape } from "../requestLogging"
 import { requestUrl, validateScrapeRequest } from "../validation"
 
 // Native TRAWL API — richer response (tier, timings, sessionCached).
@@ -21,7 +22,7 @@ export function scrapeRoute(deps: () => OrchestratorDeps = getDeps, poolReady: (
         set.status = 503
         return { error: "Browser pool initializing, retry in a few seconds" }
       }
-      return await scrape({ ...req, headers: sanitizeHeaders(req.headers) }, deps())
+      return await runLoggedScrape("native", { ...req, headers: sanitizeHeaders(req.headers) }, deps(), scrape)
     } catch (err) {
       if (err instanceof RequestValidationError) {
         set.status = err.statusCode

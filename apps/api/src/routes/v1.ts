@@ -4,6 +4,7 @@ import type { FlareSolverrRequest, FlareSolverrResponse } from "@trawl/types"
 import { Elysia } from "elysia"
 import { buildScrapeRequestFromFlareSolverr, flareSolverrError } from "../adapters/flaresolverr"
 import { getDeps, getPool } from "../deps"
+import { runLoggedScrape } from "../requestLogging"
 import { requestUrl, validateFlareSolverrRequest } from "../validation"
 
 // FlareSolverr v2 compat — always open (the v2 spec has no auth header)
@@ -37,7 +38,7 @@ export function v1Route({
       }
 
       const scrapeRequest = buildScrapeRequestFromFlareSolverr(req)
-      const result = await runScrape(scrapeRequest, orchestratorDeps())
+      const result = await runLoggedScrape("flaresolverr", scrapeRequest, orchestratorDeps(), runScrape)
       return {
         status: "ok",
         message: "",

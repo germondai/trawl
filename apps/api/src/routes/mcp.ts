@@ -12,6 +12,7 @@ import pkg from "../../package.json"
 import { MCP_ALLOWED_ORIGINS } from "../config"
 import { getDeps, getPool } from "../deps"
 import { assertPublicHttpUrl, createPublicUrlValidator } from "../outbound-policy"
+import { runLoggedScrape } from "../requestLogging"
 
 export const MCP_HTML_MAX_CHARS = 50_000
 export const MCP_READ_MAX_CHARS = 100_000
@@ -326,10 +327,11 @@ export function mcpRoute({
   poolReady = () => Boolean(getPool()),
   runScrape = (input) => {
     const validateOutboundUrl = createPublicUrlValidator()
-    return scrape(input, {
+    const deps = {
       ...getDeps(),
-      validateOutboundUrl: async (url) => void (await validateOutboundUrl(url)),
-    })
+      validateOutboundUrl: async (url: string) => void (await validateOutboundUrl(url)),
+    }
+    return runLoggedScrape("mcp", input, deps, scrape)
   },
 }: McpRouteOptions = {}) {
   const origins = new Set(allowedOrigins)
