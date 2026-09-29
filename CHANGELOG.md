@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Fix schema validation error where extra properties from tier runner results (html, effectiveUrl, body, responseHeaders, etc.) leaked into the `timings` array, which only allows `tier`, `status`, `durationMs`, and `reason` fields.
+
 ## [1.7.0] - 2026-09-28
 
 ### Added

@@ -1,15 +1,20 @@
 import type { BrowserHandle } from "@trawl/browser"
 import { FINGERPRINT, FINGERPRINT_POOL } from "@trawl/browser"
 import type { BlockedEvidence, Cookie, ScrapeRequest, ScrapeResult, SessionData, TierResult } from "@trawl/types"
-import { runTier1 } from "./tiers/1"
-import { runTier2 } from "./tiers/2"
-import { runTier3 } from "./tiers/3"
+import { runTier1, type Tier1Result } from "./tiers/1"
+import { runTier2, type Tier2Result } from "./tiers/2"
+import { runTier3, type Tier3Result } from "./tiers/3"
 // Tier 4 (residential proxy) is dynamically imported only when needed.
-import type { runTier4 } from "./tiers/4"
+import type { runTier4, Tier4Result } from "./tiers/4"
 import { createCrossedLandingGuard, type LandingProbe } from "./utils/crossedLanding"
 import { normalizeHtml } from "./utils/html"
 import type { ProxyPool } from "./utils/proxyRotator"
 import { requireContentTypeForBody, sanitizeHeaders } from "./utils/sanitize"
+
+// Union of all tier-specific result types that the orchestrator may receive.
+// These extend TierResult with additional fields that are internal to the tier
+// execution and must not leak into the public `timings` array.
+type InternalTierResult = Tier1Result | Tier2Result | Tier3Result | Tier4Result
 
 // Bounds how many distinct proxies a single request will try per tier before giving up —
 // keeps a long proxy list from blowing the request's maxTimeout budget.
@@ -61,6 +66,7 @@ export interface OrchestratorDeps {
 }
 
 interface OrchestratorRunners {
+  tier1?: typeof runTier1
   tier2?: typeof runTier2
   tier3?: typeof runTier3
   tier4?: typeof runTier4
@@ -131,7 +137,7 @@ export async function scrape(
   const sanitizedHeaders = sanitizeHeaders(req.headers)
   requireContentTypeForBody(sanitizedHeaders, Boolean(req.body))
 
-  const emit = (r: TierResult) => {
+  const emit = (r: InternalTierResult) => {
     const publicResult: TierResult = {
       tier: r.tier,
       status: r.status,
@@ -199,7 +205,8 @@ export async function scrape(
     // Tier 1 has no browser handle, so select its identity up front and use the
     // same UA for both the outbound request and the public result.
     const tier1Fingerprint = FINGERPRINT_POOL[Math.floor(Math.random() * FINGERPRINT_POOL.length)] ?? FINGERPRINT
-    const t1 = await runTier1(
+    const tier1Runner = runners.tier1 ?? runTier1
+    const t1 = await tier1Runner(
       req.url,
       { ...sanitizedHeaders, "User-Agent": tier1Fingerprint.userAgent },
       req.method,
