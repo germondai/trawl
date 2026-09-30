@@ -28,6 +28,7 @@ import {
 } from "../utils/detect"
 import { normalizeHtml } from "../utils/html"
 import { trackMainDocumentResponses } from "../utils/mainResponse"
+import { followMetaRefresh } from "../utils/metaRefresh"
 import { isHardNetworkFailure } from "../utils/network"
 import { installOutboundPolicy, type OutboundUrlValidator } from "../utils/outboundPolicy"
 import { isProxyTransportFailure, normalizeProxyError, proxyResponseFailure } from "../utils/proxyFailure"
@@ -84,6 +85,7 @@ export async function runTier3(
   screenshot?: boolean,
   capture: CaptureOptions = {},
   ignoreCertificateErrors?: boolean,
+  followRefresh?: boolean,
 ): Promise<Tier3Result> {
   const start = Date.now()
 
@@ -139,6 +141,10 @@ export async function runTier3(
     }
     // Otherwise (navigation interrupted by CF redirect) — fall through and keep going
 
+    // The challenge waits key clearance cookies on this host, so it has to be where the
+    // refresh landed, not where the request started.
+    const landedUrl = (followRefresh && (await followMetaRefresh(page, maxTimeout - (Date.now() - start)))) || url
+
     const remaining = maxTimeout - (Date.now() - start)
     const peekHtml = await page.content().catch(() => "")
     const { challengeType, resolution } = await routeChallengeWait(
@@ -146,7 +152,7 @@ export async function runTier3(
       peekHtml,
       mainResponse.headers,
       remaining,
-      url,
+      landedUrl,
       undefined,
       mainResponse.status,
       initialCookies,

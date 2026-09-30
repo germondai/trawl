@@ -76,6 +76,10 @@ export interface ScrapeRequest {
   // instead of returned — see `certificateError` and the crossed-landing guard in
   // @trawl/tiers.
   ignoreCertificateErrors?: boolean
+  // Opt-in: when the browser-tier page is a `<meta http-equiv="refresh">` to another url
+  // (delay up to 10s), follow it (up to 3 hops) before the challenge wait, so a page that
+  // only forwards somewhere else is scraped where it forwards to. Off by default.
+  followMetaRefresh?: boolean
   // Opt-in favicon collection from the browser tiers (2-4), returned as
   // `ScrapeResult.favicons`. The apex `/favicon.ico` and every declared
   // `<link rel~="icon">` are fetched from inside the page, so they carry the origin's

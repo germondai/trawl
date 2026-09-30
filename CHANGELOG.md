@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Optional meta-refresh following: `followMetaRefresh: true` on `POST /scrape` makes Tiers 3 and 4 follow a `<meta http-equiv="refresh">` to another http(s) url (delay up to 10s, up to 3 hops) before the challenge wait, so a page that only forwards elsewhere (a link shortener's interstitial, a legacy redirect page, a landing page that bounces to its real host) is scraped where it forwards to. The browser gets the refresh's own delay plus 2s to fire it; if it has not, the tier navigates there itself in the same context, so the per-request proxy, cookies and outbound policy carry over. A navigation that leaves the page where it was ends the walk rather than retrying it. The challenge wait then keys clearance on the host the refresh landed on rather than the requested one, and its fallback navigation returns there too. A refresh that names no url (a timed reload, as on a challenge page) is not followed. Off by default.
+
 ## [1.7.0] - 2026-09-28
 
 ### Added

@@ -32,6 +32,7 @@ interface ScrapeRequest {
   blockedEvidence?: boolean              // return the challenge wall on the error, default false
   mhtml?: boolean                        // assemble an MHTML archive of the page, default false
   ignoreCertificateErrors?: boolean      // load the page even if its TLS certificate fails verification, default false
+  followMetaRefresh?: boolean            // follow a meta refresh to another url before the challenge wait, default false
   favicons?: boolean                     // fetch the page's declared icons from inside the page, default false
 }
 ```
@@ -61,6 +62,7 @@ interface ScrapeRequest {
 | `blockedEvidence` | boolean | false | When no tier clears the challenge, attach the wall the last browser tier stopped at to the 500 body as `blockedEvidence`. It is never attached to a successful result — see the note below. The image rides along only when `screenshot` is also set |
 | `mhtml` | boolean | false        | Assemble a `multipart/related` MHTML archive of the page on the browser tiers (2–4) and return it as `mhtml`. An approximation of "Save as MHTML", not an engine snapshot — see the note below |
 | `ignoreCertificateErrors` | boolean | false | Load the page even when its TLS certificate fails verification (expired, self-signed, issued for another host) instead of failing the fetch. Off by default, so every other caller keeps a verified connection. An unverified connection no longer proves whose page came back, so the request also gets the crossed-landing guard — see the note below |
+| `followMetaRefresh` | boolean | false | On the browser tiers (3–4), when the landed document is a `<meta http-equiv="refresh">` to another http(s) url with a delay of at most 10s, follow it (up to 3 hops) before the challenge wait, in the same context so the proxy, cookies and outbound policy carry over. The challenge wait then keys clearance on the host the refresh landed on. A refresh that names no url (a timed reload, as on a challenge page) is not followed |
 | `favicons` | boolean | false | Fetch the apex `/favicon.ico` and every declared link whose `rel` contains `icon` from inside the page on the browser tiers (2–4) and return them as `favicons`. Tier 1 never produces them; use `skipHttp: true` to force a browser attempt — see the note below |
 
 Captured response bodies, headers, console messages, URLs, blocked-page HTML, screenshots,
