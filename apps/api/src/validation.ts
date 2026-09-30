@@ -92,6 +92,7 @@ export function validateScrapeRequest(body: unknown): asserts body is ScrapeRequ
     "mhtml",
     "ignoreCertificateErrors",
     "favicons",
+    "followMetaRefresh",
   ] as const) {
     if (req[field] !== undefined && typeof req[field] !== "boolean") {
       throw new RequestValidationError(`${field} must be a boolean`, 400)

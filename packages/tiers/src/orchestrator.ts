@@ -142,6 +142,8 @@ export async function scrape(
     deps.onTierAttempt?.(publicResult)
   }
 
+  const followMetaRefresh = Boolean(req.followMetaRefresh)
+
   // Opting out of certificate verification also opts in to the crossed-landing guard: an
   // unverified connection no longer proves whose page came back, so a landing the requested
   // URL demonstrably does not lead to is refused instead of returned (see crossedLanding.ts).
@@ -367,6 +369,7 @@ export async function scrape(
           req.screenshot,
           capture,
           ignoreCertificateErrors || Boolean(trustedProxyCa && proxy3 === explicitProxy),
+          followMetaRefresh,
         )
         if (t3.challenge === "datadome" && !handle.headful) {
           await switchToHeadful()
@@ -382,6 +385,7 @@ export async function scrape(
             req.screenshot,
             capture,
             ignoreCertificateErrors || Boolean(trustedProxyCa && proxy3 === explicitProxy),
+            followMetaRefresh,
           )
         }
 
@@ -466,6 +470,7 @@ export async function scrape(
         req.screenshot,
         capture,
         ignoreCertificateErrors || Boolean(trustedProxyCa && proxy4 === explicitProxy),
+        followMetaRefresh,
       )
       if (t4.challenge === "datadome" && !handle.headful) {
         await switchToHeadful()
@@ -481,6 +486,7 @@ export async function scrape(
           req.screenshot,
           capture,
           ignoreCertificateErrors || Boolean(trustedProxyCa && proxy4 === explicitProxy),
+          followMetaRefresh,
         )
       }
 
