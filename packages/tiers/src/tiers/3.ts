@@ -26,6 +26,7 @@ import {
   isBrowserErrorPage,
   isCloudflarePage,
 } from "../utils/detect"
+import { runPageExtract } from "../utils/extract"
 import { normalizeHtml } from "../utils/html"
 import { trackMainDocumentResponses } from "../utils/mainResponse"
 import { isHardNetworkFailure } from "../utils/network"
@@ -70,6 +71,8 @@ export interface Tier3Result extends TierResult {
   redirectChain?: string[]
   capturedResponses?: CapturedResponseEntry[]
   mhtml?: string
+  // Value returned by the request's `extract.script`. See `ScrapeRequest.extract`.
+  extracted?: unknown
 }
 
 export async function runTier3(
@@ -369,6 +372,12 @@ export async function runTier3(
     // After the capture is drained, so these fetches never land in the captured
     // responses, the network log or the MHTML archive.
     const icons = capture.favicons ? await capturePageFavicons(page, maxTimeout - (Date.now() - start)) : undefined
+    // Runs after the capture is drained, for the same reason as the favicons above: any
+    // fetch an extraction script performs must not land in the captured responses, the
+    // network log or the MHTML archive.
+    const extracted = capture.extract
+      ? await runPageExtract(page, capture.extract, maxTimeout - (Date.now() - start))
+      : undefined
 
     const cookies: Cookie[] = toCookies(await freshCtx.cookies())
 
@@ -387,6 +396,7 @@ export async function runTier3(
       captchasSolved: captchasSolved.length > 0 ? captchasSolved : undefined,
       screenshot: shot,
       favicons: icons,
+      extracted,
       ...evidence,
       redirectChain: capture.redirectChain ? mainResponse.redirectChain : undefined,
       mhtml: isHtmlContentType(captured.contentType) ? pageCapture.archive(page.url(), html) : undefined,

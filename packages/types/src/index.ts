@@ -52,6 +52,16 @@ export interface ScrapeRequest {
   // against the whole URL when it contains `*` or `?`. Off by default — no listener is
   // attached without it.
   captureResponses?: string[]
+  // Opt-in computed extraction from the browser tiers (2-4), returned as
+  // `ScrapeResult.extracted`. `script` is a self-contained function expression evaluated in
+  // the rendered page and invoked with `arg`; whatever it returns must be JSON-serialisable,
+  // because that is what crosses the CDP boundary. Off by default.
+  //
+  // This is the general form of what the favicon collector already does — reading something
+  // out of the live page that the server's HTML cannot carry — and it runs in page context
+  // for the same reason: anything computed from outside the browser arrives as a stranger,
+  // without the session's cookies, challenge clearance or egress.
+  extract?: ScrapeExtract
   // How long (milliseconds) to hold the page open after load waiting for a match. Ends
   // early on the first captured body, on `waitForSelector`, or on network idle. Only
   // meaningful alongside `captureResponses`.
@@ -154,6 +164,14 @@ export interface BlockedEvidence {
   screenshot?: string
 }
 
+// A caller-supplied extraction run inside the rendered page. See `ScrapeRequest.extract`.
+export interface ScrapeExtract {
+  /** A self-contained function expression: `() => …` or `async () => …`. */
+  script: string
+  /** Optional JSON-serialisable value passed to the function. */
+  arg?: unknown
+}
+
 export interface TierResult {
   tier: 1 | 2 | 3 | 4
   status: "success" | "blocked" | "needs-js" | "timeout" | "error" | "skipped"
@@ -214,6 +232,10 @@ export interface ScrapeResult {
   // document order. Present (possibly empty) only when the request asked for them and a
   // browser tier served the page.
   favicons?: FaviconEntry[]
+  // The value returned by the request's `extract.script`, verbatim. Absent when the caller did
+  // not ask for extraction, when only Tier 1 served the request (it runs no page), or when the
+  // script failed or overran its budget — extraction degrades this field, never the scrape.
+  extracted?: unknown
 }
 
 export interface SessionData {

@@ -77,6 +77,32 @@ describe("API request validation", () => {
     })
   }
 
+  test("validates extract scripts", () => {
+    expect(() => validateScrapeRequest({ url: "https://example.com", extract: { script: "() => 1" } })).not.toThrow()
+    expect(() =>
+      validateScrapeRequest({
+        url: "https://example.com",
+        extract: { script: "async (a) => a", arg: { nested: [1, "two", null] } },
+      }),
+    ).not.toThrow()
+
+    const cyclic: Record<string, unknown> = {}
+    cyclic.self = cyclic
+    for (const extract of [
+      null,
+      [],
+      "() => 1",
+      {},
+      { script: "" },
+      { script: "   " },
+      { script: 3 },
+      { script: "x".repeat(20_001) },
+      { script: "() => 1", arg: cyclic },
+    ]) {
+      expect(() => validateScrapeRequest({ url: "https://example.com", extract })).toThrow(RequestValidationError)
+    }
+  })
+
   test("validates response-capture patterns", () => {
     expect(() => validateScrapeRequest({ url: "https://example.com", captureResponses: ["/api/*"] })).not.toThrow()
     for (const captureResponses of ["/api", ["ok", 3], [""], ["   "], ["x".repeat(2_001)], Array(11).fill("x")]) {

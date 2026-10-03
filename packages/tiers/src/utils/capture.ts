@@ -1,4 +1,4 @@
-import type { CapturedResponseEntry, ConsoleLogEntry, NetworkLogEntry } from "@trawl/types"
+import type { CapturedResponseEntry, ConsoleLogEntry, NetworkLogEntry, ScrapeExtract } from "@trawl/types"
 import type { ConsoleMessage, Page, Request } from "patchright"
 import type { BlockedEvidenceSink } from "./blockedEvidence"
 import { captureLimit } from "./captureConfig"
@@ -38,6 +38,10 @@ export interface CaptureOptions extends ResponseCaptureOptions {
   // the page after the listeners are drained, so its own fetches never land in the
   // captured responses, the network log or the MHTML archive.
   favicons?: boolean
+  // Runs a caller-supplied script in the page, after the capture listeners are drained, so
+  // its own work never lands in the captured responses, the network log or the MHTML archive.
+  // Served by `runPageExtract` rather than by this module, for the same reason as `favicons`.
+  extract?: ScrapeExtract
   // Where a tier hands back the challenge wall it could not clear. Attaches no listener
   // and buffers nothing — the tier reads the page once, on the branch that gives up.
   blockedEvidence?: BlockedEvidenceSink

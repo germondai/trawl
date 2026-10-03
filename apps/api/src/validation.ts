@@ -108,6 +108,25 @@ export function validateScrapeRequest(body: unknown): asserts body is ScrapeRequ
       throw new RequestValidationError("captureResponses patterns must be non-empty and at most 2000 characters", 400)
     }
   }
+  const rawExtract: unknown = req.extract
+  if (rawExtract !== undefined) {
+    if (typeof rawExtract !== "object" || rawExtract === null || Array.isArray(rawExtract)) {
+      throw new RequestValidationError("extract must be an object with a script string", 400)
+    }
+    const { script, arg } = rawExtract as { script?: unknown; arg?: unknown }
+    if (typeof script !== "string" || script.trim().length === 0 || script.length > 20_000) {
+      throw new RequestValidationError("extract.script must be a non-empty string of at most 20000 characters", 400)
+    }
+    if (arg !== undefined) {
+      // The script is invoked with this inlined as a JSON literal, so it has to survive
+      // JSON serialisation — reject it here rather than letting the evaluate step fail late.
+      try {
+        JSON.stringify(arg)
+      } catch {
+        throw new RequestValidationError("extract.arg must be JSON-serialisable", 400)
+      }
+    }
+  }
   if (
     req.settleTimeout !== undefined &&
     (typeof req.settleTimeout !== "number" ||
