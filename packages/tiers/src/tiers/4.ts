@@ -11,12 +11,14 @@ import type {
 import { capturePageFavicons } from "../favicons"
 import { capturePageScreenshot } from "../screenshot"
 import { solvePageCaptchas } from "../solvers"
+import { hasAnubisDestinationContent, isAnubisVerificationUrl } from "../utils/anubis"
 import { reportBlocked } from "../utils/blockedEvidence"
 import { attachPageCapture, type CaptureOptions } from "../utils/capture"
 import { routeChallengeWait } from "../utils/challengeRouter"
 import { snapshotChallengeCookies, toCookies } from "../utils/cookies"
 import {
   hasAkamaiChallenge,
+  hasAnubisChallenge,
   hasDataDomeChallenge,
   hasDdosGuardChallenge,
   hasDuckDuckGoChallenge,
@@ -116,9 +118,11 @@ export async function runTier4(
       return { tier: 4, status: "error", durationMs: Date.now() - start, reason: earlyProxyFailure }
     }
 
-    const refresh = capture.followMetaRefresh
-      ? await followMetaRefresh(page, maxTimeout - (Date.now() - start), validateOutboundUrl)
-      : undefined
+    const anubisRefresh = capture.followMetaRefresh && hasAnubisChallenge(await page.content().catch(() => ""))
+    const refresh =
+      capture.followMetaRefresh && !anubisRefresh
+        ? await followMetaRefresh(page, maxTimeout - (Date.now() - start), validateOutboundUrl)
+        : undefined
     if (refresh && refresh.status !== "ok") {
       return { tier: 4, status: refresh.status, durationMs: Date.now() - start, reason: refresh.reason }
     }
@@ -134,16 +138,26 @@ export async function runTier4(
       undefined,
       mainResponse.status,
       initialCookies,
+      () => ({ status: mainResponse.status, url: mainResponse.response?.url() }),
     )
 
+    if (resolution === "browser-closed") {
+      return { tier: 4, status: "error", reason: "anubis-browser-closed", durationMs: Date.now() - start }
+    }
+
     if (resolution !== "ok") {
-      const status = resolution === "ip-blocked" || resolution === "captcha-required" ? "blocked" : "timeout"
+      const status =
+        resolution === "blocked" || resolution === "ip-blocked" || resolution === "captcha-required"
+          ? "blocked"
+          : "timeout"
       const reason =
-        resolution === "captcha-required"
-          ? `${challengeType}-captcha-required`
-          : resolution === "ip-blocked"
-            ? "proxy-ip-blocked"
-            : `${challengeType === "none" ? "cloudflare" : challengeType}-challenge-timeout`
+        resolution === "blocked"
+          ? "anubis-blocked"
+          : resolution === "captcha-required"
+            ? `${challengeType}-captcha-required`
+            : resolution === "ip-blocked"
+              ? "proxy-ip-blocked"
+              : `${challengeType === "none" ? "cloudflare" : challengeType}-challenge-timeout`
       await reportBlocked(
         page,
         capture.blockedEvidence,
@@ -151,6 +165,13 @@ export async function runTier4(
         maxTimeout - (Date.now() - start),
       )
       return { tier: 4, status, durationMs: Date.now() - start, reason }
+    }
+
+    if (anubisRefresh) {
+      const destination = await followMetaRefresh(page, maxTimeout - (Date.now() - start), validateOutboundUrl)
+      if (destination.status !== "ok") {
+        return { tier: 4, status: destination.status, durationMs: Date.now() - start, reason: destination.reason }
+      }
     }
 
     await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => {})
@@ -184,6 +205,21 @@ export async function runTier4(
 
     const html = await page.content()
 
+    if (
+      hasAnubisChallenge(html) ||
+      isAnubisVerificationUrl(page.url()) ||
+      (challengeType === "anubis" && (mainResponse.status >= 400 || !hasAnubisDestinationContent(html)))
+    ) {
+      const reason = "anubis-persistent"
+      await reportBlocked(
+        page,
+        capture.blockedEvidence,
+        { tier: 4, status: "blocked", reason, statusCode: mainResponse.status, html, screenshot: shot },
+        maxTimeout - (Date.now() - start),
+      )
+      return { tier: 4, status: "blocked", durationMs: Date.now() - start, reason }
+    }
+
     if (isGoogleSorryUrl(page.url())) {
       const reason = "google-sorry-persistent"
       await reportBlocked(
@@ -202,7 +238,7 @@ export async function runTier4(
       return { tier: 4, status: "blocked", durationMs: Date.now() - start, reason }
     }
 
-    if (html.length < 100) {
+    if (html.length < 100 && challengeType !== "anubis") {
       return { tier: 4, status: "error", durationMs: Date.now() - start, reason: "page returned empty content" }
     }
 

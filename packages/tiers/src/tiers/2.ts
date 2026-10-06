@@ -11,11 +11,13 @@ import type {
 import { capturePageFavicons } from "../favicons"
 import { capturePageScreenshot } from "../screenshot"
 import { solvePageCaptchas } from "../solvers"
+import { isAnubisVerificationUrl } from "../utils/anubis"
 import { reportBlocked } from "../utils/blockedEvidence"
 import { attachPageCapture, type CaptureOptions } from "../utils/capture"
 import { normalizeSameSite, toCookies } from "../utils/cookies"
 import {
   hasAkamaiChallenge,
+  hasAnubisChallenge,
   hasDataDomeChallenge,
   isBlocked,
   isBrowserErrorPage,
@@ -99,19 +101,33 @@ export async function runTier2(
     const mainResponse = trackMainDocumentResponses(page, { redirectChain: capture.redirectChain })
 
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: maxTimeout })
-    if (capture.followMetaRefresh) {
+    let html = await page.content()
+    if (capture.followMetaRefresh && !hasAnubisChallenge(html)) {
       const refresh = await followMetaRefresh(page, maxTimeout - (Date.now() - start), validateOutboundUrl)
       if (refresh.status !== "ok") {
         return { tier: 2, status: refresh.status, durationMs: Date.now() - start, reason: refresh.reason }
       }
+      html = await page.content()
     }
-    await page
-      .waitForLoadState("networkidle", {
-        timeout: capture.followMetaRefresh ? Math.max(1, Math.min(8_000, maxTimeout - (Date.now() - start))) : 8_000,
-      })
-      .catch(() => {})
-
-    const html = await page.content()
+    const anubis = hasAnubisChallenge(html)
+    if (!anubis && !isBlocked(mainResponse.status, html)) {
+      await page
+        .waitForLoadState("networkidle", {
+          timeout: Math.max(1, Math.min(8_000, maxTimeout - (Date.now() - start))),
+        })
+        .catch(() => {})
+      html = await page.content()
+    }
+    if (hasAnubisChallenge(html)) {
+      const reason = "anubis-session-expired"
+      await reportBlocked(
+        page,
+        capture.blockedEvidence,
+        { tier: 2, status: "blocked", reason, statusCode: mainResponse.status, html },
+        maxTimeout - (Date.now() - start),
+      )
+      return { tier: 2, status: "blocked", durationMs: Date.now() - start, reason }
+    }
 
     if (isBrowserErrorPage(html)) {
       return {
@@ -225,6 +241,16 @@ export async function runTier2(
     const evidence = await pageCapture.drain(maxTimeout - (Date.now() - start))
 
     const finalHtml = await page.content()
+    if (hasAnubisChallenge(finalHtml) || isAnubisVerificationUrl(page.url())) {
+      const reason = "anubis-persistent"
+      await reportBlocked(
+        page,
+        capture.blockedEvidence,
+        { tier: 2, status: "blocked", reason, statusCode: mainResponse.status, html: finalHtml, screenshot: shot },
+        maxTimeout - (Date.now() - start),
+      )
+      return { tier: 2, status: "blocked", durationMs: Date.now() - start, reason }
+    }
     if (isGoogleSorryUrl(page.url())) {
       const reason = "google-sorry-persistent"
       await reportBlocked(

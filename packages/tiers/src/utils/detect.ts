@@ -1,6 +1,8 @@
 import { parseHTML } from "linkedom"
+import { detectAnubisPage } from "./anubis"
 
 export type ChallengeType =
+  | "anubis"
   | "cloudflare-interstitial"
   | "cloudflare-turnstile"
   | "hcaptcha"
@@ -39,6 +41,7 @@ export function getAwsWafAction(
 
 export function isCloudflarePage(html: string, headers: Record<string, string>): boolean {
   if (hasCloudflareChallengeHeader(headers)) return true
+  if (hasAnubisChallenge(html)) return false
   if (hasDdosGuardChallenge(html)) return false
   if (hasDuckDuckGoChallenge(html)) return false
   if (hasAltcha(html) || hasFriendlyCaptcha(html)) return false
@@ -99,6 +102,10 @@ export function hasHcaptcha(html: string): boolean {
 
 export function hasRecaptcha(html: string): boolean {
   return /class="g-recaptcha"|google\.com\/recaptcha|recaptcha\.net\/recaptcha/i.test(html)
+}
+
+export function hasAnubisChallenge(html: string): boolean {
+  return detectAnubisPage(html) !== undefined
 }
 
 export function hasCapChallenge(html: string): boolean {
@@ -302,6 +309,7 @@ export function detectChallengeType(
   if (hasAwsWafChallenge(html, headers, status) || hasAwsWafCaptcha(html, headers, status)) return "aws-waf"
   if (hasCloudflareChallengeHeader(headers)) return "cloudflare-interstitial"
   if (hasDataDomeChallenge(html, headers, status)) return "datadome"
+  if (hasAnubisChallenge(html)) return "anubis"
   if (hasTurnstile(html)) return "cloudflare-turnstile"
   if (hasDdosGuardChallenge(html, headers)) return "ddos-guard"
   if (hasDuckDuckGoChallenge(html, headers)) return "duckduckgo"
@@ -318,6 +326,7 @@ export function detectChallengeType(
 
 export function isBlocked(status: number, html: string): boolean {
   if (status === 403 || status === 429) return true
+  if (hasAnubisChallenge(html)) return true
   if (isCloudflarePage(html, {})) return true
   if (hasImpervaChallenge(html)) return true
   if (hasAkamaiChallenge(html)) return true
@@ -329,6 +338,7 @@ export function isBlocked(status: number, html: string): boolean {
 
 export function needsJs(html: string, headers: Record<string, string>): boolean {
   return (
+    hasAnubisChallenge(html) ||
     isCloudflarePage(html, headers) ||
     hasImpervaChallenge(html, headers) ||
     hasAkamaiChallenge(html, headers) ||
@@ -377,9 +387,10 @@ export function isChallengeWall(
 ): boolean {
   if (challengeType === "none") return false
   if (status === 403 || status === 429 || status === 503) return true
-  // These four never serve real content alongside their wall, so the type alone settles
+  // These providers never serve real content alongside their wall, so the type alone settles
   // it. For datadome that leans on the header invariant documented in getDataDomeAction().
   if (
+    challengeType === "anubis" ||
     challengeType === "akamai" ||
     challengeType === "aws-waf" ||
     challengeType === "datadome" ||
