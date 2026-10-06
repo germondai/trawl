@@ -39,7 +39,7 @@ Accept-Encoding: gzip, deflate, br
 
 **Succeeds for:** sites that serve the requested content without a browser challenge.
 
-**Escalates for:** recognized Cloudflare, Akamai, or Imperva challenge responses and blocked status codes such as 403 or 429. Detection uses provider-specific headers and HTML markers.
+**Escalates for:** recognized Cloudflare, Akamai, Imperva or Anubis challenge responses and blocked status codes such as 403 or 429. Detection uses provider-specific headers and HTML markers.
 
 **Skip with:** `skipHttp: true` in the request body, or deployment-wide `SCRAPE_MIN_TIER=2`.
 Use `maxTier: 1` to cap execution at Tier 1 instead.
@@ -62,6 +62,17 @@ On success:
 - Returns the HTML and cookies to the caller
 
 Uses [Camoufox](https://github.com/daijro/camoufox) — Firefox with fingerprint patching at the C++/Juggler level to reduce common automation signals. Success still depends on the target's challenge variant, IP reputation, and upstream network conditions.
+
+### Anubis proof-of-work challenges
+
+Anubis can return both challenges and denial pages with HTTP 200. TRAWL recognizes its active challenge JSON, its version metadata together with the real bootstrap script, and its version metadata together with the rejection image. Broken challenge JSON stays a challenge when the bootstrap is present. Inert examples, brand mentions and version metadata alone do not trigger detection. HTTP and proxy inspection also check for Anubis markers beyond the normal 64 KiB preview in an already buffered response.
+
+The browser executes the site's own challenge JavaScript. TRAWL waits for two readable destination samples at the same URL within the remaining tier budget. Short destination pages are accepted; empty shells, browser errors, failed verification endpoints and repeated challenge reissues are rejected. TRAWL does not compute a separate PoW solution or navigate to a challenge endpoint itself.
+
+Tier 2 reuses accepted sessions. If Anubis challenges or rejects the cached session, TRAWL invalidates it and proceeds to a fresh Tier 3 context when the requested maximum tier allows it. Tiers 3 and 4 retain their existing context isolation, proxy routing and TLS settings. Failures report reasons such as `anubis-session-expired`, `anubis-blocked`, `anubis-challenge-timeout` or `anubis-persistent`. A closed browser page reports `anubis-browser-closed`. For GET and HEAD, TRAWL retries once in a fresh context on the same proxy within the original request budget, provided the browser is still connected. POST is not retried. Anubis verification redirects are left to the browser even when `followMetaRefresh` is enabled, so the generic refresh fallback does not resubmit the verification endpoint. The forward proxy returns 403 for unresolved Anubis evidence originally served below HTTP 400, or 504 for a timeout. Existing upstream error statuses are preserved.
+
+Real-browser integration tests cover Anubis v1.27.0 with the `fast` algorithm at difficulty 2, including the native API, FlareSolverr `/v1` and HTTP proxy. Higher difficulty, custom frontends, hard deny policies, browser failures and other deployments can still fail. No new configuration flag or paid solver is required.
+
 
 ### Akamai Bot Manager challenges
 

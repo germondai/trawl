@@ -63,6 +63,14 @@ TRAWL_BROWSER_TESTS=1 CAMOUFOX_INSTALL_DIR=/path/to/camoufox bun test packages/b
 
 `CAMOUFOX_INSTALL_DIR` must contain the extracted browser bundle and its `version.json`.
 
+Anubis integration tests require an owned Anubis v1.27.0 fixture configured for `fast` PoW at difficulty 2. Allow favicon requests, enable remote-address handling when there is no reverse proxy, and serve upstream HTML containing `TRAWL Anubis integration target`. Use HTTPS or loopback HTTP for the browser's secure context:
+
+```bash
+TRAWL_ANUBIS_TESTS=1 TRAWL_ANUBIS_TEST_URL=https://your-owned-fixture/ CAMOUFOX_INSTALL_DIR=/path/to/camoufox bun test apps/api/src/anubis.integration.test.ts
+```
+
+These tests exercise the native API, FlareSolverr `/v1`, proxy escalation, cached cookies and persistent challenge failures. They are skipped in the default suite.
+
 ## Project layout
 
 This is a Bun monorepo with workspaces:

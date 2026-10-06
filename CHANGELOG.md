@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Detect Anubis challenges and HTTP 200 denial pages, including challenges beyond the inspection preview. Wait for browser-executed proof of work within the remaining tier budget, recover stale sessions through a fresh context, accept short destinations and reject verification errors or persistent walls. Recover once from a closed Anubis browser page for safe requests, and avoid duplicate verification when meta-refresh following is enabled. Return error HTTP statuses for unresolved Anubis proxy responses (#189).
+
 - Add opt-in `MITM_ESCALATE_429` for proxy HTTP 429 responses. Keep the default pass-through behavior, avoid caching plain rate limits as host-wide challenges, and preserve the original response when scraping fails (#181).
 
 - Add opt-in `followMetaRefresh` to the native scrape API: HTTP forwarders escalate to browser tiers, which follow bounded meta refresh redirects using the document base URL and existing proxy, cookies, outbound policy and TLS checks. Browser navigation interruptions are handled within the same deadline; network error documents, failed navigation, loops and spent refresh budgets fail the attempt instead of returning forwarding content. Addresses the request in #184 and the gaps identified in #185.
