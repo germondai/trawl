@@ -231,6 +231,23 @@ describe("responseFromBlockedEvidence", () => {
     }
   })
 
+  test("returns an error status for unresolved Anubis at HTTP 200", () => {
+    expect(responseFromBlockedEvidence({ ...baseEvidence, reason: "anubis-blocked", statusCode: 200 }).statusCode).toBe(
+      403,
+    )
+    expect(
+      responseFromBlockedEvidence({
+        ...baseEvidence,
+        reason: "anubis-challenge-timeout",
+        status: "timeout",
+        statusCode: 200,
+      }).statusCode,
+    ).toBe(504)
+    expect(responseFromBlockedEvidence({ ...baseEvidence, reason: "anubis-blocked", statusCode: 429 }).statusCode).toBe(
+      429,
+    )
+  })
+
   test("omits x-trawl-reason when reason is undefined", () => {
     const response = responseFromBlockedEvidence({
       ...baseEvidence,

@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test"
 import { once } from "node:events"
 import net from "node:net"
 import { gzipSync } from "node:zlib"
+import { ANUBIS_CHALLENGE } from "../../../../../packages/tiers/tests/fixtures/anubis"
 import { directForwardHttp } from "../directForward"
 
 const fullBody = Buffer.from("0123456789ABCDEF")
@@ -16,6 +17,12 @@ const chunked = (...chunks: Uint8Array[]): ReadableStream<Uint8Array> =>
 
 const fetchFixture = (req: Request): Response => {
   const { pathname, searchParams } = new URL(req.url)
+  if (pathname === "/late-anubis" || pathname === "/late-anubis-gzip") {
+    const html = ANUBIS_CHALLENGE.replace("<head>", `<head><!--${"x".repeat(70000)}-->`)
+    return new Response(pathname.endsWith("-gzip") ? gzipSync(html) : html, {
+      headers: { "Content-Type": "text/html", ...(pathname.endsWith("-gzip") ? { "Content-Encoding": "gzip" } : {}) },
+    })
+  }
   if (pathname === "/cookies") {
     const headers = new Headers({ "Content-Type": "text/html" })
     headers.append("Set-Cookie", "session=one; Expires=Wed, 21 Oct 2030 07:28:00 GMT; Path=/")
@@ -177,6 +184,24 @@ describe("directForwardHttp — buffered by default", () => {
     expect(result.headers["set-cookie"]).toBe("session=one; Path=/\nclearance=two; Path=/; Secure")
     result.socket.destroy()
   })
+
+  test.each(["/late-anubis", "/late-anubis-gzip"])(
+    "detects Anubis past the preview while retaining wire bytes: %s",
+    async (path) => {
+      const result = await directForwardHttp({
+        url: new URL(path, server.url).href,
+        method: "GET",
+        headers: {},
+        timeoutMs: 2000,
+      })
+      expect(result.mode).toBe("buffer")
+      if (result.mode !== "buffer") return
+      expect(result.status).toBe(200)
+      expect(result.challengeDetected).toBe(true)
+      const html = ANUBIS_CHALLENGE.replace("<head>", `<head><!--${"x".repeat(70000)}-->`)
+      expect(result.body).toEqual(path.endsWith("-gzip") ? gzipSync(html) : Buffer.from(html))
+    },
+  )
 
   test("skips 103 Early Hints and escalates cf-mitigated without waiting for an open body", async () => {
     const sockets = new Set<net.Socket>()

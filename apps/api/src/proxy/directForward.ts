@@ -17,7 +17,7 @@
 import net from "node:net"
 import tls from "node:tls"
 import { brotliDecompressSync, gunzipSync, inflateSync } from "node:zlib"
-import { detectChallengeType, isChallengeWall } from "@trawl/tiers"
+import { anubisInspectionText, detectChallengeType, isChallengeWall } from "@trawl/tiers"
 import { isGoogleSorryRedirect } from "./googleSorry"
 import { shouldStream } from "./streaming"
 
@@ -532,5 +532,6 @@ function decodeForInspection(body: Buffer, contentEncoding?: string): string {
   } catch {
     // If an upstream mislabeled or truncated the encoding, inspect the raw bytes.
   }
-  return decoded.toString("utf8", 0, Math.min(decoded.length, 65536))
+  const preview = decoded.toString("utf8", 0, Math.min(decoded.length, 65536))
+  return anubisInspectionText(decoded, preview)
 }

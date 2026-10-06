@@ -65,7 +65,7 @@ export function responseFromScrapeResult(result: ScrapeResult): ProxyBufferedRes
 }
 
 export function responseFromBlockedEvidence(evidence: BlockedEvidence): ProxyBlockedResponse {
-  const statusCode =
+  let statusCode =
     Number.isInteger(evidence.statusCode) &&
     evidence.statusCode !== undefined &&
     evidence.statusCode >= 200 &&
@@ -73,6 +73,10 @@ export function responseFromBlockedEvidence(evidence: BlockedEvidence): ProxyBlo
     !BODYLESS_STATUS_CODES.has(evidence.statusCode)
       ? evidence.statusCode
       : 403
+
+  if (evidence.reason?.startsWith("anubis-") && statusCode < 400) {
+    statusCode = evidence.status === "timeout" ? 504 : 403
+  }
 
   const headers: Record<string, string> = {
     "content-type": "text/html; charset=utf-8",
