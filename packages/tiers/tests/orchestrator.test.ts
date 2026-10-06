@@ -97,3 +97,108 @@ describe("public tier attempt metadata", () => {
     expect(attempts).toStrictEqual(expected)
   })
 })
+
+describe("Anubis browser crash recovery", () => {
+  for (const tier of [3, 4] as const) {
+    test(`Tier ${tier} retries one closed page with the same routing and remaining budget`, async () => {
+      const attempts: TierResult[] = []
+      const calls: unknown[][] = []
+      const crashRunner = async (...args: unknown[]) => {
+        calls.push(args)
+        if (calls.length === 1) {
+          await Bun.sleep(5)
+          return { tier, status: "error" as const, reason: "anubis-browser-closed", durationMs: 5 }
+        }
+        return { ...payload, tier, status: "success" as const, durationMs: 1 }
+      }
+      const proxy = "http://proxy.test:8080"
+      const result = await scrape(
+        {
+          url: "https://example.test",
+          proxy,
+          maxTier: tier,
+          maxTimeout: 1000,
+          headers: { "X-Fixture": "yes" },
+          ignoreCertificateErrors: true,
+        },
+        dependencies(tier, attempts),
+        { ...runners("success"), ...(tier === 3 ? { tier3: crashRunner } : { tier4: crashRunner }) },
+      )
+      expect(result.tier).toBe(tier)
+      expect(calls).toHaveLength(2)
+      expect(calls[1]?.[3]).toBe(proxy)
+      expect(calls[1]?.[4]).toEqual(calls[0]?.[4])
+      expect(calls[1]?.[10]).toBe(true)
+      expect(calls[1]?.[2] as number).toBeLessThan(calls[0]?.[2] as number)
+      expect(attempts.map((attempt) => attempt.status)).toEqual(["error", "success"])
+    })
+  }
+
+  test.each([
+    { method: "POST" as const, reason: "anubis-browser-closed", expectedCalls: 1 },
+    { method: "GET" as const, reason: "unrelated-browser-error", expectedCalls: 1 },
+    { method: "GET" as const, reason: "anubis-browser-closed", expectedCalls: 2 },
+  ])("bounds retries for $method and $reason", async ({ method, reason, expectedCalls }) => {
+    let calls = 0
+    await expect(
+      scrape({ url: "https://example.test", method, maxTier: 3, maxTimeout: 1000 }, dependencies(3, []), {
+        tier3: async () => {
+          calls++
+          return { tier: 3, status: "error", reason, durationMs: 1 }
+        },
+      }),
+    ).rejects.toBeInstanceOf(ScrapeError)
+    expect(calls).toBe(expectedCalls)
+  })
+
+  test("does not retry after the request deadline", async () => {
+    let calls = 0
+    await expect(
+      scrape({ url: "https://example.test", maxTier: 3, maxTimeout: 10 }, dependencies(3, []), {
+        tier3: async () => {
+          calls++
+          await Bun.sleep(20)
+          return { tier: 3, status: "error", reason: "anubis-browser-closed", durationMs: 20 }
+        },
+      }),
+    ).rejects.toBeInstanceOf(ScrapeError)
+    expect(calls).toBe(1)
+  })
+
+  test("does not retry a disconnected browser", async () => {
+    let calls = 0
+    const deps = dependencies(3, [])
+    const acquire = deps.acquireBrowser
+    deps.acquireBrowser = async (...args) => {
+      const handle = await acquire(...args)
+      handle.browser = { isConnected: () => false }
+      return handle
+    }
+    await expect(
+      scrape({ url: "https://example.test", maxTier: 3 }, deps, {
+        tier3: async () => {
+          calls++
+          return { tier: 3, status: "error", reason: "anubis-browser-closed", durationMs: 1 }
+        },
+      }),
+    ).rejects.toBeInstanceOf(ScrapeError)
+    expect(calls).toBe(1)
+  })
+
+  test("shares the single retry between browser tiers", async () => {
+    const calls = { tier3: 0, tier4: 0 }
+    await expect(
+      scrape({ url: "https://example.test", maxTier: 4 }, dependencies(3, []), {
+        tier3: async () => {
+          calls.tier3++
+          return { tier: 3, status: "error", reason: "anubis-browser-closed", durationMs: 1 }
+        },
+        tier4: async () => {
+          calls.tier4++
+          return { tier: 4, status: "error", reason: "anubis-browser-closed", durationMs: 1 }
+        },
+      }),
+    ).rejects.toBeInstanceOf(ScrapeError)
+    expect(calls).toEqual({ tier3: 2, tier4: 1 })
+  })
+})

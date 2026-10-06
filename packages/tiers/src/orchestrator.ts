@@ -270,6 +270,20 @@ export async function scrape(
     handleReleased = false
   }
 
+  // A Camoufox content process can crash while running Anubis workers. Retry
+  // once in a new context on the same proxy, only for safe requests and within
+  // the original budget. A browser failure does not make a proxy unhealthy.
+  let anubisCrashRetried = false
+  const retryAnubisCrash = (result: TierResult): boolean => {
+    if (anubisCrashRetried || result.status !== "error" || result.reason !== "anubis-browser-closed") return false
+    if (req.method && req.method !== "GET" && req.method !== "HEAD") return false
+    if (Date.now() - totalStart >= maxTimeout) return false
+    if (typeof handle.browser.isConnected === "function" && !handle.browser.isConnected()) return false
+    anubisCrashRetried = true
+    emit(result)
+    return true
+  }
+
   try {
     // Tier 2: browser with cached session
     const session = minTier <= 2 && !explicitProxy ? await deps.loadSession(domain) : undefined
@@ -399,6 +413,10 @@ export async function scrape(
           )
         }
 
+        if (retryAnubisCrash(t3)) {
+          attempt--
+          continue
+        }
         const pool = deps.proxyPool
         if (t3.status !== "blocked" || req.proxy || !proxy3 || !pool || attempt + 1 >= MAX_PROXY_ATTEMPTS) break
         pool.markBad(proxy3)
@@ -498,6 +516,10 @@ export async function scrape(
         )
       }
 
+      if (retryAnubisCrash(t4)) {
+        attempt--
+        continue
+      }
       const pool = deps.residentialProxyPool
       if (t4.status !== "blocked" || req.proxy || !pool || attempt + 1 >= MAX_PROXY_ATTEMPTS) break
       pool.markBad(proxy4)
