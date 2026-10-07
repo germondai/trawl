@@ -25,7 +25,7 @@ For existing FlareSolverr users, the compatible `/v1` endpoint works with Prowla
 - **Camoufox Firefox** - fingerprint-patched at the C++/Juggler level to reduce automation signals
 - **Session cache** - solved cookies and browser identity stored in Redis; accepted sessions can avoid a fresh solve
 - **FlareSolverr compatible** - works with Prowlarr, Jackett, Sonarr, and the full \*arr ecosystem out of the box
-- **No paid solver API required** - reCAPTCHA audio can use Google's free STT endpoint or an optional local Whisper service
+- **Local solving by default** - no paid solver API required; optional [2Captcha fallback](./apps/docs/getting-started/configuration.md#optional-external-captcha-solver) for reCAPTCHA v2/Enterprise and standalone Turnstile, with site-specific profiles for other documented task types
 
 ## Sponsors
 

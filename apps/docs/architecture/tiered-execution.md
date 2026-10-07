@@ -155,3 +155,16 @@ This runs Tier 1, then Tier 2, then returns an error if both fail — never laun
 Anubis uses the site's own JavaScript for proof of work. TRAWL polls a small browser DOM summary every 300 ms, respects the remaining request budget, and rejects denial pages or unresolved verification endpoints. Expired cached sessions escalate to a fresh browser context. PoW CPU and memory usage depend on the target policy and browser worker count; a 1 GiB limit is not sufficient for every public deployment.
 
 A closed Anubis browser page may be retried once for GET or HEAD within the original timeout. If the container cgroup reports a new OOM kill, TRAWL stops instead of repeating the expensive solve. On systems without cgroup counters, recovery remains limited to one retry. POST requests are never replayed.
+
+## Optional paid fallback
+
+A deployment can enable the [external CAPTCHA solver](/getting-started/configuration#optional-external-captcha-solver).
+It runs after supported built-in solvers inside browser tiers 2-4, using the same
+page and the remaining request deadline. It is not a fifth tier. One shared
+allowance limits paid task creation across all tiers and proxy attempts.
+Automatic fallback handles declarative reCAPTCHA v2/Enterprise and standalone
+Turnstile. Other documented API v2 task types use hostname-bound profiles with
+explicit inputs, delivery and a verification selector. A detected SDK marker
+alone never creates a paid task. Profile-enabled hostnames escalate HTTP HTML
+responses to a browser, and WAF waiters can use a profile after local resolution
+fails. Existing local handling is preserved when the service is disabled.

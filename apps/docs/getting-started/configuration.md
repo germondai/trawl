@@ -461,6 +461,200 @@ that cannot fit the total cap, or an assembly failure leave `mhtml` unset and ne
 the scrape. Archives may contain credentials, personal data and executable target scripts,
 so treat them as sensitive untrusted output.
 
+## Optional external CAPTCHA solver
+
+Built-in solvers remain the default. Set `CAPTCHA_SOLVER=2captcha` and
+`TWOCAPTCHA_API_KEY` to try a paid fallback after local solving fails. A key by
+itself never enables the service. No additional model or solver SDK is installed.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `CAPTCHA_SOLVER` | `none` | `none` or `2captcha` |
+| `TWOCAPTCHA_API_KEY` | unset | Required when selecting 2Captcha; keep it secret |
+| `CAPTCHA_SOLVER_MAX_TASKS` | `1` | Maximum paid task creation attempts per scrape, shared across tiers and proxy retries; range 1-3 |
+| `CAPTCHA_SOLVER_LOCAL_TIMEOUT_MS` | `10000` | Budget offered to a supported built-in solver before fallback; range 1000-30000 ms |
+| `CAPTCHA_SOLVER_TIMEOUT_MS` | `120000` | External operation limit, also capped by the remaining scrape budget; range 1000-180000 ms |
+| `CAPTCHA_SOLVER_PROFILES` | unset | JSON array of hostname-specific task and delivery profiles; up to 64 profiles, 256 KB total |
+
+```dotenv
+CAPTCHA_SOLVER=2captcha
+TWOCAPTCHA_API_KEY=your-key
+```
+
+### Automatic widget fallback
+
+The default adapter handles **one declarative reCAPTCHA v2, v2 Enterprise or
+standalone Turnstile widget per provider on a page**, with `data-sitekey` and an
+optional named `data-callback`. It installs the response in the current page and
+invokes the callback in the page's JavaScript realm. It does not submit forms
+itself. Turnstile custom response fields, callback-only widgets and reCAPTCHA
+compatibility mode are supported. reCAPTCHA uses the browser user agent and the
+widget's Google or recaptcha.net API domain. Enterprise `data-s` is sent inside
+`enterprisePayload`.
+
+A restrictive script CSP or missing named callback prevents task creation.
+Anonymous callbacks, explicitly rendered widgets, multiple widgets, reCAPTCHA v3
+and Cloudflare interstitials require a site-specific profile. Existing local
+solvers, including hCaptcha, remain available. A token delivered to a field is
+reported as `delivered`, not as proof of target-server acceptance.
+
+### Provider task catalogue
+
+TRAWL validates the API v2 task shapes documented by
+[2Captcha](https://2captcha.com/api-docs). The catalogue covers reCAPTCHA
+v2/Enterprise/v3, Turnstile, Arkose/FunCaptcha, GeeTest, Capy, KeyCaptcha, Lemin,
+AWS WAF, CyberSiara, MTCaptcha, DataDome, Friendly Captcha, CutCaptcha, ATB,
+Tencent, Prosopo, CaptchaFox, VK, ALTCHA, Yidun, Binance, Hunt, TSPD, Basilisk,
+Imperva, Alibaba and Yandex, plus image/text/audio, rotation, coordinates, grids,
+drawing, bounding boxes, drag-and-drop, Temu, SmartCaptcha and Pazl tasks.
+
+Recognizable SDK and widget markers produce diagnostic candidates. A marker
+alone never starts a paid task. Apart from the automatic widgets above, these
+tasks need a profile providing the required dynamic parameters and a way to
+apply and verify the response. Generic images or audio are not automatically
+classified as CAPTCHA. Detection cannot cover every customized website or SDK
+variant. hCaptcha is not included in the current API v2 catalogue used here; no
+undocumented external task type is sent.
+
+The catalogue accepts the alternative names and field spellings present in the
+provider's examples, including Imperva/Incapsula and Alibaba. Those documentation
+inconsistencies have not been resolved against a live paid account. Structural
+validation is not a guarantee that the provider will accept a task.
+
+### Site-specific profiles
+
+Profiles are server configuration, not request parameters. Each profile binds an
+exact lowercase hostname, a unique widget root, a documented `taskType`, task
+inputs and an explicit delivery method. The selector must identify one widget;
+missing or ambiguous targets prevent payment. No wildcard hostnames are allowed.
+
+For example, save this array as the JSON value of `CAPTCHA_SOLVER_PROFILES`:
+
+```json
+[
+  {
+    "hostname": "example.com",
+    "selector": "#captcha",
+    "taskType": "GeeTestTaskProxyless",
+    "inputs": {
+      "gt": { "selector": "#captcha", "attribute": "data-gt" },
+      "challenge": { "source": "global", "path": ["captchaConfig", "challenge"] }
+    },
+    "delivery": {
+      "fields": [
+        { "selector": "#geetest-challenge", "path": ["challenge"] },
+        { "selector": "#geetest-validate", "path": ["validate"] },
+        { "selector": "#geetest-seccode", "path": ["seccode"] }
+      ],
+      "callback": "captchaAccepted",
+      "verifySelector": "#protected-content"
+    }
+  }
+]
+```
+
+Use selectors and callback names belonging to your target integration. The
+example is a schema illustration, not a universal GeeTest configuration.
+Configured hostnames force otherwise successful HTTP HTML responses through a
+browser so the widget can be inspected; enabling a profile therefore has a
+browser cost even on pages without its widget. `maxTier` still limits execution.
+
+| Input | Meaning |
+| --- | --- |
+| `{ "value": ... }` | Explicit literal task parameter |
+| `{ "selector": "...", "attribute": "..." }` | Unique element's attribute; without an attribute, its input value or text |
+| `{ "selector": "...", "json": true }` | Parse the selected value as JSON |
+| `{ "source": "global", "path": ["config", "key"] }` | Read a named page global; requires page CSP to allow the bridge |
+| `{ "source": "url" }` / `{ "source": "userAgent" }` | Current browser URL / user agent |
+| `{ "source": "screenshot", "selector": "..." }` | PNG crop of one element, at most 100 KB before Base64 encoding |
+| `{ "source": "cookies" }` / `{ "source": "html" }` | Current-site cookies / page HTML; requires `allowSessionData: true` |
+
+Where the task supports them, `websiteURL` and `userAgent` default to the current
+browser values. A configured website URL must equal the current page URL.
+`htmlPageBase64` from the HTML source is Base64 encoded. Inputs are checked against
+the task's supported fields, types and required combinations. Incomplete tasks
+are skipped. Profile task JSON is limited to 3 MB; provider responses to 512 KB.
+
+Delivery paths are arrays indexing the provider's `solution` object; an empty
+path selects the whole value. Use only the paths documented for that task:
+
+- `fields`: unique input/textarea selectors and response paths. Values must be
+  nonempty strings; TRAWL emits input/change events.
+- `callback` and optional `callbackPath`: call a named function with one selected
+  response value, including a structured object. Without a path, pass the whole
+  solution. No arbitrary JavaScript is evaluated from configuration.
+- `cookies`: an explicit name, response path and `format` (`value` or
+  `set-cookie`). Cookies are restricted to the current URL. Provider-supplied
+  Domain/Path attributes are discarded; unrelated domains cannot be updated.
+- `clicks`: a unique target, response path and `mode`. `grid` uses one-based cell
+  numbers with configured `rows` and `columns` (1-20 each). `coordinates` uses
+  `{x,y}` values within the PNG identified by `imageInput`, scaled to the target's
+  browser bounds. At most 32 clicks are applied. Drawing, dragging and rotation
+  responses need a target-specific callback or field adapter.
+- `submitSelector`: optional explicit submission after fields/clicks, restricted
+  to the widget or its surrounding form. Use a callback or submit selector, not
+  both. Submission is never inferred.
+- `reload`: optionally reload after installing cookies or values.
+- `verifySelector`: required unique visible success element, initially absent or
+  hidden. TRAWL waits for this state within the remaining request budget. Choose
+  an element that appears only after server acceptance; a cosmetic UI change is
+  not independent verification.
+
+The complete task is read again before delivery. Changed challenge parameters,
+page navigation while waiting, missing targets and incompatible returned browser
+identities reject the response. Dynamic image grids that replace themselves
+mid-task need a new attempt; the request-wide task allowance still applies.
+
+Native results include `captchaDiagnostics` with provider kind and status such as
+`profile-required`, `incomplete-profile`, `ready`, `verified`, `delivery-failed`,
+`identity-mismatch`, `provider-failed` or `cancelled`. The diagnostics contain no
+parameters or credentials. Verified profiles appear in `captchasSolved` as
+`<kind>:2captcha`. The Prowlarr response shape remains unchanged.
+
+For supported widgets, local solving receives at most half the remaining widget
+budget, capped by the local timeout setting. Disabling the provider preserves the
+original local budget. The external phase polls at five-second intervals and does
+not extend `maxTimeout`. No paid task is created when five seconds or less remain;
+other short scrape budgets may still expire before workers finish.
+Increase `maxTimeout` within the API's supported limits when needed.
+Temporary polling failures receive at most two consecutive retries for the same
+task, five seconds apart. Reloading or navigating the page while waiting aborts
+delivery, and changed widget parameters reject the returned token.
+
+An explicit HTTP, SOCKS4 or SOCKS5 browser proxy is passed to the provider instead
+of silently switching to a proxyless task. HTTPS proxy URLs are currently skipped
+by this adapter. The provider must be able to reach the supplied proxy; local Tor
+or Gluetun endpoints may not be reachable from its workers. Implicit VPN or Firefox
+proxy preferences are not converted into provider proxy settings. Profiles must
+select the proxy or proxyless task variant matching the actual browser route;
+proxy-required tasks are skipped without an explicit supported proxy. Tasks with
+no proxy variant are skipped when a browser proxy is configured.
+
+Enabling this feature sends the full target URL, sitekey, supported widget
+parameters, the reCAPTCHA browser user agent and explicit proxy credentials to 2Captcha. Browser session cookies
+and page content are sent only by explicitly configured profile inputs with
+`allowSessionData: true`. Image/audio tasks send their configured media. Provider API traffic uses the server's network
+route, rather than the browser's per-context proxy. TRAWL does not log the API key,
+provider error descriptions or returned token in this adapter.
+
+Each creation attempt consumes the allowance even if the connection fails: the
+provider may have created a billable task before the response was lost. TRAWL
+never retries task creation automatically. Stopping a request cancels local
+polling but cannot cancel or refund a task already accepted by the provider.
+This is a task-count limit, not a deployment-wide spending cap.
+No-slot and HTTP 429 responses pause new external tasks for five seconds. Invalid
+keys, zero balance and account/IP restrictions pause them for sixty seconds.
+These cooldowns are shared by scrapes using the same provider configuration in
+one process; local solving continues with its original budget during a cooldown.
+
+Browser fixtures and the official task examples are tested without submitting
+paid tasks. Real worker acceptance, latency, billing and success rates remain
+unverified.
+
+See the provider's [reCAPTCHA v2](https://2captcha.com/api-docs/recaptcha-v2),
+[Turnstile](https://2captcha.com/api-docs/cloudflare-turnstile) and
+[polling API](https://2captcha.com/api-docs/get-task-result) documentation.
+
 ## CAPTCHA audio and media tools
 
 TRAWL uses ffmpeg while solving supported CAPTCHA challenges. reCAPTCHA audio is converted before
