@@ -83,7 +83,7 @@ Embedded widgets proceed to their own solver after the page loads. Their iframe 
 | Friendly Captcha | Native component or provider-frame start | Completed response |
 | CAP | Native component or its shadow control | Component response token |
 
-CAP uses the installed widget's own PoW implementation, browser proxy and outbound policy. It adds no solver dependency or external paid service. Component readiness and offscreen controls are handled within the request budget. The solver does not submit the surrounding form.
+CAP uses the installed widget's own PoW implementation, browser proxy and outbound policy. It adds no solver dependency or external paid service. Component readiness and offscreen controls are handled within the request budget. Visible CAP widgets are solved sequentially within the shared budget, and all must have a response before completion is reported. The solver does not submit the surrounding form.
 
 A widget's client-side response is not proof that the target application's server accepted a subsequent business request. Targets with unsupported puzzles or IP restrictions can still refuse access.
 

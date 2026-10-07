@@ -34,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Solve visible CAP widgets sequentially within one request budget and require a response for every visible widget before reporting completion.
+
 - Route embedded Turnstile and other CAPTCHA widgets to their token solvers instead of waiting for their iframe to disappear as a Cloudflare interstitial. Reuse the existing shadow-DOM click path without keyboard fallback or token previews.
 - Avoid missing-element waits in GeeTest slide solving, match the piece texture against the challenge image, refresh geometry after popup animation, and require an explicit verified widget state. Recalculate refreshed puzzles and release the mouse on cancellation.
 - Stop Akamai press-and-hold input when the main document navigates, avoid blind pointer sequences after completion, and bound recovery waits by the remaining request budget.

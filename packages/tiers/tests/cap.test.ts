@@ -31,7 +31,7 @@ test("CAP does not report an unavailable or rejected component as solved", async
   const unavailable = { evaluate: async () => false } as unknown as Page
   expect(await solveCap(unavailable, 1000)).toBe(false)
   let calls = 0
-  const rejected = { evaluate: async () => ++calls === 1 } as unknown as Page
+  const rejected = { evaluate: async () => (++calls === 1 ? { index: 0 } : false) } as unknown as Page
   expect(await solveCap(rejected, 50)).toBe(false)
 })
 

@@ -46,9 +46,9 @@ describe.skipIf(process.env.TRAWL_POOL_RESOURCE_TESTS !== "1")("API browser reso
             '<html><body><button role="checkbox" onclick="parent.postMessage(\'owned-fixture-solved\',location.origin)">Verify</button></body></html>',
             { headers: { "content-type": "text/html" } },
           )
-        if (path === "/cap-token" || path === "/cap-empty")
+        if (path === "/cap-token" || path === "/cap-empty" || path === "/cap-multiple" || path === "/cap-partial")
           return new Response(
-            `<html><body><form><cap-widget style="display:block;margin-top:2000px" data-cap-hidden-field-name="verification"></cap-widget><button type="submit">Submit form</button></form><script>
+            `<html><body><form><cap-widget style="display:block;margin-top:2000px" data-cap-hidden-field-name="verification"></cap-widget>${path === "/cap-multiple" || path === "/cap-partial" ? `<cap-widget style="display:block" data-cap-hidden-field-name="verification" ${path === "/cap-partial" ? "data-reject" : ""}></cap-widget>` : ""}<button type="submit">Submit form</button></form><script>
             document.querySelector('form').onsubmit=e=>{e.preventDefault();document.body.dataset.submitted='true'};
             customElements.define('cap-widget',class extends HTMLElement {
               connectedCallback(){
@@ -56,7 +56,7 @@ describe.skipIf(process.env.TRAWL_POOL_RESOURCE_TESTS !== "1")("API browser reso
                 this.attachShadow({mode:'open'}).innerHTML='<button class="captcha-trigger">Verify</button>';
                 this.shadowRoot.querySelector('button').onclick=()=>{
                   this.shadowRoot.querySelector('button').textContent="You're a human";
-                  this.querySelector('input').value=${JSON.stringify(path === "/cap-token" ? "owned-cap-fixture-response" : "")};
+                  this.querySelector('input').value=this.hasAttribute('data-reject') ? '' : ${JSON.stringify(path !== "/cap-empty" ? "owned-cap-fixture-response" : "")};
                 };
               }
             });</script></body></html>`,
@@ -141,6 +141,28 @@ describe.skipIf(process.env.TRAWL_POOL_RESOURCE_TESTS !== "1")("API browser reso
       for (const path of ["/cap-token", "/cap-empty"]) {
         await page.goto(url(path), { waitUntil: "domcontentloaded" })
         expect(await solveCap(page, 4000)).toBe(path === "/cap-token")
+        expect(await page.evaluate(() => document.body.dataset.submitted === "true")).toBe(false)
+      }
+    } finally {
+      await context.close()
+      pool.release(lease.id, lease.lease)
+    }
+    await ready()
+  }, 15000)
+
+  test("CAP confirms every visible widget before reporting completion", async () => {
+    const pool = await ready()
+    const lease = await pool.acquire()
+    const context = await newFreshContext(lease.browser)
+    try {
+      const page = await context.newPage()
+      for (const path of ["/cap-multiple", "/cap-partial"]) {
+        await page.goto(url(path), { waitUntil: "domcontentloaded" })
+        expect(await solveCap(page, 5000)).toBe(path === "/cap-multiple")
+        const completed = await page.evaluate(() =>
+          Array.from(document.querySelectorAll<HTMLInputElement>("cap-widget input")).map((el) => Boolean(el.value)),
+        )
+        expect(completed).toEqual([true, path === "/cap-multiple"])
         expect(await page.evaluate(() => document.body.dataset.submitted === "true")).toBe(false)
       }
     } finally {
