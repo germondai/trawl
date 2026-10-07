@@ -48,7 +48,7 @@ ARG UBO_AMO_FILE_ID=5034826
 ARG UBO_SHA256=5b74415860456370644bd80f16125e865b0e6c356bb5dfcfb84069967eaa5287
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl unzip ca-certificates && rm -rf /var/lib/apt/lists/*
+    curl unzip ca-certificates binutils && rm -rf /var/lib/apt/lists/*
 
 # Pin the browser release and verify the architecture-specific asset before extracting it.
 # Direct downloads keep builds reproducible and avoid camoufox-js resolving "latest".
@@ -76,6 +76,10 @@ RUN --mount=type=secret,id=GITHUB_TOKEN,env=GITHUB_TOKEN \
     if [ "$CAMOUFOX_KEEP_SPOOFED_OS_FONTS" != "1" ]; then \
       rm -rf /opt/camoufox/fonts/macos /opt/camoufox/fonts/windows; \
     fi
+
+# Strip in the producing stage, before COPY creates a runtime layer.
+RUN strip --strip-unneeded /opt/camoufox/camoufox /opt/camoufox/camoufox-bin \
+ && find /opt/camoufox -type f \( -name '*.so*' -o -name 'firefox-bin' \) -exec strip --strip-unneeded {} +
 
 # Bake the GeoIP database so camoufox-js never downloads it at runtime.
 # `geoip: true` (packages/browser/src/pool.ts) otherwise makes camoufox-js fetch
@@ -113,6 +117,10 @@ RUN curl -fsSL \
     test "$(bun -e 'console.log(JSON.parse(await Bun.file("/opt/camoufox/addons/UBO/manifest.json").text()).version)')" = "${UBO_VERSION}" && \
     rm /tmp/ubo.xpi
 
+FROM oven/bun:1.4.2 AS bun-runtime
+RUN apt-get update && apt-get install -y --no-install-recommends binutils \
+ && strip --strip-all /usr/local/bin/bun
+
 # ── Stage 3: lean runtime (only API-required files) ────────────────────────────
 # Camoufox/Firefox require glibc; Alpine's musl is incompatible.
 FROM debian:trixie-slim
@@ -144,17 +152,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /usr/share/locale /usr/share/doc /usr/share/man
 
-COPY --from=oven/bun:1.4.2  /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=bun-runtime     /usr/local/bin/bun /usr/local/bin/bun
 COPY --from=camoufox          /opt/camoufox      /opt/camoufox
 COPY --from=deps              /app/node_modules  /app/node_modules
-
-# Strip debug symbols — Bun is statically linked (safe to strip-all); Firefox's glibc/NSS
-# .so files keep their dynamic symbols via --strip-unneeded. Saves ~75 MB uncompressed
-# without affecting runtime behaviour. `|| true` so a strip failure on one file
-# doesn't abort the build.
-RUN strip --strip-all /usr/local/bin/bun 2>/dev/null || true \
- && find /opt/camoufox -type f \( -name 'firefox' -o -name 'firefox-bin' -o -name '*.so*' \) \
-        -exec strip --strip-unneeded {} + 2>/dev/null || true
 
 COPY packages/types/   /app/packages/types/
 COPY packages/browser/ /app/packages/browser/
