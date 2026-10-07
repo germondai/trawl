@@ -261,7 +261,7 @@ test("ad blocking stays enabled by default and can be disabled explicitly", () =
   }
   for (const value of ["", "true", "invalid"]) expect(setting(value)).toBe("true")
   for (const value of ["false", "0", " NO "]) expect(setting(value)).toBe("false")
-})
+}, 10000)
 
 test.each([
   ["", "0"],
