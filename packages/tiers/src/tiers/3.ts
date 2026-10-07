@@ -170,7 +170,11 @@ async function runTier3Task(
 
     const remaining = maxTimeout - (Date.now() - start)
     const peekHtml = await page.content().catch(() => "")
-    const { challengeType, resolution } = await routeChallengeWait(
+    const {
+      challengeType,
+      resolution,
+      captchasSolved: wallCaptchas,
+    } = await routeChallengeWait(
       page,
       peekHtml,
       mainResponse.headers,
@@ -180,6 +184,9 @@ async function runTier3Task(
       mainResponse.status,
       initialCookies,
       () => mainResponse.headers,
+      capture.externalCaptcha,
+      proxyUrl,
+      budget.signal,
     )
 
     if (resolution === "browser-closed") {
@@ -223,13 +230,19 @@ async function runTier3Task(
     // Attempt to solve any embedded captcha widgets on the page (Turnstile, reCaptcha, hCaptcha).
     // This handles sites where the page itself loads fine but has an in-page challenge widget.
     const solveRemaining = maxTimeout - (Date.now() - start)
-    let captchasSolved: string[] = []
+    let captchasSolved: string[] = wallCaptchas ?? []
     if (solveRemaining > 5000) {
-      const solveResult = await solvePageCaptchas(page, solveRemaining, budget.signal).catch(() => ({
+      const solveResult = await solvePageCaptchas(
+        page,
+        solveRemaining,
+        budget.signal,
+        capture.externalCaptcha,
+        proxyUrl,
+      ).catch(() => ({
         attempted: [],
         solved: [],
       }))
-      captchasSolved = solveResult.solved
+      captchasSolved = [...new Set([...captchasSolved, ...solveResult.solved])]
     }
 
     // Hold the page open for the capture's settle window before reading anything, so a

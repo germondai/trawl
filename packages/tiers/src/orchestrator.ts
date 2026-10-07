@@ -1,6 +1,7 @@
 import type { BrowserHandle } from "@trawl/browser"
 import { FINGERPRINT, FINGERPRINT_POOL, PoolExhaustedError } from "@trawl/browser"
 import type { BlockedEvidence, Cookie, ScrapeRequest, ScrapeResult, SessionData, TierResult } from "@trawl/types"
+import { type ExternalCaptchaOptions, ExternalCaptchaSession } from "./solvers/externalCaptcha"
 import { runTier1, type Tier1Result } from "./tiers/1"
 import { runTier2, type Tier2Result } from "./tiers/2"
 import { runTier3, type Tier3Result } from "./tiers/3"
@@ -31,11 +32,18 @@ export class ScrapeError extends Error {
   // It rides the error rather than a `blocked` ScrapeResult on purpose: a wall is not a
   // scrape, and callers keyed on the success shape must never be handed one.
   blockedEvidence?: BlockedEvidence
-  constructor(message: string, timings: TierResult[], blockedEvidence?: BlockedEvidence) {
+  captchaDiagnostics?: { kind: string; status: string }[]
+  constructor(
+    message: string,
+    timings: TierResult[],
+    blockedEvidence?: BlockedEvidence,
+    captchaDiagnostics?: { kind: string; status: string }[],
+  ) {
     super(message)
     this.name = "ScrapeError"
     this.timings = timings
     this.blockedEvidence = blockedEvidence
+    this.captchaDiagnostics = captchaDiagnostics
   }
 }
 
@@ -57,6 +65,7 @@ export interface OrchestratorDeps {
   // Deployment-wide lower bound for the escalation ladder. API request flags may
   // raise this floor, but never lower it.
   minTier?: TierResult["tier"]
+  externalCaptcha?: ExternalCaptchaOptions
   onTierAttempt?: (result: TierResult) => void
   validateOutboundUrl?: (url: string) => Promise<void>
   // Resolves the host a plain HTTP fetch of a URL ends on, for the crossed-landing guard.
@@ -179,6 +188,7 @@ async function scrapeWithinBudget(
   let blockedEvidence: BlockedEvidence | undefined
   const capture = {
     budget,
+    externalCaptcha: deps.externalCaptcha ? new ExternalCaptchaSession(deps.externalCaptcha) : undefined,
     followMetaRefresh: req.followMetaRefresh,
     screenshotFullPage: req.screenshotFullPage,
     screenshotWaitForSelector: req.screenshotWaitForSelector,
@@ -262,6 +272,7 @@ async function scrapeWithinBudget(
         : message,
       timings,
       blockedEvidence,
+      capture.externalCaptcha?.diagnostics(),
     )
 
   // Tier 1 is the only look at the wall that happens before a browser is checked out, so
@@ -291,6 +302,17 @@ async function scrapeWithinBudget(
         t1.status = "needs-js"
         t1.reason = "meta-refresh-needs-browser"
       }
+    }
+    if (
+      t1.status === "success" &&
+      t1.html &&
+      isHtmlContentType(t1.contentType) &&
+      deps.externalCaptcha?.profiles?.some(
+        (profile) => profile.hostname === new URL(t1.effectiveUrl ?? req.url).hostname,
+      )
+    ) {
+      t1.status = "needs-js"
+      t1.reason = "external-captcha-profile-needs-browser"
     }
     if (ignoreCertificateErrors) certificateError = t1.certificateError
     const crossed1 = hasUsablePayload(t1)
@@ -424,6 +446,7 @@ async function scrapeWithinBudget(
           timings,
           totalMs: Date.now() - totalStart,
           captchasSolved: t2.captchasSolved,
+          captchaDiagnostics: capture.externalCaptcha?.diagnostics(),
           proxyUsed: false,
           certificateError,
           body: t2.body,
@@ -525,6 +548,7 @@ async function scrapeWithinBudget(
           timings,
           totalMs: Date.now() - totalStart,
           captchasSolved: t3.captchasSolved,
+          captchaDiagnostics: capture.externalCaptcha?.diagnostics(),
           proxyUsed: Boolean(proxy3),
           certificateError,
           body: t3.body,
@@ -626,6 +650,7 @@ async function scrapeWithinBudget(
         timings,
         totalMs: Date.now() - totalStart,
         captchasSolved: t4.captchasSolved,
+        captchaDiagnostics: capture.externalCaptcha?.diagnostics(),
         proxyUsed: true,
         certificateError,
         body: t4.body,

@@ -1,6 +1,6 @@
 import { sleep } from "../utils/deadline"
 // In-page captcha solver orchestrator.
-// All solving is done locally — no external APIs, no billing.
+// Built-in solvers run first. An explicitly configured external session may follow.
 //
 // Handles:
 //   Cloudflare Turnstile  — iframe checkbox click (embedded widget mode)
@@ -22,6 +22,7 @@ import {
 } from "../utils/detect"
 import { hasAltchaWidget, solveAltcha } from "./altcha"
 import { hasCapWidget, solveCap } from "./cap"
+import type { ExternalCaptchaSession } from "./externalCaptcha"
 import { hasFriendlyCaptchaWidget, solveFriendlyCaptcha } from "./friendlyCaptcha"
 import { hasGeetestSlide, solveGeetestSlide } from "./geetest"
 import { hasHcaptchaWidget, solveHcaptcha } from "./hcaptcha"
@@ -93,7 +94,13 @@ async function detectTurnstile(page: Page, timeoutMs: number, signal?: AbortSign
   return false
 }
 
-export async function solvePageCaptchas(page: Page, timeoutMs = 30_000, signal?: AbortSignal): Promise<SolveResult> {
+export async function solvePageCaptchas(
+  page: Page,
+  timeoutMs = 30_000,
+  signal?: AbortSignal,
+  external?: ExternalCaptchaSession,
+  proxy?: string,
+): Promise<SolveResult> {
   if (timeoutMs <= 0 || signal?.aborted) return { attempted: [], solved: [] }
   const deadline = Date.now() + Math.max(0, timeoutMs)
   const attempted: string[] = []
@@ -101,6 +108,7 @@ export async function solvePageCaptchas(page: Page, timeoutMs = 30_000, signal?:
 
   // Quick HTML scan — skip detection entirely for pages with no widget markers
   const html = await page.content().catch(() => "")
+  const externalProfiles = (await external?.discover(page, html).catch(() => [])) ?? []
   const mightHaveTurnstile = /cf-turnstile|cloudflare\.com\/turnstile/i.test(html)
   const mightHaveRecaptcha = /g-recaptcha|google\.com\/recaptcha|recaptcha\.net|grecaptcha/i.test(html)
   const mightHaveHcaptcha = /h-captcha|hcaptcha\.com/i.test(html)
@@ -116,7 +124,8 @@ export async function solvePageCaptchas(page: Page, timeoutMs = 30_000, signal?:
     !mightHaveGeetest &&
     !mightHaveAltcha &&
     !mightHaveFriendlyCaptcha &&
-    !mightHaveCap
+    !mightHaveCap &&
+    !externalProfiles.length
   ) {
     return { attempted: [], solved: [] }
   }
@@ -141,21 +150,34 @@ export async function solvePageCaptchas(page: Page, timeoutMs = 30_000, signal?:
   // dynamic script-mounted widgets (e.g. Mojeek ALTCHA) can take 2-4s to load module scripts.
   const DETECT_MS = Math.min(5_000, Math.max(0, deadline - Date.now()))
 
-  const [hasTurnstile, hasHcaptcha, hasRecaptcha, hasGeetest, hasAltcha, hasFriendlyCaptcha, hasCap] =
+  const recaptchaKind =
+    mightHaveRecaptcha && !signal?.aborted && (await external?.canSolve(page, "recaptcha-v2-enterprise", proxy))
+      ? "recaptcha-v2-enterprise"
+      : "recaptcha-v2"
+  const externalRecaptcha =
+    mightHaveRecaptcha && !signal?.aborted && (await external?.canSolve(page, recaptchaKind, proxy))
+  const [hasTurnstile, hasHcaptcha, hasRecaptchaFrame, hasGeetest, hasAltcha, hasFriendlyCaptcha, hasCap] =
     await Promise.all([
       mightHaveTurnstile ? detectTurnstile(page, DETECT_MS, signal) : Promise.resolve(false),
       mightHaveHcaptcha ? hasHcaptchaWidget(page, DETECT_MS) : Promise.resolve(false),
-      mightHaveRecaptcha ? hasRecaptchaV2(page, DETECT_MS) : Promise.resolve(false),
+      mightHaveRecaptcha
+        ? externalRecaptcha
+          ? page
+              .evaluate(() => Boolean(document.querySelector('iframe[src*="recaptcha"][src*="anchor"]')))
+              .catch(() => false)
+          : hasRecaptchaV2(page, DETECT_MS)
+        : Promise.resolve(false),
       mightHaveGeetest ? hasGeetestSlide(page, DETECT_MS) : Promise.resolve(false),
       mightHaveAltcha ? hasAltchaWidget(page, DETECT_MS) : Promise.resolve(false),
       mightHaveFriendlyCaptcha ? hasFriendlyCaptchaWidget(page, DETECT_MS) : Promise.resolve(false),
       mightHaveCap ? hasCapWidget(page, DETECT_MS, signal) : Promise.resolve(false),
     ])
 
+  const hasRecaptcha = hasRecaptchaFrame || Boolean(externalRecaptcha)
   const count = [hasTurnstile, hasHcaptcha, hasRecaptcha, hasGeetest, hasAltcha, hasFriendlyCaptcha, hasCap].filter(
     Boolean,
   ).length
-  if (count === 0) {
+  if (count === 0 && !externalProfiles.length) {
     console.log(
       `[solvers] markers found in HTML but no interactive widgets detected (${[
         mightHaveTurnstile && "turnstile",
@@ -172,17 +194,35 @@ export async function solvePageCaptchas(page: Page, timeoutMs = 30_000, signal?:
     return { attempted: [], solved: [] }
   }
 
-  const perMs = Math.floor(Math.max(0, deadline - Date.now()) / count)
+  const available = Math.max(0, deadline - Date.now())
+  let profileReady = false
+  for (const kind of externalProfiles) {
+    if (signal?.aborted) break
+    if (await external?.canSolve(page, kind, proxy)) profileReady = true
+  }
+  const perMs = Math.floor(
+    (profileReady && external ? external.localBudget(available) : available) / Math.max(1, count),
+  )
   const remaining = () => Math.min(perMs, Math.max(0, deadline - Date.now()))
 
+  const attempt = async (kind: string, local: typeof solveTurnstile) => {
+    attempted.push(kind)
+    const eligible = remaining() > 5000 && !signal?.aborted && (await external?.canSolve(page, kind, proxy))
+    const ms = eligible && external ? external.localBudget(remaining()) : remaining()
+    if (await local(page, ms, signal).catch(() => false)) {
+      solved.push(kind)
+    } else if (eligible && external?.supports(kind) && !signal?.aborted && remaining() > 0) {
+      attempted.push(`${kind}:2captcha`)
+      if (await external.solve(page, kind, remaining(), signal, proxy)) solved.push(`${kind}:2captcha`)
+    }
+  }
+
   if (hasTurnstile && !signal?.aborted && remaining() > 0) {
-    attempted.push("turnstile")
-    if (await solveTurnstile(page, remaining(), signal).catch(() => false)) solved.push("turnstile")
+    await attempt("turnstile", solveTurnstile)
   }
 
   if (hasRecaptcha && !signal?.aborted && remaining() > 0) {
-    attempted.push("recaptcha-v2")
-    if (await solveRecaptchaV2(page, remaining(), signal).catch(() => false)) solved.push("recaptcha-v2")
+    await attempt(recaptchaKind, hasRecaptchaFrame ? solveRecaptchaV2 : async () => false)
   }
 
   if (hasHcaptcha && !signal?.aborted && remaining() > 0) {
@@ -208,6 +248,14 @@ export async function solvePageCaptchas(page: Page, timeoutMs = 30_000, signal?:
   if (hasCap && !signal?.aborted && remaining() > 0) {
     attempted.push("cap")
     if (await solveCap(page, remaining(), signal).catch(() => false)) solved.push("cap")
+  }
+
+  for (const kind of externalProfiles) {
+    if (signal?.aborted || deadline - Date.now() <= 5000) break
+    if (!external || !(await external.canSolve(page, kind, proxy))) continue
+    attempted.push(`${external.label(kind)}:2captcha`)
+    if (await external.solve(page, kind, deadline - Date.now(), signal, proxy))
+      solved.push(`${external.label(kind)}:2captcha`)
   }
 
   if (attempted.length > 0) {

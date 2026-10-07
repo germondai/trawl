@@ -92,6 +92,19 @@ TRAWL_POOL_RESOURCE_TESTS=1 BROWSER_BLOCK_ADS=false BROWSER_HARDWARE_CONCURRENCY
 The fixtures simulate a challenge page; they do not establish live CAPTCHA
 success rates. Heavy browser workloads may require a larger memory limit.
 
+External CAPTCHA integration tests use owned widgets, a local provider API fixture
+and real Camoufox. They never submit a paid task:
+
+```bash
+TRAWL_EXTERNAL_CAPTCHA_TESTS=1 BROWSER_BLOCK_ADS=false BROWSER_HARDWARE_CONCURRENCY=4 SESSION_CACHE_DRIVER=memory METRICS_DB_PATH=:memory: bun test apps/api/src/externalCaptcha.integration.test.ts apps/api/src/externalCaptchaProfiles.integration.test.ts
+```
+
+These tests cover native and Prowlarr routes, reCAPTCHA without an anchor iframe,
+page callbacks, custom Turnstile response fields, callback-only widgets, task
+limits, CSP failure, structured answers, screenshot tasks, grid/coordinate clicks
+and site-scoped cookie delivery. The target fixture independently checks answers.
+They do not establish live 2Captcha success rates.
+
 ## Project layout
 
 This is a Bun monorepo with workspaces:

@@ -1,4 +1,5 @@
 import type { Page } from "patchright"
+import type { ExternalCaptchaSession } from "../solvers/externalCaptcha"
 import { waitForAkamaiResolution } from "./akamaiWait"
 import { type AnubisResolution, waitForAnubisResolution } from "./anubisWait"
 import { type AwsWafResolution, waitForAwsWafResolution } from "./awsWafWait"
@@ -54,7 +55,7 @@ const defaultWaiters: ChallengeWaiters = {
     waitForDataDomeResolution(page, timeoutMs, originalUrl, { initialCookies }),
 }
 
-export async function routeChallengeWait(
+async function routeLocalChallengeWait(
   page: Page,
   html: string,
   headers: Record<string, string>,
@@ -110,4 +111,64 @@ export async function routeChallengeWait(
               ? await waiters.dataDome(page, timeoutMs, originalUrl, initialCookies?.dataDome)
               : await waiters.cloudflare(page, timeoutMs, originalUrl, responseHeaders)
   return { challengeType, resolution }
+}
+
+export async function routeChallengeWait(
+  page: Page,
+  html: string,
+  headers: Record<string, string>,
+  timeoutMs: number,
+  originalUrl?: string,
+  waiters: ChallengeWaiters = defaultWaiters,
+  status?: number,
+  initialCookies?: ChallengeCookieSnapshot,
+  responseHeaders: () => Record<string, string> = () => headers,
+  external?: ExternalCaptchaSession,
+  proxy?: string,
+  signal?: AbortSignal,
+): Promise<{ challengeType: ChallengeType; resolution: Resolution; captchasSolved?: string[] }> {
+  const deadline = Date.now() + timeoutMs
+  let eligible = false
+  if (external) {
+    for (const kind of await external.discover(page, html)) {
+      if (signal?.aborted) break
+      if (await external.canSolve(page, kind, proxy)) eligible = true
+    }
+  }
+  const result = await routeLocalChallengeWait(
+    page,
+    html,
+    headers,
+    eligible && external
+      ? external.localBudget(Math.max(0, deadline - Date.now()))
+      : Math.max(0, deadline - Date.now()),
+    originalUrl,
+    waiters,
+    status,
+    initialCookies,
+    responseHeaders,
+  )
+  if (
+    !eligible ||
+    !external ||
+    result.resolution === "ok" ||
+    result.resolution === "browser-closed" ||
+    result.resolution === "ip-blocked" ||
+    signal?.aborted
+  )
+    return result
+  const solved = await external.solveProfiles(page, Math.max(0, deadline - Date.now()), signal, proxy)
+  if (!solved.length || signal?.aborted) return result
+  const verified = await routeLocalChallengeWait(
+    page,
+    await page.content(),
+    responseHeaders(),
+    Math.max(0, deadline - Date.now()),
+    originalUrl,
+    waiters,
+    status,
+    initialCookies,
+    responseHeaders,
+  )
+  return verified.resolution === "ok" ? { ...verified, captchasSolved: solved } : verified
 }

@@ -1,5 +1,6 @@
 import type { CapturedResponseEntry, ConsoleLogEntry, NetworkLogEntry } from "@trawl/types"
 import type { ConsoleMessage, Page, Request } from "patchright"
+import type { ExternalCaptchaSession } from "../solvers/externalCaptcha"
 import type { BlockedEvidenceSink } from "./blockedEvidence"
 import { captureLimit } from "./captureConfig"
 import type { RequestBudget } from "./deadline"
@@ -28,6 +29,7 @@ const CONSOLE_LEVELS: Record<string, ConsoleLogEntry["level"]> = {
 // by this module — it travels in the same bag so a tier takes one capture argument.
 export interface CaptureOptions extends ResponseCaptureOptions {
   budget?: RequestBudget
+  externalCaptcha?: ExternalCaptchaSession
   followMetaRefresh?: boolean
   screenshotFullPage?: boolean
   screenshotWaitForSelector?: string

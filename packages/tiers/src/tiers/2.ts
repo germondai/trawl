@@ -234,10 +234,12 @@ async function runTier2Task(
     const solveRemaining = maxTimeout - (Date.now() - start)
     let captchasSolved: string[] = []
     if (solveRemaining > 5000) {
-      const result = await solvePageCaptchas(page, solveRemaining, budget.signal).catch(() => ({
-        attempted: [],
-        solved: [],
-      }))
+      const result = await solvePageCaptchas(page, solveRemaining, budget.signal, capture.externalCaptcha).catch(
+        () => ({
+          attempted: [],
+          solved: [],
+        }),
+      )
       captchasSolved = result.solved
     }
 
