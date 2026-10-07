@@ -1,5 +1,5 @@
 import type { BrowserHandle } from "@trawl/browser"
-import { FINGERPRINT, FINGERPRINT_POOL } from "@trawl/browser"
+import { FINGERPRINT, FINGERPRINT_POOL, PoolExhaustedError } from "@trawl/browser"
 import type { BlockedEvidence, Cookie, ScrapeRequest, ScrapeResult, SessionData, TierResult } from "@trawl/types"
 import { runTier1, type Tier1Result } from "./tiers/1"
 import { runTier2, type Tier2Result } from "./tiers/2"
@@ -8,6 +8,7 @@ import { runTier3, type Tier3Result } from "./tiers/3"
 import type { runTier4, Tier4Result } from "./tiers/4"
 import { anubisOomKills } from "./utils/anubisRetry"
 import { createCrossedLandingGuard, type LandingProbe } from "./utils/crossedLanding"
+import { DeadlineError, RequestBudget } from "./utils/deadline"
 import { normalizeHtml } from "./utils/html"
 import { metaRefreshTarget } from "./utils/metaRefresh"
 import type { ProxyPool } from "./utils/proxyRotator"
@@ -41,6 +42,7 @@ export class ScrapeError extends Error {
 // DataDome Device Check may require a browser running behind a real display. Keep that
 // opt-in capacity separate so ordinary requests stay on the headless pool.
 export interface AcquireOptions {
+  signal?: AbortSignal
   headful?: boolean
 }
 
@@ -89,6 +91,69 @@ export async function scrape(
   deps: OrchestratorDeps,
   runners: OrchestratorRunners = {},
 ): Promise<ScrapeResult> {
+  const budget = new RequestBudget(req.maxTimeout ?? 60_000)
+  const attempts: TierResult[] = []
+  let ownedHandle: BrowserHandle | undefined
+  const releaseOwned = (handle: BrowserHandle) => {
+    if (handle !== ownedHandle) return
+    ownedHandle = undefined
+    deps.releaseBrowser(handle)
+  }
+  let acquiring = false
+  let capacityExpired = false
+  const onAbort = () => {
+    capacityExpired = acquiring
+  }
+  budget.signal.addEventListener("abort", onAbort, { once: true })
+  try {
+    return await budget.run(() =>
+      scrapeWithinBudget(
+        req,
+        {
+          ...deps,
+          acquireBrowser: async (...args) => {
+            acquiring = true
+            try {
+              const handle = await deps.acquireBrowser(args[0], args[1], { ...args[2], signal: budget.signal })
+              if (budget.signal.aborted) {
+                deps.releaseBrowser(handle)
+                throw new DeadlineError()
+              }
+              ownedHandle = handle
+              return handle
+            } finally {
+              acquiring = false
+            }
+          },
+          releaseBrowser: releaseOwned,
+          onTierAttempt: (attempt) => {
+            attempts.push(attempt)
+            deps.onTierAttempt?.(attempt)
+          },
+        },
+        runners,
+        budget,
+      ),
+    )
+  } catch (error) {
+    if (error instanceof DeadlineError) {
+      if (ownedHandle) releaseOwned(ownedHandle)
+      if (capacityExpired) throw new PoolExhaustedError()
+      throw new ScrapeError(error.message, attempts)
+    }
+    throw error
+  } finally {
+    budget.signal.removeEventListener("abort", onAbort)
+    budget.dispose()
+  }
+}
+
+async function scrapeWithinBudget(
+  req: ScrapeRequest,
+  deps: OrchestratorDeps,
+  runners: OrchestratorRunners,
+  budget: RequestBudget,
+): Promise<ScrapeResult> {
   const totalStart = Date.now()
   const maxTimeout = req.maxTimeout ?? 60_000
   const maxTier = req.maxTier ?? 4
@@ -113,6 +178,7 @@ export async function scrape(
   // only via the thrown ScrapeError.
   let blockedEvidence: BlockedEvidence | undefined
   const capture = {
+    budget,
     followMetaRefresh: req.followMetaRefresh,
     screenshotFullPage: req.screenshotFullPage,
     screenshotWaitForSelector: req.screenshotWaitForSelector,
@@ -217,6 +283,7 @@ export async function scrape(
       deps.validateOutboundUrl,
       ignoreCertificateErrors,
       trustedProxyCa,
+      budget.signal,
     )
     if (req.followMetaRefresh && t1.status === "success" && t1.html && isHtmlContentType(t1.contentType)) {
       const refresh = await metaRefreshTarget(t1.html, t1.effectiveUrl ?? req.url)
@@ -258,6 +325,7 @@ export async function scrape(
     throw failure("Max tier reached without success")
   }
 
+  budget.check()
   // Acquire browser for tiers 2-4
   // Pass our own budget so the pool's stall detector doesn't reclaim this browser
   // while the request is still inside the time the caller asked for.
@@ -388,6 +456,7 @@ export async function scrape(
       let proxy3 = req.proxy ?? deps.proxyPool?.next(domain) ?? undefined
       let t3: Awaited<ReturnType<typeof runTier3>>
       for (let attempt = 0; ; attempt++) {
+        budget.check()
         const remaining3 = maxTimeout - (Date.now() - totalStart)
         const tier3Runner = runners.tier3 ?? runTier3
         t3 = await tier3Runner(
@@ -492,6 +561,7 @@ export async function scrape(
     const runTier4Lazy = runners.tier4 ?? (await import("./tiers/4")).runTier4
     for (let attempt = 0; ; attempt++) {
       console.log(`[orchestrator] Tier 4 via residential proxy: ${proxy4.replace(/\/\/[^@]*@/, "//**@")}`)
+      budget.check()
       const remaining4 = maxTimeout - (Date.now() - totalStart)
       t4 = await runTier4Lazy(
         req.url,

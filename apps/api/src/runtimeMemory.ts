@@ -7,6 +7,7 @@ const V1 = "/sys/fs/cgroup/memory"
 
 export interface RuntimeMemory {
   currentBytes: number | null
+  workingSetBytes?: number
   limitBytes: number | null
   recommendedLimitBytes: number
   underProvisioned: boolean
@@ -30,6 +31,18 @@ const events = (raw: string | undefined): Record<string, number> =>
       .map(([key, value]) => [key, Number(value) || 0]),
   )
 
+// Inactive file cache is reclaimable; counting it as browser pressure causes
+// repeated restarts as each fresh profile fills the cache again.
+const workingSet = (current: number | null, path: string, key: string, read: Reader): { workingSetBytes?: number } => {
+  if (current === null) return {}
+  try {
+    const inactive = number(read(path).match(new RegExp(`^${key} (\\d+)$`, "m"))?.[1])
+    return inactive === null ? {} : { workingSetBytes: Math.max(0, current - inactive) }
+  } catch {
+    return {}
+  }
+}
+
 export function recommendedMemoryBytes(poolSize: number, headfulPoolSize = 0): number {
   return (1 + poolSize + headfulPoolSize) * 512 * MIB
 }
@@ -46,6 +59,7 @@ export function readRuntimeMemory(
     const parsed = events(read(`${V2}/memory.events`))
     return {
       currentBytes,
+      ...workingSet(currentBytes, `${V2}/memory.stat`, "inactive_file", read),
       limitBytes,
       recommendedLimitBytes,
       underProvisioned: limitBytes !== null && limitBytes < recommendedLimitBytes,
@@ -60,6 +74,7 @@ export function readRuntimeMemory(
     const oom = events(read(`${V1}/memory.oom_control`))
     return {
       currentBytes,
+      ...workingSet(currentBytes, `${V1}/memory.stat`, "total_inactive_file", read),
       limitBytes,
       recommendedLimitBytes,
       underProvisioned: limitBytes !== null && limitBytes < recommendedLimitBytes,

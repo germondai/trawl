@@ -12,14 +12,14 @@
 //   faster-whisper-server:  STT_URL=http://localhost:8000/v1/audio/transcriptions
 
 import { randomUUID } from "node:crypto"
-import { $ } from "bun"
+import { unlink } from "node:fs/promises"
+import { runFfmpeg } from "./subprocess"
 
 const STT_URL = process.env.STT_URL?.trim() ?? ""
 const STT_KEY = process.env.STT_API_KEY ?? ""
 // FFMPEG_PATH: full path to ffmpeg binary. Docker installs 'ffmpeg' via apt.
 // On macOS with Playwright's bundled binary it's named 'ffmpeg-mac'; set this
 // env var or create a symlink to make 'ffmpeg' resolve.
-const FFMPEG = process.env.FFMPEG_PATH?.trim() || "ffmpeg"
 
 // Google's public Speech API key — used in Google's own demos and the Buster extension.
 // Has been public since 2013. Google can't revoke it without breaking their own accessibility tooling.
@@ -90,7 +90,10 @@ async function transcribeGoogle(audioUrl: string, signal?: AbortSignal): Promise
       [8000, flac8],
       [16000, flac16],
     ] as [number, string][]) {
-      const ff = await $`${FFMPEG} -i ${mp3} -ar ${rate} -ac 1 -c:a flac ${flac} -y -loglevel error`.nothrow()
+      const ff = await runFfmpeg(
+        ["-i", mp3, "-ar", String(rate), "-ac", "1", "-c:a", "flac", "-threads", "1", flac, "-y", "-loglevel", "error"],
+        signal,
+      )
       if (ff.exitCode !== 0) {
         console.log(`[stt] ffmpeg ${rate}Hz error:`, ff.stderr.toString().trim().slice(0, 120))
         continue
@@ -132,7 +135,7 @@ async function transcribeGoogle(audioUrl: string, signal?: AbortSignal): Promise
     console.log("[stt] error:", err instanceof Error ? err.message : err)
     return
   } finally {
-    await $`rm -f ${mp3} ${flac8} ${flac16}`.nothrow().catch(() => {})
+    await Promise.all([mp3, flac8, flac16].map((path) => unlink(path).catch(() => {})))
   }
 }
 

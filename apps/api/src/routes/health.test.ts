@@ -34,6 +34,14 @@ describe("GET /health", () => {
     })
   })
 
+  test("stays ready while an optional idle browser is retired", async () => {
+    const response = await healthRoute(() => ({ ...stats(0), sleeping: 1 })).handle(
+      new Request("http://localhost/health"),
+    )
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ status: "ok", pool: { live: 0, sleeping: 1 } })
+  })
+
   test("returns 503 when no live capacity remains", async () => {
     const response = await healthRoute(() => stats(0)).handle(new Request("http://localhost/health"))
 

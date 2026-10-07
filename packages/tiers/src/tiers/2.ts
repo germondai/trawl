@@ -1,4 +1,5 @@
 import type { BrowserHandle } from "@trawl/browser"
+import { closeTemporaryContext } from "@trawl/browser"
 import type {
   CapturedResponseEntry,
   ConsoleLogEntry,
@@ -15,6 +16,7 @@ import { isAnubisVerificationUrl } from "../utils/anubis"
 import { reportBlocked } from "../utils/blockedEvidence"
 import { attachPageCapture, type CaptureOptions } from "../utils/capture"
 import { normalizeSameSite, toCookies } from "../utils/cookies"
+import { DeadlineError, RequestBudget } from "../utils/deadline"
 import {
   hasAkamaiChallenge,
   hasAnubisChallenge,
@@ -52,7 +54,7 @@ export interface Tier2Result extends TierResult {
   mhtml?: string
 }
 
-export async function runTier2(
+async function runTier2Task(
   url: string,
   handle: BrowserHandle,
   session: SessionData,
@@ -67,9 +69,24 @@ export async function runTier2(
   const start = Date.now()
   const activeContext = handle.context
   let page: Awaited<ReturnType<typeof activeContext.newPage>> | undefined
+  let openingPage: ReturnType<typeof activeContext.newPage> | undefined
 
+  const budget = capture.budget
+  if (!budget) throw new Error("Browser task requires an operation budget")
+  let cleanup: Promise<void> | undefined
+  const close = () =>
+    (cleanup ??= closeTemporaryContext(
+      openingPage ?? page,
+      handle.requestBrowserReplacement,
+      "tier2 page cleanup timed out",
+    ))
+  let disown = () => {}
   try {
-    page = await activeContext.newPage()
+    openingPage = activeContext.newPage()
+    disown = budget.own(close)
+    page = await openingPage
+    budget.check()
+    page.setDefaultTimeout?.(Math.max(1, budget.remaining()))
     await installOutboundPolicy(page, validateOutboundUrl)
 
     // addCookies replaces cookies by name+domain+path, so no need to clearCookies first.
@@ -217,7 +234,10 @@ export async function runTier2(
     const solveRemaining = maxTimeout - (Date.now() - start)
     let captchasSolved: string[] = []
     if (solveRemaining > 5000) {
-      const result = await solvePageCaptchas(page, solveRemaining).catch(() => ({ attempted: [], solved: [] }))
+      const result = await solvePageCaptchas(page, solveRemaining, budget.signal).catch(() => ({
+        attempted: [],
+        solved: [],
+      }))
       captchasSolved = result.solved
     }
 
@@ -318,6 +338,23 @@ export async function runTier2(
       reason: err instanceof Error ? err.message : String(err),
     }
   } finally {
-    await page?.close().catch(() => {})
+    await close()
+    disown()
+  }
+}
+
+export async function runTier2(...args: Parameters<typeof runTier2Task>): Promise<Tier2Result> {
+  const started = Date.now()
+  const capture = args[9] ?? {}
+  const budget = capture.budget ?? new RequestBudget(args[3])
+  args[9] = { ...capture, budget }
+  try {
+    return await budget.run(() => runTier2Task(...args))
+  } catch (error) {
+    if (error instanceof DeadlineError)
+      return { tier: 2, status: "timeout", reason: error.message, durationMs: Date.now() - started }
+    throw error
+  } finally {
+    if (!capture.budget) budget.dispose()
   }
 }

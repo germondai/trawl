@@ -2,6 +2,7 @@ import type { CapturedResponseEntry, ConsoleLogEntry, NetworkLogEntry } from "@t
 import type { ConsoleMessage, Page, Request } from "patchright"
 import type { BlockedEvidenceSink } from "./blockedEvidence"
 import { captureLimit } from "./captureConfig"
+import type { RequestBudget } from "./deadline"
 import { attachResponseCapture, type ResponseCaptureOptions } from "./responseCapture"
 
 // Captured evidence lives in memory alongside a browser slot, so every dimension is
@@ -26,6 +27,7 @@ const CONSOLE_LEVELS: Record<string, ConsoleLogEntry["level"]> = {
 // MainDocumentResponseTracker (the response listener already exists there) rather than
 // by this module — it travels in the same bag so a tier takes one capture argument.
 export interface CaptureOptions extends ResponseCaptureOptions {
+  budget?: RequestBudget
   followMetaRefresh?: boolean
   screenshotFullPage?: boolean
   screenshotWaitForSelector?: string

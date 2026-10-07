@@ -248,3 +248,33 @@ describe("Firefox user preferences", () => {
     expect(result.stderr.toString()).toContain("USER_PREFS")
   })
 })
+
+test("ad blocking stays enabled by default and can be disabled explicitly", () => {
+  const setting = (value: string) => {
+    const result = Bun.spawnSync({
+      cmd: [process.execPath, "-e", 'console.log((await import("./config.ts")).BROWSER_BLOCK_ADS)'],
+      cwd: import.meta.dir,
+      env: { ...process.env, BROWSER_BLOCK_ADS: value },
+    })
+    expect(result.exitCode, result.stderr.toString()).toBe(0)
+    return result.stdout.toString().trim()
+  }
+  for (const value of ["", "true", "invalid"]) expect(setting(value)).toBe("true")
+  for (const value of ["false", "0", " NO "]) expect(setting(value)).toBe("false")
+})
+
+test.each([
+  ["", "0"],
+  ["300000", "300000"],
+  ["-1", "0"],
+  ["1.5", "0"],
+  ["invalid", "0"],
+])("idle retirement parses %s as %s milliseconds", (value, expected) => {
+  const result = Bun.spawnSync({
+    cmd: [process.execPath, "-e", 'console.log((await import("./config.ts")).BROWSER_IDLE_TIMEOUT_MS)'],
+    cwd: import.meta.dir,
+    env: { ...process.env, BROWSER_IDLE_TIMEOUT_MS: value },
+  })
+  expect(result.exitCode, result.stderr.toString()).toBe(0)
+  expect(result.stdout.toString().trim()).toBe(expected)
+})

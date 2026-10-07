@@ -1,10 +1,10 @@
 import type { Page } from "patchright"
+import { sleep } from "../utils/deadline"
 
 const POLL_INTERVAL_MS = 250
 const WIDGET_SELECTOR = ".frc-captcha"
 const SOLUTION_SELECTOR = 'input[name="frc-captcha-solution"], input[name="frc-captcha-response"]'
 
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 const isProviderFrame = (url: string) => /(?:frcapi\.com|friendlycaptcha\.[^/]+)\/.+(?:captcha\/)?widget/i.test(url)
 
 async function friendlyCaptchaVerified(page: Page): Promise<boolean> {
@@ -28,7 +28,7 @@ async function friendlyCaptchaVerified(page: Page): Promise<boolean> {
     .catch(() => false)
 }
 
-export async function hasFriendlyCaptchaWidget(page: Page, timeoutMs = 3000): Promise<boolean> {
+export async function hasFriendlyCaptchaWidget(page: Page, timeoutMs = 3000, signal?: AbortSignal): Promise<boolean> {
   const deadline = Date.now() + Math.max(0, timeoutMs)
 
   do {
@@ -45,14 +45,17 @@ export async function hasFriendlyCaptchaWidget(page: Page, timeoutMs = 3000): Pr
 
     const remaining = deadline - Date.now()
     if (remaining <= 0) break
-    await sleep(Math.min(POLL_INTERVAL_MS, remaining))
+    await sleep(Math.min(POLL_INTERVAL_MS, remaining), signal)
   } while (Date.now() < deadline)
 
   return false
 }
 
-export async function solveFriendlyCaptcha(page: Page, timeoutMs = 30_000): Promise<boolean> {
-  if (timeoutMs <= 0) return false
+export async function solveFriendlyCaptcha(page: Page, timeoutMs = 30_000, signal?: AbortSignal): Promise<boolean> {
+  if (timeoutMs <= 0 || signal?.aborted) return false
+  signal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, timeoutMs))])
+    : AbortSignal.timeout(Math.max(1, timeoutMs))
   const deadline = Date.now() + timeoutMs
 
   try {
@@ -107,7 +110,7 @@ export async function solveFriendlyCaptcha(page: Page, timeoutMs = 30_000): Prom
         }
       }
 
-      await sleep(Math.min(POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())))
+      await sleep(Math.min(POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())), signal)
     }
   } catch (err) {
     console.log("[friendly-captcha] error:", err instanceof Error ? err.message : err)

@@ -104,7 +104,7 @@ export function hasRecaptcha(html: string): boolean {
 }
 
 export function hasCapChallenge(html: string): boolean {
-  return /cap-widget|trycap\.dev|data-cap-/i.test(html)
+  return /<cap-widget(?=[\s/>])/i.test(html)
 }
 
 // ALTCHA is a Web Component. Restrict static detection to the component, its
@@ -134,6 +134,11 @@ export function hasFriendlyCaptcha(html: string): boolean {
 export function hasImpervaChallenge(html: string, headers: Record<string, string> = {}, status?: number): boolean {
   const fromImperva = Boolean(headerValue(headers, "x-iinfo")) || /incapsula/i.test(headerValue(headers, "x-cdn") ?? "")
   if (fromImperva && (status === 403 || status === 429 || status === 503)) return true
+  if (
+    /<title[^>]*>\s*Pardon Our Interruption\s*<\/title>/i.test(html) &&
+    /something about your browser made us think you were a bot|pardon our interruption[^<]*imperva/i.test(html)
+  )
+    return true
   if (!/_incapsula_resource|reese84|___utmvc|visid_incap_|incap_ses_|nlbi_|incapsula incident id/i.test(html))
     return false
 
@@ -347,7 +352,8 @@ export function needsJs(html: string, headers: Record<string, string>): boolean 
     hasDuckDuckGoChallenge(html, headers) ||
     hasAnubisChallenge(html) ||
     hasAltcha(html) ||
-    hasFriendlyCaptcha(html)
+    hasFriendlyCaptcha(html) ||
+    hasCapChallenge(html)
   )
 }
 
