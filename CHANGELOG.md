@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add an opt-in 2Captcha fallback for single declarative reCAPTCHA v2 and standalone Turnstile widgets after local solving. Share paid task limits across browser tiers, honor cancellation and the request deadline, preserve explicit proxy routing, and keep provider credentials out of solver logs (#27). Add the documented API v2 task catalogue, challenge diagnostics and hostname-bound profiles for structured answers, image tasks, cookies and grid/coordinate clicks, with target verification. Include declarative reCAPTCHA v2 Enterprise. Specialized tasks require site-specific profiles; real paid-service acceptance remains unverified.
+
 - Attempt CAP proof-of-work widgets through their native component and confirm a response token without submitting the surrounding form.
 
 - Detect Anubis (TecharoHQ) proof-of-work and metarefresh interstitials, which are served at HTTP 200 and were previously returned to callers as successful Tier 1 content. Escalate them to the browser tiers, whose JS resolves the challenge by itself; a wall that persists after waiting reports `anubis-persistent` (#189).

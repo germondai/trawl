@@ -1,4 +1,4 @@
-import { ProxyPool, type ProxySelection } from "@trawl/tiers"
+import { type ExternalCaptchaOptions, ProxyPool, type ProxySelection, parseCaptchaProfiles } from "@trawl/tiers"
 
 export const REDIS_URL = process.env.REDIS_URL?.trim() || undefined
 export type SessionCacheDriver = "redis" | "memory"
@@ -163,3 +163,39 @@ export const MITM_ESCALATE_429 = /^(1|true|yes)$/i.test(process.env.MITM_ESCALAT
 export const MITM_DEBUG = /^(1|true|yes)$/i.test(process.env.MITM_DEBUG ?? "")
 
 export const startTime = Date.now()
+
+// Paid solving is deployment-level opt-in; a key alone never enables it.
+export function parseExternalCaptchaConfig(
+  env: Record<string, string | undefined>,
+): ExternalCaptchaOptions | undefined {
+  const provider = env.CAPTCHA_SOLVER?.trim().toLowerCase() || "none"
+  if (provider === "none") return undefined
+  if (provider !== "2captcha") throw new Error("CAPTCHA_SOLVER must be none or 2captcha")
+  const apiKey = env.TWOCAPTCHA_API_KEY?.trim()
+  if (!apiKey) throw new Error("TWOCAPTCHA_API_KEY is required when CAPTCHA_SOLVER=2captcha")
+  const number = (name: string, fallback: number, min: number, max: number) => {
+    const value = env[name]?.trim()
+    const parsed = value ? Number(value) : fallback
+    if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) {
+      throw new Error(`${name} must be an integer from ${min} to ${max}`)
+    }
+    return parsed
+  }
+  let profiles: ExternalCaptchaOptions["profiles"]
+  if (env.CAPTCHA_SOLVER_PROFILES?.trim()) {
+    try {
+      if (env.CAPTCHA_SOLVER_PROFILES.length > 256000) throw new Error("Too large")
+      profiles = parseCaptchaProfiles(JSON.parse(env.CAPTCHA_SOLVER_PROFILES))
+    } catch {
+      throw new Error("Invalid CAPTCHA_SOLVER_PROFILES configuration")
+    }
+  }
+  return {
+    apiKey,
+    maxTasks: number("CAPTCHA_SOLVER_MAX_TASKS", 1, 1, 3),
+    timeoutMs: number("CAPTCHA_SOLVER_TIMEOUT_MS", 120000, 1000, 180000),
+    localTimeoutMs: number("CAPTCHA_SOLVER_LOCAL_TIMEOUT_MS", 10000, 1000, 30000),
+    ...(profiles ? { profiles } : {}),
+  }
+}
+export const EXTERNAL_CAPTCHA = parseExternalCaptchaConfig(process.env)

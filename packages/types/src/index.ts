@@ -174,6 +174,7 @@ export interface ScrapeResult {
   timings: TierResult[]
   totalMs: number
   captchasSolved?: string[] // captcha types solved during this request (e.g. ['turnstile', 'recaptcha-v2'])
+  captchaDiagnostics?: { kind: string; status: string }[]
   proxyUsed?: boolean // true if the winning tier routed through a proxy (Tier 1, 3, or 4)
   // Raw response payload — populated by all tiers when available. The MITM proxy
   // (:8192) consumes this; /scrape and FlareSolverr /v1 still rely on `html` only.

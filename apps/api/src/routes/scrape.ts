@@ -73,6 +73,7 @@ export function scrapeRoute(
           error: err.message,
           timings: err.timings,
           ...(err.blockedEvidence ? { blockedEvidence: err.blockedEvidence } : {}),
+          ...(err.captchaDiagnostics?.length ? { captchaDiagnostics: err.captchaDiagnostics } : {}),
         }
       }
       return { error: err instanceof Error ? err.message : String(err) }

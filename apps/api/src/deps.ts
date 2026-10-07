@@ -8,6 +8,7 @@ import {
   BROWSER_IDLE_TIMEOUT_MS,
   BROWSER_MAX_CONTENT_PROCESSES,
   CLOSE_TIMEOUT_MS,
+  EXTERNAL_CAPTCHA,
   HEADFUL_POOL_SIZE,
   LAUNCH_TIMEOUT_MS,
   MEMORY_SESSION_CACHE_MAX_ENTRIES,
@@ -261,5 +262,6 @@ export const getDeps = (): OrchestratorDeps => {
     residentialProxyPool,
     trustedProxyCa: localProxyCa,
     minTier: SCRAPE_MIN_TIER,
+    externalCaptcha: EXTERNAL_CAPTCHA,
   }
 }

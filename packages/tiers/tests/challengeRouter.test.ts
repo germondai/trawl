@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Page } from "patchright"
+import type { ExternalCaptchaSession } from "../src/solvers/externalCaptcha"
 import { routeChallengeWait } from "../src/utils/challengeRouter"
 import { DATADOME_CAPTCHA, DATADOME_INTERSTITIAL, DATADOME_JSON_HARD_BLOCK } from "./fixtures/datadome"
 import { DDOS_GUARD_INTERSTITIAL } from "./fixtures/ddosGuard"
@@ -213,4 +214,54 @@ test("keeps Turnstile on an active Cloudflare wall in the wall waiter", async ()
   )
   expect(waited).toBe(true)
   expect(result.resolution).toBe("timeout")
+})
+
+test("a configured WAF profile must clear the challenge after applying its response", async () => {
+  let solves = 0
+  let cleared = false
+  const external = {
+    discover: async () => ["profile:0"],
+    canSolve: async () => true,
+    localBudget: () => 10,
+    solveProfiles: async () => {
+      solves++
+      return ["datadome:2captcha"]
+    },
+  } as unknown as ExternalCaptchaSession
+  const page = { content: async () => (cleared ? "<html><body>Owned content</body></html>" : DATADOME_CAPTCHA) } as Page
+  const waiters = { cloudflare: async () => "ok" as const } as Parameters<typeof routeChallengeWait>[5]
+  const run = () =>
+    routeChallengeWait(page, DATADOME_CAPTCHA, {}, 10000, undefined, waiters, 403, undefined, () => ({}), external)
+  expect(await run()).toEqual({ challengeType: "datadome", resolution: "captcha-required" })
+  cleared = true
+  expect(await run()).toEqual({ challengeType: "none", resolution: "ok", captchasSolved: ["datadome:2captcha"] })
+  expect(solves).toBe(2)
+})
+
+test("DataDome IP blocks do not create paid profile tasks", async () => {
+  let solves = 0
+  const external = {
+    discover: async () => ["profile:0"],
+    canSolve: async () => true,
+    localBudget: () => 10,
+    solveProfiles: async () => {
+      solves++
+      return ["datadome:2captcha"]
+    },
+  } as unknown as ExternalCaptchaSession
+  expect(
+    await routeChallengeWait(
+      {} as Page,
+      DATADOME_JSON_HARD_BLOCK,
+      {},
+      10000,
+      undefined,
+      undefined,
+      403,
+      undefined,
+      () => ({}),
+      external,
+    ),
+  ).toEqual({ challengeType: "datadome", resolution: "ip-blocked" })
+  expect(solves).toBe(0)
 })
