@@ -145,7 +145,7 @@ describe("blocked evidence", () => {
     expect(untouched.contentReads()).toBe(1)
   })
 
-  test("keeps markup but does not start a screenshot after the request budget is spent", async () => {
+  test("does not start browser work or a screenshot with an expired request budget", async () => {
     const { reported, sink: asked } = sink(true)
     const wall = makePage()
 
@@ -162,9 +162,8 @@ describe("blocked evidence", () => {
       { blockedEvidence: asked },
     )
 
-    expect(blocked.status).toBe("blocked")
-    expect(reported[0].html).toContain("Access denied")
-    expect(reported[0].screenshot).toBeUndefined()
+    expect(blocked.status).toBe("timeout")
+    expect(reported).toHaveLength(0)
     expect(wall.screenshotCalls()).toBe(0)
   })
 

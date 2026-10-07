@@ -249,6 +249,8 @@ export interface PoolStats {
   live: number
   // Current acquire() callers waiting for a free browser, and the age of the oldest
   // active checkout. Omitted by older pool implementations.
+  /** Intentionally retired idle browsers which acquire() can wake. */
+  sleeping?: number
   queueDepth?: number
   longestBusyMs?: number
 }

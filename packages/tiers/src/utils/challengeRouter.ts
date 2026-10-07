@@ -6,7 +6,14 @@ import { waitForChallengeResolution } from "./challengeWait"
 import type { ChallengeCookieSnapshot } from "./cookies"
 import { type DataDomeResolution, waitForDataDomeResolution } from "./datadomeWait"
 import { waitForDdosGuardResolution } from "./ddosGuardWait"
-import { type ChallengeType, detectChallengeType, getAwsWafAction, getDataDomeAction, hasAwsWafCaptcha } from "./detect"
+import {
+  type ChallengeType,
+  detectChallengeType,
+  getAwsWafAction,
+  getDataDomeAction,
+  hasAwsWafCaptcha,
+  isCloudflarePage,
+} from "./detect"
 import { waitForImpervaResolution } from "./impervaWait"
 
 type Resolution = AwsWafResolution | DataDomeResolution | AnubisResolution
@@ -56,6 +63,7 @@ export async function routeChallengeWait(
   waiters: ChallengeWaiters = defaultWaiters,
   status?: number,
   initialCookies?: ChallengeCookieSnapshot,
+  responseHeaders: () => Record<string, string> = () => headers,
 ): Promise<{ challengeType: ChallengeType; resolution: Resolution }> {
   const challengeType = detectChallengeType(html, headers, status)
   if (getAwsWafAction(status, headers) === "captcha" || hasAwsWafCaptcha(html)) {
@@ -66,7 +74,15 @@ export async function routeChallengeWait(
   if (challengeType === "duckduckgo") return { challengeType, resolution: "captcha-required" }
   // Provider widgets are solved after routing by solvePageCaptchas(). They are
   // page content, not interstitial walls, so never send them through a WAF waiter.
-  if (challengeType === "altcha" || challengeType === "friendly-captcha") {
+  if (
+    challengeType === "altcha" ||
+    challengeType === "friendly-captcha" ||
+    ((challengeType === "cloudflare-turnstile" ||
+      challengeType === "recaptcha" ||
+      challengeType === "hcaptcha" ||
+      challengeType === "cap") &&
+      !isCloudflarePage(html, headers))
+  ) {
     return { challengeType, resolution: "ok" }
   }
   // Anubis resolves itself in the browser (PoW or metarefresh, then re-navigation) and
@@ -92,6 +108,6 @@ export async function routeChallengeWait(
             ? await waiters.awsWaf(page, timeoutMs, originalUrl, initialCookies?.awsWaf)
             : challengeType === "datadome"
               ? await waiters.dataDome(page, timeoutMs, originalUrl, initialCookies?.dataDome)
-              : await waiters.cloudflare(page, timeoutMs, originalUrl, () => headers)
+              : await waiters.cloudflare(page, timeoutMs, originalUrl, responseHeaders)
   return { challengeType, resolution }
 }

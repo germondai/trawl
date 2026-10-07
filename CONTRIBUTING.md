@@ -81,6 +81,17 @@ TRAWL_USER_PREFS_TESTS=1 CAMOUFOX_INSTALL_DIR=/path/to/camoufox bun test package
 They use owned HTTP fixtures and local DNS mapping to check JavaScript preferences
 and `.onion` blocking without requiring access to Tor.
 
+Browser pool resource integration tests exercise the actual `/scrape` and `/v1`
+HTTP routes, queue deadlines, recycling and crash recovery. Run in a Linux
+container with a 1 GiB memory/swap limit and the installed Camoufox runtime:
+
+```bash
+TRAWL_POOL_RESOURCE_TESTS=1 BROWSER_BLOCK_ADS=false BROWSER_HARDWARE_CONCURRENCY=4 SESSION_CACHE_DRIVER=memory METRICS_DB_PATH=:memory: bun test apps/api/src/poolResources.integration.test.ts
+```
+
+The fixtures simulate a challenge page; they do not establish live CAPTCHA
+success rates. Heavy browser workloads may require a larger memory limit.
+
 ## Project layout
 
 This is a Bun monorepo with workspaces:

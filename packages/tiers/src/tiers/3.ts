@@ -16,6 +16,7 @@ import { reportBlocked } from "../utils/blockedEvidence"
 import { attachPageCapture, type CaptureOptions } from "../utils/capture"
 import { routeChallengeWait } from "../utils/challengeRouter"
 import { snapshotChallengeCookies, toCookies } from "../utils/cookies"
+import { DeadlineError, RequestBudget } from "../utils/deadline"
 import {
   type ChallengeType,
   hasAkamaiChallenge,
@@ -75,7 +76,7 @@ export interface Tier3Result extends TierResult {
   mhtml?: string
 }
 
-export async function runTier3(
+async function runTier3Task(
   url: string,
   handle: BrowserHandle,
   maxTimeout: number,
@@ -96,15 +97,31 @@ export async function runTier3(
   // challenge evaluation. A fresh context with no prior state gets managed-mode treatment:
   // CF evaluates in under 1s and the challenge resolves in 3-4s total.
   let freshCtx: Awaited<ReturnType<typeof newFreshContext>> | undefined
+  let openingContext: ReturnType<typeof newFreshContext> | undefined
 
+  const budget = capture.budget
+  if (!budget) throw new Error("Browser task requires an operation budget")
+  let cleanup: Promise<void> | undefined
+  const close = () =>
+    (cleanup ??= closeTemporaryContext(
+      openingContext ?? freshCtx,
+      handle.requestBrowserReplacement,
+      "tier3 context cleanup timed out",
+    ))
+  let disown = () => {}
   try {
-    freshCtx = await newFreshContext(handle.browser, {
+    openingContext = newFreshContext(handle.browser, {
       proxy: proxyUrl,
       onCreated: handle.noteTemporaryContext,
       requestReplacement: handle.requestBrowserReplacement,
       ignoreHttpsErrors: ignoreCertificateErrors,
     })
+    disown = budget.own(close)
+    freshCtx = await openingContext
+    budget.check()
     const page = await freshCtx.newPage()
+    budget.check()
+    page.setDefaultTimeout?.(Math.max(1, budget.remaining()))
     await installOutboundPolicy(page, validateOutboundUrl)
     const initialCookies = snapshotChallengeCookies(await freshCtx.cookies())
     if ((extraHeaders && Object.keys(extraHeaders).length > 0) || method === "POST") {
@@ -162,6 +179,7 @@ export async function runTier3(
       undefined,
       mainResponse.status,
       initialCookies,
+      () => mainResponse.headers,
     )
 
     if (resolution === "browser-closed") {
@@ -207,7 +225,10 @@ export async function runTier3(
     const solveRemaining = maxTimeout - (Date.now() - start)
     let captchasSolved: string[] = []
     if (solveRemaining > 5000) {
-      const solveResult = await solvePageCaptchas(page, solveRemaining).catch(() => ({ attempted: [], solved: [] }))
+      const solveResult = await solvePageCaptchas(page, solveRemaining, budget.signal).catch(() => ({
+        attempted: [],
+        solved: [],
+      }))
       captchasSolved = solveResult.solved
     }
 
@@ -471,6 +492,23 @@ export async function runTier3(
   } finally {
     // Closing the context closes all of its pages. If Firefox wedges during cleanup,
     // ask the pool to replace this browser as soon as the lease is released.
-    await closeTemporaryContext(freshCtx, handle.requestBrowserReplacement, "tier3 context cleanup timed out")
+    await close()
+    disown()
+  }
+}
+
+export async function runTier3(...args: Parameters<typeof runTier3Task>): Promise<Tier3Result> {
+  const started = Date.now()
+  const capture = args[9] ?? {}
+  const budget = capture.budget ?? new RequestBudget(args[2])
+  args[9] = { ...capture, budget }
+  try {
+    return await budget.run(() => runTier3Task(...args))
+  } catch (error) {
+    if (error instanceof DeadlineError)
+      return { tier: 3, status: "timeout", reason: error.message, durationMs: Date.now() - started }
+    throw error
+  } finally {
+    if (!capture.budget) budget.dispose()
   }
 }

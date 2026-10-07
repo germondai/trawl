@@ -213,7 +213,7 @@ BROWSER_POOL_SIZE=8   # high-throughput (6+ GB host RAM)
 
 **Default:** `15000` (15 seconds)
 
-How long `BrowserPool.acquire()` will poll for a free browser before rejecting with `PoolExhaustedError`. The default pool intentionally favors low memory use; raise the pool when sustained concurrent browser solves are expected.
+Maximum queue wait for a free browser before rejecting with `PoolExhaustedError`. Queue time also consumes the request's remaining `maxTimeout`: the shorter deadline wins. Waiting requests wake when capacity becomes available, without periodic queue polling. The default pool intentionally favors low memory use; raise the pool when sustained concurrent browser solves are expected.
 
 Lower it for fail-fast client feedback (Prowlarr will see 429s sooner and retry on its own). Raise it for very heavy upstream targets or when you've bumped `BROWSER_POOL_SIZE` higher.
 
@@ -229,12 +229,41 @@ When the timeout fires, both `/v1` and `/scrape` return **HTTP 429** with the Fl
 
 **Default:** `8`
 
-How many Tier 3 or Tier 4 temporary contexts a pooled browser can create before TRAWL rolling-replaces the full browser process. Every context counts, regardless of whether the attempt succeeds, times out, errors, or is blocked. TRAWL warms one replacement while the existing browser remains available, installs it when the entry is idle, then closes the retired browser. This briefly raises the pool by one browser, and replacements are serialized pool-wide to bound that peak.
+How many Tier 3 or Tier 4 temporary contexts a pooled browser can create before TRAWL replaces the browser process. Every context counts, regardless of outcome. With at least 512 MiB of container memory headroom, TRAWL warms one replacement while the existing browser remains available. In containers limited to 1 GiB or less, or with less headroom, it closes the old browser first; queued requests may wait for the new browser to start.
+
+The API reads Linux cgroup v1/v2 memory usage, subtracting reclaimable inactive file cache for recycling decisions. After a browser-backed request finishes, working-set usage above 85% of the container limit also requests recycling. Outside supported cgroups, only context-count recycling applies. This reduces sustained memory growth and replacement peaks; it cannot prevent a single memory-heavy page or CAPTCHA from exhausting the container.
 
 ```ini
 BROWSER_RECYCLE_AFTER_CONTEXTS=8   # default - replace after 8 Tier 3/4 contexts
-BROWSER_RECYCLE_AFTER_CONTEXTS=0   # disable browser recycling entirely
+BROWSER_RECYCLE_AFTER_CONTEXTS=0   # disable count-based recycling; memory-pressure recovery remains
 ```
+
+### `BROWSER_IDLE_TIMEOUT_MS`
+
+Default: `0` (disabled).
+
+Retire an unused browser after this many milliseconds. The next browser-backed request launches it again; ordinary HTTP scraping stays available. Session cookies stored in the configured cache survive idle retirement. The first browser request after retirement pays a cold start, and Firefox's in-memory cache is lost. Active requests, cleanup and queued acquires prevent retirement. The health endpoint counts intentionally sleeping capacity separately from live browsers.
+
+```dotenv
+BROWSER_IDLE_TIMEOUT_MS=300000 # optional: retire after five minutes idle
+```
+
+### `BROWSER_BLOCK_ADS`
+
+**Default:** `true`
+
+Load Camoufox's bundled uBlock Origin extension. Set `false` to omit it and reduce extension memory and CPU overhead. Both headless and optional headful pools use this setting. Ads, trackers and other resources normally blocked by uBlock can then load; resource use may increase on ad-heavy pages. Scripts, images, proxy routing and TLS verification otherwise retain their existing behavior.
+
+For a small single-browser container, start with:
+
+```ini
+BROWSER_POOL_SIZE=1
+BROWSER_MAX_CONTENT_PROCESSES=2
+BROWSER_HARDWARE_CONCURRENCY=4
+BROWSER_BLOCK_ADS=false
+```
+
+This is a resource tuning option, not a guarantee that every browser workload fits in 1 GiB. Use a larger limit for heavy pages, difficult CAPTCHAs or the additional headful pool.
 
 ### `BROWSER_HARDWARE_CONCURRENCY`
 
@@ -249,7 +278,7 @@ PoW implementations such as Anubis size their worker pool from this value. For a
 Caps Firefox content processes per pooled browser via the `dom.ipc.processCount` Firefox pref. Firefox's default of 8 lets thread count climb when Tier 3 / Tier 4 churn disposable contexts (see #13). The cap bounds the leak at the source without paying the recycle cost. Raise if specific targets fail with empty content (rare).
 
 ```ini
-BROWSER_MAX_CONTENT_PROCESSES=2   # default - conservative cap, lowest RAM/CPU
+BROWSER_MAX_CONTENT_PROCESSES=2   # default content-process preference
 BROWSER_MAX_CONTENT_PROCESSES=4   # raise if CF/Imperva challenges stall
 ```
 
@@ -615,3 +644,9 @@ canonical copyable environment template.
 The configuration namespaces changed without legacy aliases. Follow the complete
 [configuration migration table](/deployment/configuration-migration) before recreating the container.
 :::
+
+### Request deadlines and resource limits
+
+`maxTimeout` is shared by HTTP fetching, waiting for a browser, navigation, challenge handling, CAPTCHA solving and requested captures. Expiry aborts HTTP/transcription, stops owned FFmpeg subprocesses and closes the request's page or temporary context. Cleanup is bounded separately (up to five seconds for a page/context); replacing an unhealthy browser may continue after the request has ended. An expired request does not start additional capture work.
+
+`BROWSER_MAX_CONTENT_PROCESSES` is not a limit on all OS processes or threads: Firefox also runs network, extension and other helper processes, and isolates sites separately. `BROWSER_HARDWARE_CONCURRENCY` controls the CPU count reported to page scripts, not a CPU quota. A 1 GiB limit can still be exceeded by an unusually demanding page; use Docker resource limits and measure the target workload. Disabling ad blocking may reduce extension overhead while increasing page subresource traffic.

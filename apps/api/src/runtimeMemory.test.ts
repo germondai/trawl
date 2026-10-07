@@ -44,3 +44,29 @@ describe("runtime memory diagnostics", () => {
     ).toBeUndefined()
   })
 })
+
+describe("working-set memory", () => {
+  test.each([
+    ["/sys/fs/cgroup", "memory.current", "memory.max", "memory.events", "inactive_file"],
+    [
+      "/sys/fs/cgroup/memory",
+      "memory.usage_in_bytes",
+      "memory.limit_in_bytes",
+      "memory.oom_control",
+      "total_inactive_file",
+    ],
+  ])("subtracts inactive file cache for %s", (root, current, limit, oom, inactive) => {
+    const files: Record<string, string> = {
+      [`${root}/${current}`]: "950000000",
+      [`${root}/${limit}`]: "1073741824",
+      [`${root}/${oom}`]: "oom_kill 0",
+      [`${root}/memory.stat`]: `${inactive} 400000000\nshmem 10000000\n`,
+    }
+    const result = readRuntimeMemory(1, 0, (path) => {
+      if (!(path in files)) throw Error("missing")
+      return files[path]
+    })
+    expect(result?.currentBytes).toBe(950000000)
+    expect(result?.workingSetBytes).toBe(550000000)
+  })
+})

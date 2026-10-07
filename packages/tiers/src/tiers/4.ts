@@ -16,6 +16,7 @@ import { reportBlocked } from "../utils/blockedEvidence"
 import { attachPageCapture, type CaptureOptions } from "../utils/capture"
 import { routeChallengeWait } from "../utils/challengeRouter"
 import { snapshotChallengeCookies, toCookies } from "../utils/cookies"
+import { DeadlineError, RequestBudget } from "../utils/deadline"
 import {
   hasAkamaiChallenge,
   hasAnubisChallenge,
@@ -59,7 +60,7 @@ export interface Tier4Result extends TierResult {
   mhtml?: string
 }
 
-export async function runTier4(
+async function runTier4Task(
   url: string,
   handle: BrowserHandle,
   maxTimeout: number,
@@ -79,17 +80,33 @@ export async function runTier4(
   // applied per-request. We create a fresh context here and close it when done,
   // leaving the pool's shared context untouched.
   const state: { proxyContext?: Awaited<ReturnType<typeof newFreshContext>> } = {}
+  let openingContext: ReturnType<typeof newFreshContext> | undefined
 
+  const budget = capture.budget
+  if (!budget) throw new Error("Browser task requires an operation budget")
+  let cleanup: Promise<void> | undefined
+  const close = () =>
+    (cleanup ??= closeTemporaryContext(
+      openingContext ?? state.proxyContext,
+      handle.requestBrowserReplacement,
+      "tier4 context cleanup timed out",
+    ))
+  let disown = () => {}
   try {
-    const proxyContext = await newFreshContext(handle.browser, {
+    openingContext = newFreshContext(handle.browser, {
       proxy: proxyUrl,
       onCreated: handle.noteTemporaryContext,
       requestReplacement: handle.requestBrowserReplacement,
       ignoreHttpsErrors: ignoreCertificateErrors,
     })
+    disown = budget.own(close)
+    const proxyContext = await openingContext
     state.proxyContext = proxyContext
+    budget.check()
 
     const page = await proxyContext.newPage()
+    budget.check()
+    page.setDefaultTimeout?.(Math.max(1, budget.remaining()))
     await installOutboundPolicy(page, validateOutboundUrl)
     const initialCookies = snapshotChallengeCookies(await proxyContext.cookies())
 
@@ -137,6 +154,7 @@ export async function runTier4(
       undefined,
       mainResponse.status,
       initialCookies,
+      () => mainResponse.headers,
     )
 
     if (resolution === "browser-closed") {
@@ -179,7 +197,10 @@ export async function runTier4(
     const solveRemaining = maxTimeout - (Date.now() - start)
     let captchasSolved: string[] = []
     if (solveRemaining > 5000) {
-      const solveResult = await solvePageCaptchas(page, solveRemaining).catch(() => ({ attempted: [], solved: [] }))
+      const solveResult = await solvePageCaptchas(page, solveRemaining, budget.signal).catch(() => ({
+        attempted: [],
+        solved: [],
+      }))
       captchasSolved = solveResult.solved
     }
 
@@ -445,6 +466,23 @@ export async function runTier4(
           : String(err),
     }
   } finally {
-    await closeTemporaryContext(state.proxyContext, handle.requestBrowserReplacement, "tier4 context cleanup timed out")
+    await close()
+    disown()
+  }
+}
+
+export async function runTier4(...args: Parameters<typeof runTier4Task>): Promise<Tier4Result> {
+  const started = Date.now()
+  const capture = args[9] ?? {}
+  const budget = capture.budget ?? new RequestBudget(args[2])
+  args[9] = { ...capture, budget }
+  try {
+    return await budget.run(() => runTier4Task(...args))
+  } catch (error) {
+    if (error instanceof DeadlineError)
+      return { tier: 4, status: "timeout", reason: error.message, durationMs: Date.now() - started }
+    throw error
+  } finally {
+    if (!capture.budget) budget.dispose()
   }
 }

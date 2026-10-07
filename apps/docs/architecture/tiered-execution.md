@@ -69,9 +69,27 @@ On success:
 
 Uses [Camoufox](https://github.com/daijro/camoufox) — Firefox with fingerprint patching at the C++/Juggler level to reduce common automation signals. Success still depends on the target's challenge variant, IP reputation, and upstream network conditions.
 
+### Embedded CAPTCHA widgets
+
+Embedded widgets proceed to their own solver after the page loads. Their iframe can remain mounted after completion, so iframe disappearance is not used as proof of success.
+
+| Provider | Attempted path | Confirmation |
+| --- | --- | --- |
+| Turnstile | Existing shadow-DOM or frame checkbox interaction | Widget response token |
+| reCAPTCHA v2 | Checkbox or audio challenge | Existing response/checked-state checks |
+| hCaptcha | Checkbox auto-pass; audio where the site offers it | Checked checkbox state; image grids remain unsupported |
+| GeeTest slide | Piece texture matching with screenshot fallback; up to three recalculated puzzles | Explicit verified widget state, never just a closed popup |
+| ALTCHA | Native component verification or checkbox | Verified state/response |
+| Friendly Captcha | Native component or provider-frame start | Completed response |
+| CAP | Native component or its shadow control | Component response token |
+
+CAP uses the installed widget's own PoW implementation, browser proxy and outbound policy. It adds no solver dependency or external paid service. Component readiness and offscreen controls are handled within the request budget. Visible CAP widgets are solved sequentially within the shared budget, and all must have a response before completion is reported. The solver does not submit the surrounding form.
+
+A widget's client-side response is not proof that the target application's server accepted a subsequent business request. Targets with unsupported puzzles or IP restrictions can still refuse access.
+
 ### Akamai Bot Manager challenges
 
-Tier 3 and Tier 4 detect Akamai's `sec-cpt` / SBSD behavioral interstitials. The Akamai flow generates human-like pointer movement, handles supported press-and-hold widgets, waits for a valid `_abck` sensor cookie, and revisits the original URL when the interstitial does not reload automatically.
+Tier 3 and Tier 4 detect Akamai's `sec-cpt` / SBSD behavioral interstitials. The Akamai flow handles supported press-and-hold widgets, stops the gesture when the main document navigates, waits for a valid `_abck` sensor cookie, and revisits the original URL when the interstitial does not reload automatically. Sensor-only pages receive bounded pointer movement. Recovery stays within the remaining request budget.
 
 Akamai configurations vary between properties and change over time. TRAWL treats a persistent interstitial as blocked and can escalate to Tier 4 when a residential proxy is configured.
 

@@ -176,3 +176,41 @@ describe("browser challenge routing", () => {
     ).toEqual({ challengeType: "friendly-captcha", resolution: "ok" })
   })
 })
+
+test("routes embedded Turnstile to its token solver instead of a wall waiter", async () => {
+  const fail = async () => {
+    throw new Error("wall waiter must not run")
+  }
+  const html =
+    '<html><head><title>Contact us</title></head><body><form><div class="cf-turnstile" data-sitekey="test"></div></form></body></html>'
+  const result = await routeChallengeWait(
+    {} as Page,
+    html,
+    {},
+    1000,
+    undefined,
+    { cloudflare: fail, ddosGuard: fail, imperva: fail, akamai: fail, awsWaf: fail, dataDome: fail },
+    200,
+  )
+  expect(result).toEqual({ challengeType: "cloudflare-turnstile", resolution: "ok" })
+})
+
+test("keeps Turnstile on an active Cloudflare wall in the wall waiter", async () => {
+  let waited = false
+  const cf = async () => {
+    waited = true
+    return "timeout" as const
+  }
+  const html = '<html><head><title>Just a moment...</title></head><body><div class="cf-turnstile"></div></body></html>'
+  const result = await routeChallengeWait(
+    {} as Page,
+    html,
+    {},
+    1000,
+    undefined,
+    { cloudflare: cf, ddosGuard: cf, imperva: cf, akamai: cf, awsWaf: cf, dataDome: cf },
+    403,
+  )
+  expect(waited).toBe(true)
+  expect(result.resolution).toBe("timeout")
+})

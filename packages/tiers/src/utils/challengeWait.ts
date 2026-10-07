@@ -15,7 +15,7 @@ export async function waitForChallengeResolution(
   originalUrl?: string,
   responseHeaders: () => Record<string, string> = () => ({}),
 ): Promise<"ok" | "ip-blocked" | "timeout"> {
-  const deadline = Date.now() + Math.max(timeoutMs, 30_000)
+  const deadline = Date.now() + Math.max(timeoutMs, 0)
   let lastClickAttempt = 0
   let cfClearanceAt: number | undefined
   let challengeSeen = false
@@ -56,7 +56,9 @@ export async function waitForChallengeResolution(
       // declaring a challenge solved. This also applies before the first active sample.
       if (inactiveSamples >= 2) {
         // 'load' not 'networkidle' — networkidle stalls indefinitely on JS-heavy pages
-        await page.waitForLoadState("load", { timeout: 5000 }).catch(() => {})
+        await page
+          .waitForLoadState("load", { timeout: Math.max(1, Math.min(5000, deadline - Date.now())) })
+          .catch(() => {})
         return "ok"
       }
 
@@ -82,9 +84,16 @@ export async function waitForChallengeResolution(
         // CF auto-redirect normally fires within 2-3s. If it hasn't, navigate ourselves.
         if (originalUrl && Date.now() - cfClearanceAt > 5000) {
           console.log("[challenge] cf_clearance set but still on challenge page — navigating to original URL")
-          await page.goto(originalUrl, { waitUntil: "domcontentloaded", timeout: 15_000 }).catch(() => {})
-          await page.waitForLoadState("networkidle", { timeout: 8_000 }).catch(() => {})
-          return "ok"
+          await page
+            .goto(originalUrl, {
+              waitUntil: "domcontentloaded",
+              timeout: Math.max(1, Math.min(15_000, deadline - Date.now())),
+            })
+            .catch(() => {})
+          // Navigation can serve another wall even with clearance. Inspect the new
+          // document in the next poll instead of passing it to embedded CAPTCHA solvers.
+          cfClearanceAt = Date.now()
+          continue
         }
       }
 
@@ -103,7 +112,7 @@ export async function waitForChallengeResolution(
   return "timeout"
 }
 
-async function attemptTurnstileClick(page: Page): Promise<boolean> {
+export async function attemptTurnstileClick(page: Page, allowKeyboard = true): Promise<boolean> {
   const frames = page.frames()
   for (const frame of frames) {
     if (!isChallengeFrame(frame)) continue
@@ -134,7 +143,7 @@ async function attemptTurnstileClick(page: Page): Promise<boolean> {
 
   // D: keyboard Tab → Space — last resort
   const html = await page.content().catch(() => "")
-  if (hasTurnstile(html) || isCloudflarePage(html, {})) {
+  if (allowKeyboard && (hasTurnstile(html) || isCloudflarePage(html, {}))) {
     try {
       await page.keyboard.press("Tab")
       await new Promise((r) => setTimeout(r, 200))

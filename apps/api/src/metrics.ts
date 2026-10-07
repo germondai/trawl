@@ -95,6 +95,10 @@ export class MetricsStore {
       tier INTEGER NOT NULL
     )`)
     this.db.run("CREATE INDEX IF NOT EXISTS events_at ON events(at)")
+    this.db.run(
+      "CREATE INDEX IF NOT EXISTS events_summary ON events(at, source, tier, success, category, severity, duration_ms)",
+    )
+    this.db.run("CREATE INDEX IF NOT EXISTS events_domain_summary ON events(domain, at, success)")
     this.db.run("CREATE INDEX IF NOT EXISTS attempts_at ON tier_attempts(at)")
     this.prune()
   }
@@ -183,8 +187,35 @@ export class MetricsStore {
     const now = Date.now()
     const from = now - range * 60_000
     const db = this.db
+    const step =
+      range <= 60 ? 60_000 : range <= 1440 ? 30 * 60_000 : range <= 10080 ? 4 * 60 * 60_000 : 24 * 60 * 60_000
+    const groups = db
+      ? (db
+          .query(`SELECT (at / ?) * ? AS at, source, tier,
+      COUNT(*) AS requests, SUM(success) AS successes, SUM(duration_ms) AS duration_ms FROM events WHERE at >= ?
+      GROUP BY (at / ?), source, tier`)
+          .all(step, step, from, step) as (Pick<StoredEvent, "at" | "source" | "tier" | "duration_ms"> & {
+          requests: number
+          successes: number
+        })[])
+      : []
+    const failureGroups = db
+      ? (db
+          .query(`SELECT category, severity, COUNT(*) AS count FROM events
+          WHERE at >= ? AND success = 0 GROUP BY category, severity`)
+          .all(from) as {
+          category: FailureCategory | null
+          severity: Severity | null
+          count: number
+        }[])
+      : []
     const events = db
-      ? (db.query("SELECT * FROM events WHERE at >= ? ORDER BY id DESC").all(from) as StoredEvent[])
+      ? (db.query("SELECT * FROM events WHERE at >= ? ORDER BY id DESC LIMIT 100").all(from) as StoredEvent[])
+      : []
+    const failures = db
+      ? (db
+          .query("SELECT * FROM events WHERE at >= ? AND success = 0 ORDER BY id DESC LIMIT 50")
+          .all(from) as StoredEvent[])
       : []
     const attempts = db
       ? (db.query("SELECT tier, COUNT(*) AS count FROM tier_attempts WHERE at >= ? GROUP BY tier").all(from) as {
@@ -199,27 +230,27 @@ export class MetricsStore {
     >
     const byFailure = Object.fromEntries(CATEGORIES.map((category) => [category, 0])) as Record<FailureCategory, number>
     const bySeverity: Record<Severity, number> = { warning: 0, error: 0 }
-    const domains = new Map<string, { requests: number; failures: number }>()
+    const domains = db
+      ? (db
+          .query(`SELECT domain, COUNT(*) AS requests, SUM(1 - success) AS failures FROM events
+      WHERE at >= ? GROUP BY domain ORDER BY failures DESC, MAX(id) DESC LIMIT 20`)
+          .all(from) as { domain: string; requests: number; failures: number }[])
+      : []
+    let requests = 0
     let successes = 0
     let duration = 0
     for (const row of attempts) byTier[row.tier].attempts = row.count
-    for (const row of events) {
-      bySource[row.source]++
+    for (const row of groups) {
+      requests += row.requests
+      bySource[row.source] += row.requests
       duration += row.duration_ms
-      if (row.success) {
-        successes++
-        if (row.tier !== null) byTier[row.tier].successes++
-      } else {
-        if (row.category) byFailure[row.category]++
-        if (row.severity) bySeverity[row.severity]++
-      }
-      const counts = domains.get(row.domain) ?? { requests: 0, failures: 0 }
-      counts.requests++
-      counts.failures += Number(!row.success)
-      domains.set(row.domain, counts)
+      successes += row.successes
+      if (row.tier !== null) byTier[row.tier].successes += row.successes
     }
-    const step =
-      range <= 60 ? 60_000 : range <= 1440 ? 30 * 60_000 : range <= 10080 ? 4 * 60 * 60_000 : 24 * 60 * 60_000
+    for (const row of failureGroups) {
+      if (row.category) byFailure[row.category] += row.count
+      if (row.severity) bySeverity[row.severity] += row.count
+    }
     const end = Math.floor(now / step) * step
     const size = Math.ceil((range * 60_000) / step)
     const bins = new Map<
@@ -232,14 +263,14 @@ export class MetricsStore {
         tiers: Record<string, number>
       }
     >()
-    for (const row of events) {
+    for (const row of groups) {
       const key = Math.floor(row.at / step) * step
       const bucket = bins.get(key) ?? { requests: 0, failures: 0, durationMs: 0, sources: {}, tiers: {} }
-      bucket.requests++
-      bucket.failures += Number(!row.success)
+      bucket.requests += row.requests
+      bucket.failures += row.requests - row.successes
       bucket.durationMs += row.duration_ms
-      bucket.sources[row.source] = (bucket.sources[row.source] ?? 0) + 1
-      if (row.tier !== null) bucket.tiers[row.tier] = (bucket.tiers[row.tier] ?? 0) + 1
+      bucket.sources[row.source] = (bucket.sources[row.source] ?? 0) + row.requests
+      if (row.tier !== null) bucket.tiers[row.tier] = (bucket.tiers[row.tier] ?? 0) + row.requests
       bins.set(key, bucket)
     }
     const timeline = Array.from({ length: size }, (_, index) => {
@@ -259,10 +290,10 @@ export class MetricsStore {
       startedAt: first?.at ? new Date(first.at).toISOString() : null,
       rangeMinutes: range,
       retainedEvents: db ? (db.query("SELECT COUNT(*) AS count FROM events").get() as { count: number }).count : 0,
-      requests: events.length,
+      requests,
       successes,
-      failures: events.length - successes,
-      averageMs: events.length ? Math.round(duration / events.length) : 0,
+      failures: requests - successes,
+      averageMs: requests ? Math.round(duration / requests) : 0,
       bySource,
       byTier,
       byFailure,
@@ -270,10 +301,7 @@ export class MetricsStore {
       bucketMs: step,
       timeline,
       lastHour: timeline,
-      domains: [...domains]
-        .map(([domain, counts]) => ({ domain, ...counts }))
-        .sort((a, b) => b.failures - a.failures)
-        .slice(0, 20),
+      domains,
       recentEvents: events.slice(0, 100).map((row) => ({
         at: new Date(row.at).toISOString(),
         domain: row.domain,
@@ -286,19 +314,16 @@ export class MetricsStore {
         category: row.category,
         severity: row.severity,
       })),
-      recentFailures: events
-        .filter((row) => !row.success)
-        .slice(0, 50)
-        .map((row) => ({
-          at: new Date(row.at).toISOString(),
-          domain: row.domain,
-          source: row.source,
-          tier: row.tier,
-          tierStatus: row.tier_status,
-          statusCode: row.status_code,
-          category: row.category,
-          severity: row.severity,
-        })),
+      recentFailures: failures.map((row) => ({
+        at: new Date(row.at).toISOString(),
+        domain: row.domain,
+        source: row.source,
+        tier: row.tier,
+        tierStatus: row.tier_status,
+        statusCode: row.status_code,
+        category: row.category,
+        severity: row.severity,
+      })),
     }
   }
 }

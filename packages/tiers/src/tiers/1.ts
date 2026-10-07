@@ -80,6 +80,7 @@ export async function runTier1(
   validateOutboundUrl?: OutboundUrlValidator,
   ignoreCertificateErrors?: boolean,
   trustedProxyCa?: string,
+  signal?: AbortSignal,
 ): Promise<Tier1Result> {
   const start = Date.now()
   let certificateError: string | undefined
@@ -106,6 +107,7 @@ export async function runTier1(
       await validateOutboundUrl?.(currentUrl)
       const fetchHop = (insecure: boolean) =>
         fetch(currentUrl, {
+          signal,
           method: currentMethod,
           body: currentBody,
           headers,

@@ -9,11 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Share scrape deadlines across HTTP and browser work, cancel owned pages/contexts and FFmpeg processes on expiry, and limit FFmpeg threading for small CAPTCHA conversions (#191).
+- Finish page cleanup before reusing browser capacity or assessing memory pressure; add opt-in idle retirement with `BROWSER_IDLE_TIMEOUT_MS` (default off) (#191).
+- Aggregate dashboard history in SQLite and fetch only bounded recent-event lists without changing the dashboard response.
+- Keep the tiers workspace's type-only Patchright dependency in development dependencies and strip actual Camoufox/Bun binaries in build stages before copying runtime layers.
+
+- Wake browser acquisition queues when capacity changes instead of polling, respect the request budget while waiting, and recycle without overlapping browsers when container memory headroom is low. Recycle after browser-backed workloads under memory pressure even when count-based recycling is disabled (#191).
+- Add optional `BROWSER_BLOCK_ADS=false` to omit uBlock Origin and reduce extension overhead; ad blocking stays enabled by default (#191).
+
 - Add optional `BROWSER_HARDWARE_CONCURRENCY` to size native browser PoW workers on small deployments; skip Anubis crash retries after a confirmed container OOM kill.
 
 - Keep Anubis PoW in the native browser with lightweight DOM polling, bounded waits, stale-session recovery and destination checks (#189).
 
 ### Added
+
+- Attempt CAP proof-of-work widgets through their native component and confirm a response token without submitting the surrounding form.
 
 - Detect Anubis (TecharoHQ) proof-of-work and metarefresh interstitials, which are served at HTTP 200 and were previously returned to callers as successful Tier 1 content. Escalate them to the browser tiers, whose JS resolves the challenge by itself; a wall that persists after waiting reports `anubis-persistent` (#189).
 - Add opt-in `USER_PREFS` for Firefox launch preferences, including `network.dns.blockDotOnion` for existing Tor deployments. Validate preference values at startup, forward the setting through Docker Compose and retain proxy fail-closed and remote SOCKS DNS settings (#202).
@@ -23,6 +33,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add opt-in `followMetaRefresh` to the native scrape API: HTTP forwarders escalate to browser tiers, which follow bounded meta refresh redirects using the document base URL and existing proxy, cookies, outbound policy and TLS checks. Browser navigation interruptions are handled within the same deadline; network error documents, failed navigation, loops and spent refresh budgets fail the attempt instead of returning forwarding content. Addresses the request in #184 and the gaps identified in #185.
 
 ### Fixed
+
+- Solve visible CAP widgets sequentially within one request budget and require a response for every visible widget before reporting completion.
+
+- Route embedded Turnstile and other CAPTCHA widgets to their token solvers instead of waiting for their iframe to disappear as a Cloudflare interstitial. Reuse the existing shadow-DOM click path without keyboard fallback or token previews.
+- Avoid missing-element waits in GeeTest slide solving, match the piece texture against the challenge image, refresh geometry after popup animation, and require an explicit verified widget state. Recalculate refreshed puzzles and release the mouse on cancellation.
+- Stop Akamai press-and-hold input when the main document navigates, avoid blind pointer sequences after completion, and bound recovery waits by the remaining request budget.
+- Look for hCaptcha audio controls in the challenge iframe while retaining verification in the checkbox iframe.
+
+- Read current document headers while waiting for Cloudflare clearance and verify the destination after recovery navigation instead of passing a persistent wall to embedded CAPTCHA solvers (#191).
+
+- Recognize the observed `Pardon Our Interruption` bot wall instead of reporting its HTML as successful content.
+
+- Reject disconnected browsers during acquisition and recover when a browser or its retained context closes, without waiting for the next health check. Discard warm replacements superseded by crash recovery and close browsers whose retained context fails to initialize (#191).
 
 - Detect proxy redirects to Google Search's `/sorry/` challenge and enter the existing scraper ladder instead of forwarding the redirect to the client. Escalate final HTTP challenge pages and reject browser results that remain on the challenge URL (#180).
 

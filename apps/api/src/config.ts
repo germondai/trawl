@@ -54,9 +54,12 @@ export const REDIS_RETRY_DELAY_MS = nonNegativeInteger(process.env.REDIS_RETRY_D
 // Rolling-replace a browser after this many Tier 3/4 temporary contexts. Every
 // creation counts regardless of outcome; 0 disables periodic replacement.
 export const RECYCLE_AFTER_TEMPORARY_CONTEXTS = nonNegativeInteger(process.env.BROWSER_RECYCLE_AFTER_CONTEXTS, 8)
+// Keep the bundled ad blocker unless the operator opts out of its overhead.
+export const BROWSER_BLOCK_ADS = !/^(0|false|no)$/i.test(process.env.BROWSER_BLOCK_ADS?.trim() ?? "")
 // Caps Firefox content processes per browser. Default `2` keeps thread/RAM footprint
 // minimal while still allowing CF/Imperva challenges to resolve. Raise if specific
 // targets fail with empty content (rare).
+export const BROWSER_IDLE_TIMEOUT_MS = nonNegativeInteger(process.env.BROWSER_IDLE_TIMEOUT_MS, 0)
 export const BROWSER_MAX_CONTENT_PROCESSES = positiveInteger(process.env.BROWSER_MAX_CONTENT_PROCESSES, 2)
 // Optional native CPU count for worker-based challenges; unset keeps Camoufox defaults.
 export const BROWSER_HARDWARE_CONCURRENCY = parseBrowserHardwareConcurrency(process.env.BROWSER_HARDWARE_CONCURRENCY)

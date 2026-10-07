@@ -1,3 +1,4 @@
+import { sleep } from "../utils/deadline"
 // In-page captcha solver orchestrator.
 // All solving is done locally — no external APIs, no billing.
 //
@@ -8,13 +9,19 @@
 //   GeeTest slide         — human-like mouse drag with canvas gap detection
 //   Altcha PoW           — client-side SHA-256 Proof-of-Work computation
 //   Friendly Captcha PoW  — client-side Proof-of-Work puzzle solving
+//   CAP                   — native component PoW and response token verification
 //
 // Called after the page is loaded (post-CF-interstitial).
 // Interstitial-level CF challenges are handled separately in challengeWait.ts.
 
 import type { Page } from "patchright"
-import { hasAltcha as hasAltchaMarkup, hasFriendlyCaptcha as hasFriendlyCaptchaMarkup } from "../utils/detect"
+import {
+  hasAltcha as hasAltchaMarkup,
+  hasCapChallenge,
+  hasFriendlyCaptcha as hasFriendlyCaptchaMarkup,
+} from "../utils/detect"
 import { hasAltchaWidget, solveAltcha } from "./altcha"
+import { hasCapWidget, solveCap } from "./cap"
 import { hasFriendlyCaptchaWidget, solveFriendlyCaptcha } from "./friendlyCaptcha"
 import { hasGeetestSlide, solveGeetestSlide } from "./geetest"
 import { hasHcaptchaWidget, solveHcaptcha } from "./hcaptcha"
@@ -35,7 +42,7 @@ export interface SolveResult {
 //
 // IMPORTANT: we distinguish in-page widgets from the CF interstitial (just-solved)
 // by requiring the page's own URL to NOT be a CF challenge/platform URL.
-async function detectTurnstile(page: Page, timeoutMs: number): Promise<boolean> {
+async function detectTurnstile(page: Page, timeoutMs: number, signal?: AbortSignal): Promise<boolean> {
   const POLL_INTERVAL = 300
   const deadline = Date.now() + timeoutMs
 
@@ -80,13 +87,14 @@ async function detectTurnstile(page: Page, timeoutMs: number): Promise<boolean> 
       }
     }
 
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL))
+    await sleep(POLL_INTERVAL, signal)
   }
 
   return false
 }
 
-export async function solvePageCaptchas(page: Page, timeoutMs = 30_000): Promise<SolveResult> {
+export async function solvePageCaptchas(page: Page, timeoutMs = 30_000, signal?: AbortSignal): Promise<SolveResult> {
+  if (timeoutMs <= 0 || signal?.aborted) return { attempted: [], solved: [] }
   const deadline = Date.now() + Math.max(0, timeoutMs)
   const attempted: string[] = []
   const solved: string[] = []
@@ -98,6 +106,7 @@ export async function solvePageCaptchas(page: Page, timeoutMs = 30_000): Promise
   const mightHaveHcaptcha = /h-captcha|hcaptcha\.com/i.test(html)
   const mightHaveGeetest = /geetest|gt_container|initGeetest/i.test(html)
   const mightHaveAltcha = hasAltchaMarkup(html)
+  const mightHaveCap = hasCapChallenge(html)
   const mightHaveFriendlyCaptcha = hasFriendlyCaptchaMarkup(html)
 
   if (
@@ -106,7 +115,8 @@ export async function solvePageCaptchas(page: Page, timeoutMs = 30_000): Promise
     !mightHaveHcaptcha &&
     !mightHaveGeetest &&
     !mightHaveAltcha &&
-    !mightHaveFriendlyCaptcha
+    !mightHaveFriendlyCaptcha &&
+    !mightHaveCap
   ) {
     return { attempted: [], solved: [] }
   }
@@ -131,16 +141,18 @@ export async function solvePageCaptchas(page: Page, timeoutMs = 30_000): Promise
   // dynamic script-mounted widgets (e.g. Mojeek ALTCHA) can take 2-4s to load module scripts.
   const DETECT_MS = Math.min(5_000, Math.max(0, deadline - Date.now()))
 
-  const [hasTurnstile, hasHcaptcha, hasRecaptcha, hasGeetest, hasAltcha, hasFriendlyCaptcha] = await Promise.all([
-    mightHaveTurnstile ? detectTurnstile(page, DETECT_MS) : Promise.resolve(false),
-    mightHaveHcaptcha ? hasHcaptchaWidget(page, DETECT_MS) : Promise.resolve(false),
-    mightHaveRecaptcha ? hasRecaptchaV2(page, DETECT_MS) : Promise.resolve(false),
-    mightHaveGeetest ? hasGeetestSlide(page, DETECT_MS) : Promise.resolve(false),
-    mightHaveAltcha ? hasAltchaWidget(page, DETECT_MS) : Promise.resolve(false),
-    mightHaveFriendlyCaptcha ? hasFriendlyCaptchaWidget(page, DETECT_MS) : Promise.resolve(false),
-  ])
+  const [hasTurnstile, hasHcaptcha, hasRecaptcha, hasGeetest, hasAltcha, hasFriendlyCaptcha, hasCap] =
+    await Promise.all([
+      mightHaveTurnstile ? detectTurnstile(page, DETECT_MS, signal) : Promise.resolve(false),
+      mightHaveHcaptcha ? hasHcaptchaWidget(page, DETECT_MS) : Promise.resolve(false),
+      mightHaveRecaptcha ? hasRecaptchaV2(page, DETECT_MS) : Promise.resolve(false),
+      mightHaveGeetest ? hasGeetestSlide(page, DETECT_MS) : Promise.resolve(false),
+      mightHaveAltcha ? hasAltchaWidget(page, DETECT_MS) : Promise.resolve(false),
+      mightHaveFriendlyCaptcha ? hasFriendlyCaptchaWidget(page, DETECT_MS) : Promise.resolve(false),
+      mightHaveCap ? hasCapWidget(page, DETECT_MS, signal) : Promise.resolve(false),
+    ])
 
-  const count = [hasTurnstile, hasHcaptcha, hasRecaptcha, hasGeetest, hasAltcha, hasFriendlyCaptcha].filter(
+  const count = [hasTurnstile, hasHcaptcha, hasRecaptcha, hasGeetest, hasAltcha, hasFriendlyCaptcha, hasCap].filter(
     Boolean,
   ).length
   if (count === 0) {
@@ -152,6 +164,7 @@ export async function solvePageCaptchas(page: Page, timeoutMs = 30_000): Promise
         mightHaveGeetest && "geetest",
         mightHaveAltcha && "altcha",
         mightHaveFriendlyCaptcha && "friendly-captcha",
+        mightHaveCap && "cap",
       ]
         .filter(Boolean)
         .join(",")})`,
@@ -160,35 +173,41 @@ export async function solvePageCaptchas(page: Page, timeoutMs = 30_000): Promise
   }
 
   const perMs = Math.floor(Math.max(0, deadline - Date.now()) / count)
+  const remaining = () => Math.min(perMs, Math.max(0, deadline - Date.now()))
 
-  if (hasTurnstile) {
+  if (hasTurnstile && !signal?.aborted && remaining() > 0) {
     attempted.push("turnstile")
-    if (await solveTurnstile(page, perMs).catch(() => false)) solved.push("turnstile")
+    if (await solveTurnstile(page, remaining(), signal).catch(() => false)) solved.push("turnstile")
   }
 
-  if (hasRecaptcha) {
+  if (hasRecaptcha && !signal?.aborted && remaining() > 0) {
     attempted.push("recaptcha-v2")
-    if (await solveRecaptchaV2(page, perMs).catch(() => false)) solved.push("recaptcha-v2")
+    if (await solveRecaptchaV2(page, remaining(), signal).catch(() => false)) solved.push("recaptcha-v2")
   }
 
-  if (hasHcaptcha) {
+  if (hasHcaptcha && !signal?.aborted && remaining() > 0) {
     attempted.push("hcaptcha")
-    if (await solveHcaptcha(page, perMs).catch(() => false)) solved.push("hcaptcha")
+    if (await solveHcaptcha(page, remaining(), signal).catch(() => false)) solved.push("hcaptcha")
   }
 
-  if (hasGeetest) {
+  if (hasGeetest && !signal?.aborted && remaining() > 0) {
     attempted.push("geetest-slide")
-    if (await solveGeetestSlide(page, perMs).catch(() => false)) solved.push("geetest-slide")
+    if (await solveGeetestSlide(page, remaining(), signal).catch(() => false)) solved.push("geetest-slide")
   }
 
-  if (hasAltcha) {
+  if (hasAltcha && !signal?.aborted && remaining() > 0) {
     attempted.push("altcha")
-    if (await solveAltcha(page, perMs).catch(() => false)) solved.push("altcha")
+    if (await solveAltcha(page, remaining(), signal).catch(() => false)) solved.push("altcha")
   }
 
-  if (hasFriendlyCaptcha) {
+  if (hasFriendlyCaptcha && !signal?.aborted && remaining() > 0) {
     attempted.push("friendly-captcha")
-    if (await solveFriendlyCaptcha(page, perMs).catch(() => false)) solved.push("friendly-captcha")
+    if (await solveFriendlyCaptcha(page, remaining(), signal).catch(() => false)) solved.push("friendly-captcha")
+  }
+
+  if (hasCap && !signal?.aborted && remaining() > 0) {
+    attempted.push("cap")
+    if (await solveCap(page, remaining(), signal).catch(() => false)) solved.push("cap")
   }
 
   if (attempted.length > 0) {

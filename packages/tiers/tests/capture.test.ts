@@ -479,9 +479,9 @@ describe("orchestrator", () => {
     })
 
     expect(tier3Args?.[7]).toBe(validateOutboundUrl)
-    expect(tier3Args?.[9]).toEqual(capture)
+    expect(tier3Args?.[9]).toMatchObject(capture)
     expect(tier4Args?.[7]).toBe(validateOutboundUrl)
-    expect(tier4Args?.[9]).toEqual(capture)
+    expect(tier4Args?.[9]).toMatchObject(capture)
     expect(result.tier).toBe(4)
     expect(result.redirectChain).toEqual(["https://example.com"])
   })

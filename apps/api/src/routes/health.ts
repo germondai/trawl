@@ -22,7 +22,7 @@ export function healthRoute(
     // `live` excludes both restarting entries (no browser attached) and entries whose
     // checkout has outlived the stall threshold, so it cannot be propped up by a wedge.
     // It still counts genuinely in-flight work, so a merely saturated pool won't flap.
-    const ready = Boolean(stats && stats.live > 0)
+    const ready = Boolean(stats && (stats.live > 0 || (stats.sleeping ?? 0) > 0))
     if (!ready) set.status = 503
     const memory = getMemory()
     return {
