@@ -1,4 +1,4 @@
-// Tier 0 — direct TCP/TLS forward to upstream.
+// Tier 0 - direct TCP/TLS forward to upstream.
 //
 // Why: the MITM proxy at :8192 used to spin up a browser for every single
 // request, including Netflix/YouTube/banks that don't need CF bypass. Tier 0
@@ -17,7 +17,8 @@
 import net from "node:net"
 import tls from "node:tls"
 import { brotliDecompressSync, gunzipSync, inflateSync } from "node:zlib"
-import { detectChallengeType, isChallengeWall } from "@trawl/tiers"
+import { anubisInspectionText, detectChallengeType, isChallengeWall } from "@trawl/tiers"
+import { isGoogleSorryRedirect } from "./googleSorry"
 import { shouldStream } from "./streaming"
 
 export interface ForwardResultBuffered {
@@ -39,7 +40,7 @@ export interface ForwardResultStream {
   // The live upstream socket. The caller must pipe this to the client socket
   // and close it when the upstream ends.
   socket: net.Socket
-  // Body bytes the caller should write to the client BEFORE piping the socket —
+  // Body bytes the caller should write to the client BEFORE piping the socket -
   // these arrived in the same TCP segment as the response headers, so the upstream
   // socket hasn't seen them yet. Writing them first preserves byte ordering.
   prefix?: Buffer
@@ -59,7 +60,7 @@ export interface DirectForwardHttpOpts {
   method: string
   headers: Record<string, string>
   body?: Buffer
-  // If true, do NOT challenge-detect the response — just buffer and return.
+  // If true, do NOT challenge-detect the response - just buffer and return.
   // Used by the caller when challengeCache already says this hostname is "cf".
   skipChallengeDetection?: boolean
   // Socket timeout for the upstream connection. Default 30s.
@@ -238,14 +239,16 @@ async function readHttpResponse(
   // Cloudflare defines `cf-mitigated: challenge` as an authoritative Challenge
   // Page signal. Escalate as soon as the headers arrive instead of waiting for
   // an unbounded/keep-alive response body to finish (or hit the 30s socket timeout).
-  // Body-based detection below remains the fallback for challenge variants that
-  // do not send this header.
+  // Google search also redirects to /sorry/ before serving its CAPTCHA page.
+  // Recognize that destination without following it in the direct forwarder.
+  // Body-based detection below remains the fallback for other challenge variants.
   const headerChallengeType = detectChallengeType("", headers, status)
   if (
     !skipChallengeDetection &&
     (headerChallengeType === "cloudflare-interstitial" ||
       headerChallengeType === "aws-waf" ||
-      headerChallengeType === "datadome")
+      headerChallengeType === "datadome" ||
+      isGoogleSorryRedirect(status, headers.location, url))
   ) {
     socket.destroy()
     return {
@@ -529,5 +532,6 @@ function decodeForInspection(body: Buffer, contentEncoding?: string): string {
   } catch {
     // If an upstream mislabeled or truncated the encoding, inspect the raw bytes.
   }
-  return decoded.toString("utf8", 0, Math.min(decoded.length, 65536))
+  const preview = decoded.toString("utf8", 0, Math.min(decoded.length, 65536))
+  return anubisInspectionText(decoded, preview)
 }

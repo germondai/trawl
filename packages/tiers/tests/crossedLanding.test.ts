@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test"
+import type { BrowserHandle } from "@trawl/browser"
 import type { OrchestratorDeps } from "../src/orchestrator"
 import { scrape } from "../src/orchestrator"
 import { createCrossedLandingGuard, hostOf, isSameSite, probeLandingHost } from "../src/utils/crossedLanding"
@@ -157,7 +158,7 @@ describe("crossed-landing guard", () => {
     const slow = Bun.serve({
       port: 0,
       hostname: "127.0.0.1",
-      fetch: async (request) => {
+      fetch: async (request): Promise<Response> => {
         await Bun.sleep(35)
         const url = new URL(request.url)
         if (url.pathname === "/first") return Response.redirect(`http://127.0.0.1:${slow.port}/second`, 302)
@@ -204,10 +205,15 @@ describe("scrape refuses a crossed landing", () => {
   })
 
   test("the refusal is recorded against the tier that produced it", async () => {
-    const attempts: { status: string; reason?: string }[] = []
+    const attempts: { tier: number; durationMs: number; status: string; reason?: string }[] = []
     await scrape(
       { url: requestedUrl, maxTier: 1, ignoreCertificateErrors: true },
-      { ...deps(async () => "localhost"), onTierAttempt: (result) => attempts.push(result) },
+      {
+        ...deps(async () => "localhost"),
+        onTierAttempt: (result) => {
+          attempts.push(result)
+        },
+      },
     ).catch(() => {})
 
     expect(attempts).toEqual([
@@ -237,5 +243,50 @@ describe("scrape refuses a crossed landing", () => {
     expect(result.html).toContain("an unrelated site")
     expect(result.url).toBe(`http://127.0.0.1:${wrongOrigin.port}/landed`)
     expect(probed).toBe(0)
+  })
+
+  test("a refused browser landing names the crossing as the Tier 3 failure, not its success status", async () => {
+    const handle: BrowserHandle = {
+      id: 1,
+      lease: 1,
+      headful: false,
+      context: {},
+      browser: {},
+      fingerprint: { userAgent: "test-agent", platform: "Linux x86_64", locale: "en-US", timezone: "UTC" },
+    }
+    const scraped = scrape(
+      { url: requestedUrl, skipHttp: true, ignoreCertificateErrors: true },
+      { ...deps(async () => "localhost"), acquireBrowser: async () => handle },
+      {
+        tier3: async () => ({
+          tier: 3 as const,
+          status: "success" as const,
+          durationMs: 1,
+          html: OTHER_SITE,
+          effectiveUrl: `http://${landedHost}:${wrongOrigin.port}/landed`,
+          statusCode: 200,
+        }),
+      },
+    )
+
+    await expect(scraped).rejects.toThrow(/^Tier 3 failed \(crossed-landing on 127\.0\.0\.1\)/)
+  })
+
+  test("a Tier 3 success without a page is never reported as failed (success)", async () => {
+    const handle: BrowserHandle = {
+      id: 1,
+      lease: 1,
+      headful: false,
+      context: {},
+      browser: {},
+      fingerprint: { userAgent: "test-agent", platform: "Linux x86_64", locale: "en-US", timezone: "UTC" },
+    }
+    const scraped = scrape(
+      { url: requestedUrl, skipHttp: true },
+      { ...deps(), acquireBrowser: async () => handle },
+      { tier3: async () => ({ tier: 3 as const, status: "success" as const, durationMs: 1, html: "" }) },
+    )
+
+    await expect(scraped).rejects.toThrow(/^Tier 3 failed \(success-without-payload\)/)
   })
 })

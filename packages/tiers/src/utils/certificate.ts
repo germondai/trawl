@@ -2,8 +2,8 @@
 //
 // Bun surfaces OpenSSL's verify result as `err.code` (e.g. `DEPTH_ZERO_SELF_SIGNED_CERT`
 // with message "self signed certificate"); Node-compatible paths add `ERR_TLS_*` codes and
-// sometimes bury the original error one `cause` deep. Matching on the code — not on the
-// prose — keeps "concert", "certainly" and other incidental text out of the classifier.
+// sometimes bury the original error one `cause` deep. Matching on the code - not on the
+// prose - keeps "concert", "certainly" and other incidental text out of the classifier.
 const CERTIFICATE_ERROR_CODES = new Set([
   "CERT_CHAIN_TOO_LONG",
   "CERT_HAS_EXPIRED",
@@ -29,7 +29,7 @@ const CERTIFICATE_ERROR_MESSAGES =
 const MAX_CAUSE_DEPTH = 4
 
 // A certificate failure is one line; a wrapped error can carry a whole stack in its
-// message — keep the first line so the reported reason stays a label, not a dump.
+// message - keep the first line so the reported reason stays a label, not a dump.
 const firstLine = (message: string): string => message.split("\n")[0].trim()
 
 interface ErrorLink {

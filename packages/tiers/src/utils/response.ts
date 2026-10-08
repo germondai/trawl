@@ -1,3 +1,5 @@
+import { normalizeHtml } from "./html"
+
 export interface MinimalResponse {
   url(): string
   status(): number
@@ -23,6 +25,27 @@ export const isHtmlContentType = (contentType: string | undefined): boolean => {
   if (!contentType) return false
   const mediaType = contentType.split(";", 1)[0]?.trim().toLowerCase()
   return mediaType === "text/html" || mediaType === "application/xhtml+xml"
+}
+
+export const decodeTextBody = (body: Uint8Array, contentType: string): string => {
+  const charset = /(?:^|;)\s*charset\s*=\s*(?:"([^"]*)"|'([^']*)'|([^;\s]+))/i.exec(contentType)
+  let decoder: TextDecoder
+  try {
+    decoder = new TextDecoder(charset?.[1] ?? charset?.[2] ?? charset?.[3] ?? "utf-8")
+  } catch {
+    decoder = new TextDecoder("utf-8")
+  }
+  return decoder.decode(body)
+}
+
+export const isNonHtmlTextContentType = (contentType: string | undefined): boolean =>
+  !!contentType && isTextContentType(contentType) && !isHtmlContentType(contentType)
+
+// Use the captured file for non-HTML text; retain the rendered DOM for HTML.
+export const browserDocumentHtml = (contentType: string | undefined, pageHtml: string, body?: Uint8Array): string => {
+  if (contentType && !isTextContentType(contentType)) return ""
+  if (body !== undefined && contentType && !isHtmlContentType(contentType)) return decodeTextBody(body, contentType)
+  return normalizeHtml(pageHtml)
 }
 
 export const captureResponse = async (response?: MinimalResponse): Promise<CapturedResponse> => {

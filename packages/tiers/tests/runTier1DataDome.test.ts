@@ -6,16 +6,7 @@ import {
   DATADOME_JSON_HARD_BLOCK,
   DATADOME_TAGGED_PAGE,
 } from "./fixtures/datadome"
-
-async function withFetch(response: Response, run: () => Promise<void>) {
-  const original = globalThis.fetch
-  ;(globalThis as { fetch: typeof fetch }).fetch = (async () => response) as typeof fetch
-  try {
-    await run()
-  } finally {
-    ;(globalThis as { fetch: typeof fetch }).fetch = original
-  }
-}
+import { withFetch } from "./helpers/fetch"
 
 const html = (body: string, status: number, headers: Record<string, string> = {}) =>
   new Response(body, { status, headers: { "content-type": "text/html", ...headers } })

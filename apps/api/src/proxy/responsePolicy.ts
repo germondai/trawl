@@ -30,9 +30,19 @@ function isHtml(contentType: string): boolean {
   return base === "text/html" || base === "application/xhtml+xml"
 }
 
+function utf8ContentType(contentType: string): string {
+  // Keep other MIME parameters, including quoted values containing semicolons.
+  const parts = contentType.match(/(?:[^;"']|"[^"]*"|'[^']*')+/g) ?? []
+  const retained = parts.map((part) => part.trim()).filter((part, index) => index === 0 || !/^charset\s*=/i.test(part))
+  return `${retained.join("; ")}; charset=utf-8`
+}
+
 export function responseFromScrapeResult(result: ScrapeResult): ProxyBufferedResponse {
-  const contentType = result.contentType ?? result.responseHeaders?.["content-type"] ?? "text/html; charset=utf-8"
-  const useRenderedHtml = isHtml(contentType) && result.html.length > 0
+  const upstreamContentType =
+    result.contentType ?? result.responseHeaders?.["content-type"] ?? "text/html; charset=utf-8"
+  const useRenderedHtml =
+    isHtml(upstreamContentType) && result.html.length > 0 && (result.tier >= 2 || result.body === undefined)
+  const contentType = useRenderedHtml ? utf8ContentType(upstreamContentType) : upstreamContentType
   // Playwright exposes browser response bodies after content decoding while
   // retaining the upstream representation headers. Those headers cannot be
   // forwarded with the decoded bytes. Tier 1, by contrast, carries wire bytes.
@@ -55,7 +65,7 @@ export function responseFromScrapeResult(result: ScrapeResult): ProxyBufferedRes
 }
 
 export function responseFromBlockedEvidence(evidence: BlockedEvidence): ProxyBlockedResponse {
-  const statusCode =
+  let statusCode =
     Number.isInteger(evidence.statusCode) &&
     evidence.statusCode !== undefined &&
     evidence.statusCode >= 200 &&
@@ -63,6 +73,10 @@ export function responseFromBlockedEvidence(evidence: BlockedEvidence): ProxyBlo
     !BODYLESS_STATUS_CODES.has(evidence.statusCode)
       ? evidence.statusCode
       : 403
+
+  if (evidence.reason?.startsWith("anubis-") && statusCode < 400) {
+    statusCode = evidence.status === "timeout" ? 504 : 403
+  }
 
   const headers: Record<string, string> = {
     "content-type": "text/html; charset=utf-8",

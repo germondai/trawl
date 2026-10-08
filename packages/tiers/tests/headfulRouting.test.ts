@@ -55,19 +55,19 @@ describe("headful pool routing", () => {
   test("a DataDome wall in Tier 1 asks for a headful browser", async () => {
     const { deps, acquired } = recordingDeps()
     await scrape({ url: `${baseUrl}/datadome` }, deps).catch(() => {})
-    expect(acquired).toEqual([{ headful: true }])
+    expect(acquired).toEqual([{ headful: true, signal: expect.any(AbortSignal) }])
   })
 
   test("every other wall stays on the headless pool", async () => {
     const { deps, acquired } = recordingDeps()
     await scrape({ url: `${baseUrl}/cloudflare` }, deps).catch(() => {})
-    expect(acquired).toEqual([{ headful: false }])
+    expect(acquired).toEqual([{ headful: false, signal: expect.any(AbortSignal) }])
   })
 
   test("a request that skips Tier 1 cannot know the wall and stays headless", async () => {
     const { deps, acquired } = recordingDeps()
     await scrape({ url: `${baseUrl}/datadome`, skipHttp: true }, deps).catch(() => {})
-    expect(acquired).toEqual([{ headful: false }])
+    expect(acquired).toEqual([{ headful: false, signal: expect.any(AbortSignal) }])
   })
 
   test("retries a late Tier 2 DataDome wall once with a headful lease", async () => {
@@ -200,7 +200,7 @@ describe("headful pool routing", () => {
       proxyPool: {
         next: () => "https://datacenter.test:8443",
         markBad: () => {},
-      } as OrchestratorDeps["proxyPool"],
+      } as unknown as OrchestratorDeps["proxyPool"],
     }
     const result = await scrape({ url: "https://example.test", skipHttp: true, maxTier: 3 }, deps, {
       tier3: async (_url, handle, _timeout, proxy) => {
@@ -225,7 +225,7 @@ describe("headful pool routing", () => {
       residentialProxyPool: {
         next: () => "http://residential.test:8080",
         markBad: () => {},
-      } as OrchestratorDeps["residentialProxyPool"],
+      } as unknown as OrchestratorDeps["residentialProxyPool"],
     }
     const result = await scrape({ url: "https://example.test", skipHttp: true }, deps, {
       tier3: async () => ({ tier: 3, status: "blocked", durationMs: 1, reason: "other-wall" }),

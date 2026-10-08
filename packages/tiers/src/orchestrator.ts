@@ -1,23 +1,32 @@
 import type { BrowserHandle } from "@trawl/browser"
-import { FINGERPRINT, FINGERPRINT_POOL } from "@trawl/browser"
+import { FINGERPRINT, FINGERPRINT_POOL, PoolExhaustedError } from "@trawl/browser"
 import type { BlockedEvidence, Cookie, ScrapeRequest, ScrapeResult, SessionData, TierResult } from "@trawl/types"
-import { runTier1 } from "./tiers/1"
-import { runTier2 } from "./tiers/2"
-import { runTier3 } from "./tiers/3"
+import type { BrowserSessions } from "./browserSessions"
+import { type ExternalCaptchaOptions, ExternalCaptchaSession } from "./solvers/externalCaptcha"
+import { runTier1, type Tier1Result } from "./tiers/1"
+import { runTier2, type Tier2Result } from "./tiers/2"
+import { runTier3, type Tier3Result } from "./tiers/3"
 // Tier 4 (residential proxy) is dynamically imported only when needed.
-import type { runTier4 } from "./tiers/4"
+import type { runTier4, Tier4Result } from "./tiers/4"
+import { anubisOomKills } from "./utils/anubisRetry"
+import { normalizeInputCookies } from "./utils/cookies"
 import { createCrossedLandingGuard, type LandingProbe } from "./utils/crossedLanding"
+import { DeadlineError, RequestBudget } from "./utils/deadline"
 import { normalizeHtml } from "./utils/html"
+import { metaRefreshTarget } from "./utils/metaRefresh"
 import type { ProxyPool } from "./utils/proxyRotator"
-import { requireContentTypeForBody, sanitizeHeaders } from "./utils/sanitize"
+import { isHtmlContentType } from "./utils/response"
+import { RequestValidationError, requireContentTypeForBody, sanitizeHeaders } from "./utils/sanitize"
 
-// Bounds how many distinct proxies a single request will try per tier before giving up —
+// Bounds how many distinct proxies a single request will try per tier before giving up -
 // keeps a long proxy list from blowing the request's maxTimeout budget.
 const MAX_PROXY_ATTEMPTS = 2
 
+type InternalTierResult = Tier1Result | Tier2Result | Tier3Result | Tier4Result
+
 // Carries the per-tier attempt history alongside the failure message, so callers
 // (the API layer) can report exactly which tier failed and why instead of just a
-// flat string — this data already exists in-memory by the time we throw, it just
+// flat string - this data already exists in-memory by the time we throw, it just
 // wasn't reaching anyone outside the orchestrator.
 export class ScrapeError extends Error {
   timings: TierResult[]
@@ -25,21 +34,31 @@ export class ScrapeError extends Error {
   // It rides the error rather than a `blocked` ScrapeResult on purpose: a wall is not a
   // scrape, and callers keyed on the success shape must never be handed one.
   blockedEvidence?: BlockedEvidence
-  constructor(message: string, timings: TierResult[], blockedEvidence?: BlockedEvidence) {
+  captchaDiagnostics?: { kind: string; status: string }[]
+  constructor(
+    message: string,
+    timings: TierResult[],
+    blockedEvidence?: BlockedEvidence,
+    captchaDiagnostics?: { kind: string; status: string }[],
+  ) {
     super(message)
     this.name = "ScrapeError"
     this.timings = timings
     this.blockedEvidence = blockedEvidence
+    this.captchaDiagnostics = captchaDiagnostics
   }
 }
 
 // DataDome Device Check may require a browser running behind a real display. Keep that
 // opt-in capacity separate so ordinary requests stay on the headless pool.
 export interface AcquireOptions {
+  signal?: AbortSignal
   headful?: boolean
+  browserId?: number
 }
 
 export interface OrchestratorDeps {
+  sessions?: BrowserSessions
   acquireBrowser(domain: string, budgetMs?: number, options?: AcquireOptions): Promise<BrowserHandle>
   releaseBrowser(handle: BrowserHandle): void
   loadSession(domain: string): Promise<SessionData | undefined>
@@ -50,6 +69,7 @@ export interface OrchestratorDeps {
   // Deployment-wide lower bound for the escalation ladder. API request flags may
   // raise this floor, but never lower it.
   minTier?: TierResult["tier"]
+  externalCaptcha?: ExternalCaptchaOptions
   onTierAttempt?: (result: TierResult) => void
   validateOutboundUrl?: (url: string) => Promise<void>
   // Resolves the host a plain HTTP fetch of a URL ends on, for the crossed-landing guard.
@@ -61,6 +81,8 @@ export interface OrchestratorDeps {
 }
 
 interface OrchestratorRunners {
+  oomKillCount?: typeof anubisOomKills
+  tier1?: typeof runTier1
   tier2?: typeof runTier2
   tier3?: typeof runTier3
   tier4?: typeof runTier4
@@ -77,15 +99,101 @@ const extractDomain = (url: string): string => {
 const hasUsablePayload = (result: { status: TierResult["status"]; html?: string; body?: Uint8Array }): boolean =>
   result.status === "success" && (result.body !== undefined || Boolean(result.html))
 
+// Why a tier that did not return a page failed. A refused crossing takes precedence; a
+// "success" status without a usable payload is named as such, so a failure message never
+// reads "failed (success)".
+const failureReason = (result: TierResult, crossedHost?: string): string => {
+  if (crossedHost) return `crossed-landing on ${crossedHost}`
+  if (result.reason) return result.reason
+  return result.status === "success" ? "success-without-payload" : result.status
+}
+
 export async function scrape(
   req: ScrapeRequest,
   deps: OrchestratorDeps,
   runners: OrchestratorRunners = {},
 ): Promise<ScrapeResult> {
+  const budget = new RequestBudget(req.maxTimeout ?? 60_000)
+  const attempts: TierResult[] = []
+  let ownedHandle: BrowserHandle | undefined
+  const releaseOwned = (handle: BrowserHandle) => {
+    if (handle !== ownedHandle) return
+    ownedHandle = undefined
+    deps.releaseBrowser(handle)
+  }
+  let acquiring = false
+  let capacityExpired = false
+  const onAbort = () => {
+    capacityExpired = acquiring
+  }
+  budget.signal.addEventListener("abort", onAbort, { once: true })
+  try {
+    return await budget.run(() =>
+      scrapeWithinBudget(
+        req,
+        {
+          ...deps,
+          acquireBrowser: async (...args) => {
+            acquiring = true
+            try {
+              const handle = await deps.acquireBrowser(args[0], args[1], { ...args[2], signal: budget.signal })
+              if (budget.signal.aborted) {
+                deps.releaseBrowser(handle)
+                throw new DeadlineError()
+              }
+              ownedHandle = handle
+              return handle
+            } finally {
+              acquiring = false
+            }
+          },
+          releaseBrowser: releaseOwned,
+          onTierAttempt: (attempt) => {
+            attempts.push(attempt)
+            deps.onTierAttempt?.(attempt)
+          },
+        },
+        runners,
+        budget,
+      ),
+    )
+  } catch (error) {
+    if (error instanceof DeadlineError) {
+      if (ownedHandle) releaseOwned(ownedHandle)
+      if (capacityExpired) throw new PoolExhaustedError()
+      throw new ScrapeError(error.message, attempts)
+    }
+    throw error
+  } finally {
+    budget.signal.removeEventListener("abort", onAbort)
+    budget.dispose()
+  }
+}
+
+async function scrapeWithinBudget(
+  req: ScrapeRequest,
+  deps: OrchestratorDeps,
+  runners: OrchestratorRunners,
+  budget: RequestBudget,
+): Promise<ScrapeResult> {
   const totalStart = Date.now()
+  const namedSession = req.sessionId ? deps.sessions?.options(req.sessionId) : undefined
+  if (req.sessionId && !deps.sessions) throw new RequestValidationError("Browser sessions are unavailable", 503)
+  if (namedSession) {
+    if (req.proxy !== undefined && req.proxy !== namedSession.proxy)
+      throw new RequestValidationError("Session proxy is fixed at creation", 400)
+    if (
+      req.ignoreCertificateErrors !== undefined &&
+      req.ignoreCertificateErrors !== Boolean(namedSession.ignoreCertificateErrors)
+    )
+      throw new RequestValidationError("Session TLS policy is fixed at creation", 400)
+    req = { ...req, proxy: namedSession.proxy, ignoreCertificateErrors: namedSession.ignoreCertificateErrors }
+  }
   const maxTimeout = req.maxTimeout ?? 60_000
   const maxTier = req.maxTier ?? 4
-  const minTier = Math.max(deps.minTier ?? 1, req.skipHttp ? 2 : 1) as TierResult["tier"]
+  if (req.cookies !== undefined) normalizeInputCookies(req.cookies, req.url)
+  const importedCookies = Boolean(req.cookies?.length)
+  const minTier = Math.max(deps.minTier ?? 1, importedCookies ? 3 : req.skipHttp ? 2 : 1) as TierResult["tier"]
   const timings: TierResult[] = []
   const domain = extractDomain(req.url)
   const explicitProxy = req.proxy
@@ -102,10 +210,14 @@ export async function scrape(
   }
 
   // Evidence from the last browser tier that rendered a wall it could not clear. Kept out
-  // of `timings` — that stays the thin, machine-readable attempt history — and reached
+  // of `timings` - that stays the thin, machine-readable attempt history - and reached
   // only via the thrown ScrapeError.
   let blockedEvidence: BlockedEvidence | undefined
   const capture = {
+    cookies: req.cookies,
+    budget,
+    externalCaptcha: deps.externalCaptcha ? new ExternalCaptchaSession(deps.externalCaptcha) : undefined,
+    followMetaRefresh: req.followMetaRefresh,
     screenshotFullPage: req.screenshotFullPage,
     screenshotWaitForSelector: req.screenshotWaitForSelector,
     screenshotSelector: req.screenshotSelector,
@@ -131,7 +243,7 @@ export async function scrape(
   const sanitizedHeaders = sanitizeHeaders(req.headers)
   requireContentTypeForBody(sanitizedHeaders, Boolean(req.body))
 
-  const emit = (r: TierResult) => {
+  const emit = (r: InternalTierResult) => {
     const publicResult: TierResult = {
       tier: r.tier,
       status: r.status,
@@ -188,7 +300,80 @@ export async function scrape(
         : message,
       timings,
       blockedEvidence,
+      capture.externalCaptcha?.diagnostics(),
     )
+
+  if (req.sessionId) {
+    if (maxTier < 3) throw new RequestValidationError("Browser sessions require maxTier >= 3", 400)
+    if (minTier === 4 && !namedSession?.proxy)
+      throw new RequestValidationError("Minimum tier 4 requires a proxy set on session creation", 400)
+    const sessions = deps.sessions
+    if (!sessions) throw new RequestValidationError("Browser sessions are unavailable", 503)
+    return sessions.use(req.sessionId, domain, budget, async (handle, context, storage) => {
+      const sessionCapture = {
+        ...capture,
+        sessionContext: context,
+        sessionStorage: storage,
+      }
+      const result =
+        minTier === 4
+          ? await (runners.tier4 ?? (await import("./tiers/4")).runTier4)(
+              req.url,
+              handle,
+              budget.remaining(),
+              req.proxy as string,
+              sanitizedHeaders,
+              req.method,
+              req.body,
+              deps.validateOutboundUrl,
+              req.screenshot,
+              sessionCapture,
+              ignoreCertificateErrors,
+            )
+          : await (runners.tier3 ?? runTier3)(
+              req.url,
+              handle,
+              budget.remaining(),
+              namedSession?.proxy,
+              sanitizedHeaders,
+              req.method,
+              req.body,
+              deps.validateOutboundUrl,
+              req.screenshot,
+              sessionCapture,
+              ignoreCertificateErrors,
+            )
+      const crossed = hasUsablePayload(result)
+        ? await refuseCrossed(result.effectiveUrl, result.userAgent, namedSession?.proxy)
+        : undefined
+      emit(crossed ? crossedTiming(result, crossed) : result)
+      if (!hasUsablePayload(result) || crossed) throw failure(result.reason ?? "Session scrape failed")
+      return {
+        url: result.effectiveUrl ?? req.url,
+        html: normalizeHtml(result.html ?? ""),
+        cookies: result.cookies ?? [],
+        userAgent: result.userAgent ?? handle.fingerprint.userAgent,
+        statusCode: result.statusCode ?? 200,
+        tier: result.tier,
+        sessionCached: false,
+        timings,
+        totalMs: Date.now() - totalStart,
+        proxyUsed: Boolean(namedSession?.proxy),
+        captchasSolved: result.captchasSolved,
+        captchaDiagnostics: capture.externalCaptcha?.diagnostics(),
+        body: result.body,
+        responseHeaders: result.responseHeaders,
+        contentType: result.contentType,
+        screenshot: result.screenshot,
+        consoleLogs: result.consoleLogs,
+        networkLogs: result.networkLogs,
+        redirectChain: result.redirectChain,
+        capturedResponses: result.capturedResponses,
+        favicons: result.favicons,
+        mhtml: result.mhtml,
+      }
+    })
+  }
 
   // Tier 1 is the only look at the wall that happens before a browser is checked out, so
   // it is also the only chance to pick the right kind of browser for the tiers below.
@@ -199,7 +384,8 @@ export async function scrape(
     // Tier 1 has no browser handle, so select its identity up front and use the
     // same UA for both the outbound request and the public result.
     const tier1Fingerprint = FINGERPRINT_POOL[Math.floor(Math.random() * FINGERPRINT_POOL.length)] ?? FINGERPRINT
-    const t1 = await runTier1(
+    const tier1Runner = runners.tier1 ?? runTier1
+    const t1 = await tier1Runner(
       req.url,
       { ...sanitizedHeaders, "User-Agent": tier1Fingerprint.userAgent },
       req.method,
@@ -208,7 +394,26 @@ export async function scrape(
       deps.validateOutboundUrl,
       ignoreCertificateErrors,
       trustedProxyCa,
+      budget.signal,
     )
+    if (req.followMetaRefresh && t1.status === "success" && t1.html && isHtmlContentType(t1.contentType)) {
+      const refresh = await metaRefreshTarget(t1.html, t1.effectiveUrl ?? req.url)
+      if (refresh) {
+        t1.status = "needs-js"
+        t1.reason = "meta-refresh-needs-browser"
+      }
+    }
+    if (
+      t1.status === "success" &&
+      t1.html &&
+      isHtmlContentType(t1.contentType) &&
+      deps.externalCaptcha?.profiles?.some(
+        (profile) => profile.hostname === new URL(t1.effectiveUrl ?? req.url).hostname,
+      )
+    ) {
+      t1.status = "needs-js"
+      t1.reason = "external-captcha-profile-needs-browser"
+    }
     if (ignoreCertificateErrors) certificateError = t1.certificateError
     const crossed1 = hasUsablePayload(t1)
       ? await refuseCrossed(t1.effectiveUrl, tier1Fingerprint.userAgent, tier1Proxy)
@@ -242,6 +447,7 @@ export async function scrape(
     throw failure("Max tier reached without success")
   }
 
+  budget.check()
   // Acquire browser for tiers 2-4
   // Pass our own budget so the pool's stall detector doesn't reclaim this browser
   // while the request is still inside the time the caller asked for.
@@ -254,6 +460,25 @@ export async function scrape(
     handleReleased = true
     handle = await deps.acquireBrowser(domain, Math.max(maxTimeout - (Date.now() - totalStart), 0), { headful: true })
     handleReleased = false
+  }
+
+  // A Camoufox content process can crash while running Anubis workers. Retry
+  // once in a new context on the same proxy, only for safe requests and within
+  // the original budget. A browser failure does not make a proxy unhealthy.
+  const oomKillCount = runners.oomKillCount ?? anubisOomKills
+  const initialOomKills = oomKillCount()
+  let anubisCrashRetried = false
+  const retryAnubisCrash = (result: TierResult): boolean => {
+    if (anubisCrashRetried || result.status !== "error" || result.reason !== "anubis-browser-closed") return false
+    if (req.method && req.method !== "GET" && req.method !== "HEAD") return false
+    if (Date.now() - totalStart >= maxTimeout) return false
+    if (typeof handle.browser.isConnected === "function" && !handle.browser.isConnected()) return false
+    const currentOomKills = oomKillCount()
+    if (initialOomKills !== undefined && currentOomKills !== undefined && currentOomKills !== initialOomKills)
+      return false
+    anubisCrashRetried = true
+    emit(result)
+    return true
   }
 
   try {
@@ -321,6 +546,7 @@ export async function scrape(
           timings,
           totalMs: Date.now() - totalStart,
           captchasSolved: t2.captchasSolved,
+          captchaDiagnostics: capture.externalCaptcha?.diagnostics(),
           proxyUsed: false,
           certificateError,
           body: t2.body,
@@ -335,7 +561,7 @@ export async function scrape(
           mhtml: t2.mhtml,
         }
       }
-      // Session failed — purge it
+      // Session failed - purge it
       await deps.invalidateSession(domain)
     }
 
@@ -353,6 +579,7 @@ export async function scrape(
       let proxy3 = req.proxy ?? deps.proxyPool?.next(domain) ?? undefined
       let t3: Awaited<ReturnType<typeof runTier3>>
       for (let attempt = 0; ; attempt++) {
+        budget.check()
         const remaining3 = maxTimeout - (Date.now() - totalStart)
         const tier3Runner = runners.tier3 ?? runTier3
         t3 = await tier3Runner(
@@ -385,6 +612,10 @@ export async function scrape(
           )
         }
 
+        if (retryAnubisCrash(t3)) {
+          attempt--
+          continue
+        }
         const pool = deps.proxyPool
         if (t3.status !== "blocked" || req.proxy || !proxy3 || !pool || attempt + 1 >= MAX_PROXY_ATTEMPTS) break
         pool.markBad(proxy3)
@@ -399,7 +630,7 @@ export async function scrape(
       emit(crossed3 ? crossedTiming(t3, crossed3) : t3)
       if (hasUsablePayload(t3) && !crossed3) {
         const cookies: Cookie[] = t3.cookies ?? []
-        if (cookies.length > 0 && !explicitProxy) {
+        if (cookies.length > 0 && !explicitProxy && !importedCookies) {
           await deps.saveSession(domain, {
             cookies,
             userAgent: t3.userAgent ?? handle.fingerprint.userAgent,
@@ -417,6 +648,7 @@ export async function scrape(
           timings,
           totalMs: Date.now() - totalStart,
           captchasSolved: t3.captchasSolved,
+          captchaDiagnostics: capture.externalCaptcha?.diagnostics(),
           proxyUsed: Boolean(proxy3),
           certificateError,
           body: t3.body,
@@ -431,14 +663,14 @@ export async function scrape(
           mhtml: t3.mhtml,
         }
       }
-      tier3Failure = t3.reason ?? t3.status
+      tier3Failure = failureReason(t3, crossed3)
     }
 
     if (maxTier < 4) {
       throw failure("Max tier reached without success")
     }
 
-    // Tier 4: residential proxy escalation — requires at least one residential proxy,
+    // Tier 4: residential proxy escalation - requires at least one residential proxy,
     // supplied either per-request (req.proxy) or via the configured residential pool.
     let proxy4 = forcedTier4Proxy ?? req.proxy ?? deps.residentialProxyPool?.next(domain)
     if (!proxy4) {
@@ -453,6 +685,7 @@ export async function scrape(
     const runTier4Lazy = runners.tier4 ?? (await import("./tiers/4")).runTier4
     for (let attempt = 0; ; attempt++) {
       console.log(`[orchestrator] Tier 4 via residential proxy: ${proxy4.replace(/\/\/[^@]*@/, "//**@")}`)
+      budget.check()
       const remaining4 = maxTimeout - (Date.now() - totalStart)
       t4 = await runTier4Lazy(
         req.url,
@@ -484,6 +717,10 @@ export async function scrape(
         )
       }
 
+      if (retryAnubisCrash(t4)) {
+        attempt--
+        continue
+      }
       const pool = deps.residentialProxyPool
       if (t4.status !== "blocked" || req.proxy || !pool || attempt + 1 >= MAX_PROXY_ATTEMPTS) break
       pool.markBad(proxy4)
@@ -495,7 +732,7 @@ export async function scrape(
     emit(crossed4 ? crossedTiming(t4, crossed4) : t4)
     if (hasUsablePayload(t4) && !crossed4) {
       const cookies: Cookie[] = t4.cookies ?? []
-      if (cookies.length > 0 && !explicitProxy) {
+      if (cookies.length > 0 && !explicitProxy && !importedCookies) {
         await deps.saveSession(domain, {
           cookies,
           userAgent: t4.userAgent ?? handle.fingerprint.userAgent,
@@ -513,6 +750,7 @@ export async function scrape(
         timings,
         totalMs: Date.now() - totalStart,
         captchasSolved: t4.captchasSolved,
+        captchaDiagnostics: capture.externalCaptcha?.diagnostics(),
         proxyUsed: true,
         certificateError,
         body: t4.body,
@@ -528,7 +766,7 @@ export async function scrape(
       }
     }
 
-    throw failure(`All tiers exhausted. Last failure: ${t4.reason ?? t4.status}`)
+    throw failure(`All tiers exhausted. Last failure: ${failureReason(t4, crossed4)}`)
   } finally {
     if (!handleReleased) deps.releaseBrowser(handle)
   }

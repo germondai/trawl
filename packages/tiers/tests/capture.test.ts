@@ -9,12 +9,13 @@ import type { runTier4 } from "../src/tiers/4"
 import { attachPageCapture } from "../src/utils/capture"
 import { captureLimit } from "../src/utils/captureConfig"
 import { MainDocumentResponseTracker } from "../src/utils/mainResponse"
+import { ProxyPool } from "../src/utils/proxyRotator"
 
 const PAGE_HTML = `<html><head><title>Ordinary Page</title></head><body>${"content ".repeat(20)}</body></html>`
 
 const session: SessionData = { cookies: [], userAgent: "cached-user-agent", savedAt: 1 }
 
-const fingerprint = { userAgent: "test-agent", platform: "Linux x86_64", locale: "en-US", timezone: "UTC" }
+const fingerprint = { userAgent: "test-agent", platform: "Linux x86_64" as const, locale: "en-US", timezone: "UTC" }
 
 const mainFrame = {}
 const iframe = {}
@@ -100,6 +101,7 @@ const poolHandle = (page: unknown): BrowserHandle =>
   ({
     id: 1,
     lease: 1,
+    headful: false,
     context: { newPage: async () => page, addCookies: async () => {}, cookies: async () => [] },
     browser: {},
     fingerprint,
@@ -456,7 +458,7 @@ describe("orchestrator", () => {
       ...depsFor(page),
       loadSession: async () => undefined,
       validateOutboundUrl,
-      residentialProxyPool: { next: () => "http://residential.example:8080", markBad: () => {} },
+      residentialProxyPool: new ProxyPool(["http://residential.example:8080"]),
     }
 
     const result = await scrape({ url: "https://example.com", skipHttp: true, maxTimeout: 4_000, ...capture }, deps, {
@@ -479,9 +481,9 @@ describe("orchestrator", () => {
     })
 
     expect(tier3Args?.[7]).toBe(validateOutboundUrl)
-    expect(tier3Args?.[9]).toEqual(capture)
+    expect(tier3Args?.[9]).toMatchObject(capture)
     expect(tier4Args?.[7]).toBe(validateOutboundUrl)
-    expect(tier4Args?.[9]).toEqual(capture)
+    expect(tier4Args?.[9]).toMatchObject(capture)
     expect(result.tier).toBe(4)
     expect(result.redirectChain).toEqual(["https://example.com"])
   })

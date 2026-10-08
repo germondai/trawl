@@ -71,6 +71,7 @@ services:
       MITM_CA_DIR: ${MITM_CA_DIR:-/data/proxy-ca}
       MITM_MAX_TIER: ${MITM_MAX_TIER:-4}
       MITM_ALWAYS_SCRAPE: ${MITM_ALWAYS_SCRAPE:-false}
+      MITM_ESCALATE_429: ${MITM_ESCALATE_429:-false}
       MITM_DEBUG: ${MITM_DEBUG:-false}
     volumes:
       - trawl_proxy_ca:${MITM_CA_DIR:-/data/proxy-ca}

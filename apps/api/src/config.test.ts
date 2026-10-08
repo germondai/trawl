@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test"
 
 type ConfigSnapshot = {
+  userPrefs: Record<string, string | number | boolean>
   redisUrl: string | null
   sessionCacheDriver: string
   redisSessionTtlSeconds: number
   memorySessionCacheMaxEntries: number
   poolSize: number
   maxContentProcesses: number
+  hardwareConcurrency: number | null
   acquireTimeoutMs: number
   recycleAfterContexts: number
   headfulPoolSize: number
@@ -17,6 +19,7 @@ type ConfigSnapshot = {
   launchTimeoutMs: number
   port: number
   mitmPort: number
+  mitmEscalate429: boolean
 }
 
 const readConfig = (overrides: Record<string, string>): ConfigSnapshot => {
@@ -24,11 +27,13 @@ const readConfig = (overrides: Record<string, string>): ConfigSnapshot => {
     const config = await import("./config.ts")
     console.log(JSON.stringify({
       redisUrl: config.REDIS_URL ?? null,
+      userPrefs: config.USER_PREFS,
       sessionCacheDriver: config.SESSION_CACHE_DRIVER,
       redisSessionTtlSeconds: config.REDIS_SESSION_TTL_SECONDS,
       memorySessionCacheMaxEntries: config.MEMORY_SESSION_CACHE_MAX_ENTRIES,
       poolSize: config.POOL_SIZE,
       maxContentProcesses: config.BROWSER_MAX_CONTENT_PROCESSES,
+      hardwareConcurrency: config.BROWSER_HARDWARE_CONCURRENCY ?? null,
       acquireTimeoutMs: config.ACQUIRE_TIMEOUT_MS,
       recycleAfterContexts: config.RECYCLE_AFTER_TEMPORARY_CONTEXTS,
       headfulPoolSize: config.HEADFUL_POOL_SIZE,
@@ -39,18 +44,26 @@ const readConfig = (overrides: Record<string, string>): ConfigSnapshot => {
       launchTimeoutMs: config.LAUNCH_TIMEOUT_MS,
       port: config.PORT,
       mitmPort: config.MITM_PORT,
+      mitmEscalate429: config.MITM_ESCALATE_429,
     }))
   `
   const result = Bun.spawnSync({
     cmd: [process.execPath, "-e", script],
     cwd: import.meta.dir,
-    env: { ...process.env, ...overrides },
+    env: { ...process.env, MITM_ESCALATE_429: "", BROWSER_HARDWARE_CONCURRENCY: "", USER_PREFS: "", ...overrides },
   })
   expect(result.exitCode).toBe(0)
   return JSON.parse(result.stdout.toString()) as ConfigSnapshot
 }
 
 describe("environment configuration", () => {
+  test.each(["", "false", "0", "invalid"])("keeps 429 escalation disabled for %s", (value) => {
+    expect(readConfig({ MITM_ESCALATE_429: value }).mitmEscalate429).toBe(false)
+  })
+  test.each(["true", "TRUE", "1", "yes"])("enables 429 escalation for %s", (value) => {
+    expect(readConfig({ MITM_ESCALATE_429: value }).mitmEscalate429).toBe(true)
+  })
+
   test("reads the renamed variables and trims REDIS_URL", () => {
     expect(
       readConfig({
@@ -72,12 +85,14 @@ describe("environment configuration", () => {
         MITM_PORT: "9001",
       }),
     ).toEqual({
+      userPrefs: {},
       redisUrl: "redis://cache.test:6379/2",
       sessionCacheDriver: "memory",
       redisSessionTtlSeconds: 7200,
       memorySessionCacheMaxEntries: 250,
       poolSize: 4,
       maxContentProcesses: 3,
+      hardwareConcurrency: null,
       acquireTimeoutMs: 12000,
       recycleAfterContexts: 0,
       headfulPoolSize: 2,
@@ -88,6 +103,7 @@ describe("environment configuration", () => {
       launchTimeoutMs: 45000,
       port: 9000,
       mitmPort: 9001,
+      mitmEscalate429: false,
     })
   })
 
@@ -114,12 +130,14 @@ describe("environment configuration", () => {
         MITM_PORT: "0",
       }),
     ).toEqual({
+      userPrefs: {},
       redisUrl: null,
       sessionCacheDriver: "redis",
       redisSessionTtlSeconds: 3600,
       memorySessionCacheMaxEntries: 1000,
       poolSize: 1,
       maxContentProcesses: 2,
+      hardwareConcurrency: null,
       acquireTimeoutMs: 15000,
       recycleAfterContexts: 8,
       headfulPoolSize: 0,
@@ -130,6 +148,7 @@ describe("environment configuration", () => {
       launchTimeoutMs: 90000,
       port: 8191,
       mitmPort: 8192,
+      mitmEscalate429: false,
     })
   })
 
@@ -178,4 +197,84 @@ describe("environment configuration", () => {
     expect(result.exitCode).not.toBe(0)
     expect(result.stderr.toString()).toContain("METRICS_DASHBOARD_TOKEN must be at least 32 characters")
   })
+})
+
+test("browser worker sizing is optional and rejects invalid values", async () => {
+  const { parseBrowserHardwareConcurrency } = await import("./config")
+  expect(parseBrowserHardwareConcurrency(undefined)).toBeUndefined()
+  expect(parseBrowserHardwareConcurrency(" ")).toBeUndefined()
+  expect(readConfig({ BROWSER_HARDWARE_CONCURRENCY: "4" }).hardwareConcurrency).toBe(4)
+  for (const value of ["0", "-1", "1.5", "65", "NaN", "Infinity"]) {
+    expect(() => parseBrowserHardwareConcurrency(value)).toThrow("BROWSER_HARDWARE_CONCURRENCY")
+  }
+})
+
+describe("Firefox user preferences", () => {
+  test.each(["", "  ", "{}"])("keeps preferences empty for %s", (value) => {
+    expect(readConfig({ USER_PREFS: value }).userPrefs).toEqual({})
+  })
+
+  test("accepts Firefox preference values without changing them", () => {
+    const prefs = {
+      "network.dns.blockDotOnion": false,
+      "test.string": "value",
+      "test.empty": "",
+      "test.integer": 7,
+      "test.min": -2147483648,
+      "test.max": 2147483647,
+    }
+    expect(readConfig({ USER_PREFS: JSON.stringify(prefs) }).userPrefs).toEqual(prefs)
+  })
+
+  test.each([
+    "{",
+    "null",
+    "[]",
+    "true",
+    '{"bad":null}',
+    '{"bad":[]}',
+    '{"bad":{}}',
+    '{"bad":0.5}',
+    '{"bad":2147483648}',
+    '{"bad":-2147483649}',
+    '{"bad":1e400}',
+  ])("rejects unsupported USER_PREFS %s at startup", (value) => {
+    const result = Bun.spawnSync({
+      cmd: [process.execPath, "-e", 'await import("./config.ts")'],
+      cwd: import.meta.dir,
+      env: { ...process.env, USER_PREFS: value },
+    })
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr.toString()).toContain("USER_PREFS")
+  })
+})
+
+test("ad blocking stays enabled by default and can be disabled explicitly", () => {
+  const setting = (value: string) => {
+    const result = Bun.spawnSync({
+      cmd: [process.execPath, "-e", 'console.log((await import("./config.ts")).BROWSER_BLOCK_ADS)'],
+      cwd: import.meta.dir,
+      env: { ...process.env, BROWSER_BLOCK_ADS: value },
+    })
+    expect(result.exitCode, result.stderr.toString()).toBe(0)
+    return result.stdout.toString().trim()
+  }
+  for (const value of ["", "true", "invalid"]) expect(setting(value)).toBe("true")
+  for (const value of ["false", "0", " NO "]) expect(setting(value)).toBe("false")
+}, 10000)
+
+test.each([
+  ["", "0"],
+  ["300000", "300000"],
+  ["-1", "0"],
+  ["1.5", "0"],
+  ["invalid", "0"],
+])("idle retirement parses %s as %s milliseconds", (value, expected) => {
+  const result = Bun.spawnSync({
+    cmd: [process.execPath, "-e", 'console.log((await import("./config.ts")).BROWSER_IDLE_TIMEOUT_MS)'],
+    cwd: import.meta.dir,
+    env: { ...process.env, BROWSER_IDLE_TIMEOUT_MS: value },
+  })
+  expect(result.exitCode, result.stderr.toString()).toBe(0)
+  expect(result.stdout.toString().trim()).toBe(expected)
 })

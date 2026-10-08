@@ -56,7 +56,7 @@ describe("explicit proxy routing", () => {
     globalThis.fetch = (async () => {
       fetchCalls++
       throw new Error("direct fetch must not run")
-    }) as typeof fetch
+    }) as unknown as typeof fetch
     try {
       await expect(
         scrape(
@@ -351,7 +351,10 @@ describe("explicit proxy routing", () => {
       saveSession: async () => {
         saveCalls++
       },
-      proxyPool: { next: () => "http://pool.example:8080", markBad: () => {} } as OrchestratorDeps["proxyPool"],
+      proxyPool: {
+        next: () => "http://pool.example:8080",
+        markBad: () => {},
+      } as unknown as OrchestratorDeps["proxyPool"],
     })
 
     const result = await scrape({ url: "https://target.example", skipHttp: true, maxTier: 3 }, deps, {

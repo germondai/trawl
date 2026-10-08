@@ -9,16 +9,7 @@ import {
   needsJs,
 } from "../src/utils/detect"
 import { DUCKDUCKGO_ANOMALY_CHALLENGE, DUCKDUCKGO_SEARCH_PAGE } from "./fixtures/duckduckgo"
-
-async function withFetch(response: Response, run: () => Promise<void>) {
-  const original = globalThis.fetch
-  ;(globalThis as { fetch: typeof fetch }).fetch = (async () => response) as typeof fetch
-  try {
-    await run()
-  } finally {
-    ;(globalThis as { fetch: typeof fetch }).fetch = original
-  }
-}
+import { withFetch } from "./helpers/fetch"
 
 const htmlResponse = (body: string, status: number, headers: Record<string, string> = {}) =>
   new Response(body, { status, headers: { "content-type": "text/html", ...headers } })

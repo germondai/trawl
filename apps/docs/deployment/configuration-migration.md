@@ -1,9 +1,32 @@
 ---
 title: Configuration Migration
-description: Breaking environment-variable and Docker build-argument renames introduced in TRAWL v1.5.0.
+description: Upgrade notes and environment-variable changes across TRAWL releases.
 ---
 
 # Configuration migration
+
+## Upgrading from v1.7.0 to v1.8.0
+
+No environment-variable renames are required for this upgrade. Keep the existing
+Redis data and metrics volume mounted: solved clearance sessions remain reusable,
+and the dashboard retains its request history. Back up persisted data before upgrading.
+
+Named [browser sessions](/api-reference/browser-sessions) are separate from the
+Redis clearance cache. They live in the API process and do not survive a restart.
+Clients must recreate and authenticate them after a restart or a 404/410 response.
+The memory guard can also invalidate them under pressure; a 1 GiB limit does not
+guarantee retention of authenticated sessions.
+
+The [external CAPTCHA solver](/getting-started/configuration#optional-external-captcha-solver)
+is disabled by default. Built-in solving does not require a paid API key. Specialized
+external tasks require target-specific profiles; real paid-service acceptance has
+not been verified.
+
+Browser resource controls are optional. Ad blocking stays enabled, idle retirement
+stays disabled, and no CAPTCHA solver or resource profile is enabled automatically.
+See [configuration](/getting-started/configuration) before changing these settings.
+
+## Migration from versions before v1.5.0
 
 TRAWL v1.5.0 reorganizes configuration into short, subsystem-specific namespaces. The old
 names are not retained as aliases: update `.env`, Compose overrides, container manifests, secrets,

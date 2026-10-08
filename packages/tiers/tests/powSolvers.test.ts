@@ -12,6 +12,7 @@ import {
   needsJs,
 } from "../src/utils/detect"
 import { ALTCHA_WIDGET_HTML, FRIENDLY_CAPTCHA_V2_HTML, FRIENDLY_CAPTCHA_WIDGET_HTML } from "./fixtures/pow"
+import { withFetch } from "./helpers/fetch"
 
 describe("provider-specific proof-of-work widget detection", () => {
   test("classifies ALTCHA as an embedded JS widget, not a blocking wall", () => {
@@ -231,16 +232,6 @@ describe("in-page proof-of-work widget solvers", () => {
 })
 
 describe("Tier 1 widget escalation", () => {
-  async function withFetch(response: Response, run: () => Promise<void>) {
-    const original = globalThis.fetch
-    ;(globalThis as { fetch: typeof fetch }).fetch = (async () => response) as typeof fetch
-    try {
-      await run()
-    } finally {
-      ;(globalThis as { fetch: typeof fetch }).fetch = original
-    }
-  }
-
   test("escalates ALTCHA and Friendly Captcha shells to browser tiers", async () => {
     for (const [html, challenge, reason] of [
       [ALTCHA_WIDGET_HTML, "altcha", "altcha-shell"],

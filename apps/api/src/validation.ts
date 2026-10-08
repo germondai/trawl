@@ -4,6 +4,7 @@ import {
   requireContentTypeForBody,
   SUPPORTED_METHODS,
   sanitizeHeaders,
+  validateSessionId,
 } from "@trawl/tiers"
 import type { FlareSolverrRequest, ScrapeRequest } from "@trawl/types"
 
@@ -29,12 +30,30 @@ export function requestUrl(body: unknown): string {
 
 export function validateFlareSolverrRequest(body: unknown): asserts body is FlareSolverrRequest {
   requireRequestRecord(body)
-  requireUrl(body)
+  if (typeof body.cmd === "string" && body.cmd.startsWith("sessions.")) {
+    if (body.session !== undefined) validateSessionId(body.session)
+    if (body.cmd === "sessions.destroy" && body.session === undefined) validateSessionId(body.session)
+  } else {
+    requireUrl(body)
+    if (body.session !== undefined) validateSessionId(body.session)
+    if (
+      body.session_ttl_minutes !== undefined &&
+      (typeof body.session_ttl_minutes !== "number" ||
+        !Number.isFinite(body.session_ttl_minutes) ||
+        body.session_ttl_minutes < 0 ||
+        !Number.isFinite(body.session_ttl_minutes * 60_000))
+    )
+      throw new RequestValidationError("session_ttl_minutes must be a non-negative finite number", 400)
+    for (const field of ["returnOnlyCookies", "returnScreenshot"] as const)
+      if (body[field] !== undefined && typeof body[field] !== "boolean")
+        throw new RequestValidationError(`${field} must be a boolean`, 400)
+  }
 }
 
 export function validateScrapeRequest(body: unknown): asserts body is ScrapeRequest {
   requireRequestRecord(body)
   requireUrl(body)
+  if (body.sessionId !== undefined) validateSessionId(body.sessionId)
   const req = body as RequestRecord & Partial<ScrapeRequest>
   if (!isValidMethod(req.method)) {
     throw new RequestValidationError(
@@ -91,6 +110,7 @@ export function validateScrapeRequest(body: unknown): asserts body is ScrapeRequ
     "blockedEvidence",
     "mhtml",
     "ignoreCertificateErrors",
+    "followMetaRefresh",
     "favicons",
   ] as const) {
     if (req[field] !== undefined && typeof req[field] !== "boolean") {

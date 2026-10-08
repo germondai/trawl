@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"
 import { Readability } from "@mozilla/readability"
 import { PoolExhaustedError } from "@trawl/browser"
-import { RequestValidationError, ScrapeError, scrape } from "@trawl/tiers"
+import { isHtmlContentType, RequestValidationError, ScrapeError, scrape } from "@trawl/tiers"
 import type { ScrapeRequest, ScrapeResult } from "@trawl/types"
 import { Elysia } from "elysia"
 import { parseHTML } from "linkedom"
@@ -21,6 +21,7 @@ export const MCP_READ_MAX_CHARS = 100_000
 
 type McpScrapeInput = Pick<
   ScrapeRequest,
+  | "sessionId"
   | "url"
   | "maxTimeout"
   | "maxTier"
@@ -46,6 +47,11 @@ interface McpRouteOptions {
 const tierSchema = z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)])
 const browserTierSchema = z.union([z.literal(2), z.literal(3), z.literal(4)])
 const baseInputShape = {
+  sessionId: z
+    .string()
+    .regex(/^[a-zA-Z0-9_-]{1,128}$/)
+    .optional()
+    .describe("Existing browser session created through POST /sessions"),
   url: z.string().min(1).describe("Public HTTP(S) URL"),
   maxTimeout: z.number().int().positive().optional().describe("Maximum operation time in milliseconds"),
   maxTier: tierSchema.optional().describe("Highest anti-bot tier TRAWL may use"),
@@ -247,21 +253,27 @@ function createServer(poolReady: () => boolean, runScrape: RunScrape, metricsSto
     async ({ format = "markdown", maxCharacters = MCP_HTML_MAX_CHARS, ...input }) => {
       try {
         const result = await runSafe(input)
-        const readable = extractReadable(result.html, result.url, format)
-        const truncated = readable.text.length > maxCharacters
-        const text = readable.text.slice(0, maxCharacters)
+        // Plain-text documents have no article to extract;
+        // readability parsing would mangle them, so pass the text through untouched.
+        const article = isHtmlContentType(contentType(result))
+          ? extractReadable(result.html, result.url, format)
+          : undefined
+        const title = article?.title ?? result.url
+        const fullText = article?.text ?? result.html
+        const truncated = fullText.length > maxCharacters
+        const text = fullText.slice(0, maxCharacters)
         return {
           content: [{ type: "text", text }],
           structuredContent: {
             ...metadata(result),
-            title: readable.title,
+            title,
             format,
             characters: text.length,
             truncated,
-            ...(readable.byline ? { byline: readable.byline } : {}),
-            ...(readable.excerpt ? { excerpt: readable.excerpt } : {}),
-            ...(readable.siteName ? { siteName: readable.siteName } : {}),
-            ...(readable.language ? { language: readable.language } : {}),
+            ...(article?.byline ? { byline: article.byline } : {}),
+            ...(article?.excerpt ? { excerpt: article.excerpt } : {}),
+            ...(article?.siteName ? { siteName: article.siteName } : {}),
+            ...(article?.language ? { language: article.language } : {}),
           },
         }
       } catch (error) {

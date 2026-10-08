@@ -2,6 +2,7 @@ import { rootCertificates } from "node:tls"
 import { brotliDecompressSync, gunzipSync, inflateSync, zstdDecompressSync } from "node:zlib"
 import { FINGERPRINT } from "@trawl/browser"
 import type { TierResult } from "@trawl/types"
+import { anubisInspectionText, detectAnubisPage } from "../utils/anubis"
 import { describeCertificateError, isCertificateError } from "../utils/certificate"
 import type { ChallengeType } from "../utils/detect"
 import {
@@ -19,10 +20,11 @@ import {
   isBlocked,
   isCloudflarePage,
 } from "../utils/detect"
+import { isGoogleSorryUrl } from "../utils/googleSorry"
 import { normalizeHtml } from "../utils/html"
 import type { OutboundUrlValidator } from "../utils/outboundPolicy"
 import { normalizeProxyError, proxyResponseFailure } from "../utils/proxyFailure"
-import { isTextContentType } from "../utils/response"
+import { decodeTextBody, isHtmlContentType, isTextContentType } from "../utils/response"
 
 export interface Tier1Result extends TierResult {
   tier: 1
@@ -78,6 +80,7 @@ export async function runTier1(
   validateOutboundUrl?: OutboundUrlValidator,
   ignoreCertificateErrors?: boolean,
   trustedProxyCa?: string,
+  signal?: AbortSignal,
 ): Promise<Tier1Result> {
   const start = Date.now()
   let certificateError: string | undefined
@@ -85,11 +88,15 @@ export async function runTier1(
     const m = (method ?? "GET").toUpperCase()
     const headers = {
       "User-Agent": FINGERPRINT.userAgent,
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       "Accept-Language": "en-US,en;q=0.9",
-      "Accept-Encoding": "gzip, deflate, br",
-      "Cache-Control": "no-cache",
-      Pragma: "no-cache",
+      "Accept-Encoding": "gzip, deflate, br, zstd",
+      "Upgrade-Insecure-Requests": "1",
+      "Sec-Fetch-Dest": "document",
+      "Sec-Fetch-Mode": "navigate",
+      "Sec-Fetch-Site": "none",
+      "Sec-Fetch-User": "?1",
+      Priority: "u=0, i",
       ...extraHeaders,
     }
     let currentUrl = url
@@ -100,6 +107,7 @@ export async function runTier1(
       await validateOutboundUrl?.(currentUrl)
       const fetchHop = (insecure: boolean) =>
         fetch(currentUrl, {
+          signal,
           method: currentMethod,
           body: currentBody,
           headers,
@@ -188,6 +196,37 @@ export async function runTier1(
     const previewLen = Math.min(decodedBytes.length, 65536)
     const previewText = new TextDecoder("utf-8", { fatal: false }).decode(decodedBytes.subarray(0, previewLen))
 
+    const anubis = detectAnubisPage(anubisInspectionText(decodedBytes, previewText))
+    if (anubis) {
+      return {
+        tier: 1,
+        certificateError,
+        status: anubis === "blocked" ? "blocked" : "needs-js",
+        durationMs: Date.now() - start,
+        reason: anubis === "blocked" ? "anubis-blocked" : "anubis-challenge",
+        challenge: "anubis",
+        responseHeaders,
+        contentType,
+        body: rawBytes,
+        statusCode: res.status,
+      }
+    }
+
+    if (isGoogleSorryUrl(res.url || currentUrl)) {
+      return {
+        tier: 1,
+        certificateError,
+        status: "needs-js",
+        durationMs: Date.now() - start,
+        reason: "google-sorry-challenge",
+        challenge: "recaptcha",
+        responseHeaders,
+        contentType,
+        body: rawBytes,
+        statusCode: res.status,
+      }
+    }
+
     if (isCloudflarePage(previewText, responseHeaders)) {
       return {
         tier: 1,
@@ -220,7 +259,7 @@ export async function runTier1(
 
     // JS-only challenges: the page's static HTML is just a shell that loads the
     // captcha widget via <script src="...api.js">. Plain fetch sees the shell and
-    // would otherwise report success — but the real content (including the widget)
+    // would otherwise report success - but the real content (including the widget)
     // only renders after JS executes. Escalate so Tier 3 runs the page in a browser,
     // executes JS, and the solver can engage the actual widget.
     if (hasHcaptcha(previewText)) {
@@ -380,17 +419,19 @@ export async function runTier1(
       status: "success",
       durationMs: Date.now() - start,
       effectiveUrl: res.url,
-      // `html` is best-effort text view of the body — only meaningful for text-like
+      // `html` is best-effort text view of the body - only meaningful for text-like
       // content-types. Empty for binary payloads so /scrape consumers see the body
       // is binary via the contentType field. `previewText` is bounded to 64 KiB for
-      // challenge detection and must not be used as the response body — decode the
+      // challenge detection and must not be used as the response body - decode the
       // full buffer, reusing the preview only when it already covers the whole body.
       html: isTextContentType(contentType)
-        ? normalizeHtml(
-            decodedBytes.length > previewLen
-              ? new TextDecoder("utf-8", { fatal: false }).decode(decodedBytes)
-              : previewText,
-          )
+        ? isHtmlContentType(contentType)
+          ? normalizeHtml(
+              decodedBytes.length > previewLen
+                ? new TextDecoder("utf-8", { fatal: false }).decode(decodedBytes)
+                : previewText,
+            )
+          : decodeTextBody(decodedBytes, contentType)
         : "",
       body: rawBytes,
       responseHeaders,

@@ -7,6 +7,8 @@ description: POST /scrape — the native TRAWL endpoint with full tier control.
 
 The native endpoint exposes TRAWL's full feature set: tier capping, session IDs, and rich timing metadata.
 
+Create and manage named sessions through [Browser Sessions](/api-reference/browser-sessions). They preserve cookies and localStorage across requests and always use the browser.
+
 ## Request
 
 ```typescript
@@ -15,7 +17,7 @@ interface ScrapeRequest {
   maxTimeout?: number                    // ms, default 60000
   skipHttp?: boolean                     // skip Tier 1 (plain fetch), default false
   maxTier?: 1 | 2 | 3 | 4              // cap escalation at this tier
-  sessionId?: string                     // sticky session override key
+  sessionId?: string                     // existing isolated browser session ID
   headers?: Record<string, string>       // custom headers forwarded to the target
   proxy?: string                         // per-request proxy override for Tier 3/4
   screenshot?: boolean                   // capture a viewport screenshot, default false
@@ -32,9 +34,21 @@ interface ScrapeRequest {
   blockedEvidence?: boolean              // return the challenge wall on the error, default false
   mhtml?: boolean                        // assemble an MHTML archive of the page, default false
   ignoreCertificateErrors?: boolean      // load the page even if its TLS certificate fails verification, default false
+  followMetaRefresh?: boolean            // follow bounded meta refresh redirects, default false
   favicons?: boolean                     // fetch the page's declared icons from inside the page, default false
 }
 ```
+
+Meta refresh following is opt-in. Without `followMetaRefresh`, existing HTTP and browser
+behavior is preserved; browsers may still follow refreshes naturally. With the flag enabled,
+relative targets use the document's base URL, and existing cookies, proxy routing, outbound
+validation and TLS checks remain active. The final URL and requested `redirectChain` describe
+the browser landing. The flag is currently available only through the native API, not MCP
+or the FlareSolverr `/v1` adapter.
+
+When combined with `ignoreCertificateErrors`, a cross-host meta refresh can still be refused
+by the crossed-landing guard: its HTTP probe does not follow meta refreshes. This option does
+not relax that guard.
 
 ### Fields
 
@@ -61,6 +75,7 @@ interface ScrapeRequest {
 | `blockedEvidence` | boolean | false | When no tier clears the challenge, attach the wall the last browser tier stopped at to the 500 body as `blockedEvidence`. It is never attached to a successful result — see the note below. The image rides along only when `screenshot` is also set |
 | `mhtml` | boolean | false        | Assemble a `multipart/related` MHTML archive of the page on the browser tiers (2–4) and return it as `mhtml`. An approximation of "Save as MHTML", not an engine snapshot — see the note below |
 | `ignoreCertificateErrors` | boolean | false | Load the page even when its TLS certificate fails verification (expired, self-signed, issued for another host) instead of failing the fetch. Off by default, so every other caller keeps a verified connection. An unverified connection no longer proves whose page came back, so the request also gets the crossed-landing guard — see the note below |
+| `followMetaRefresh` | boolean | false | Follow HTTP(S) meta refresh redirects with delays up to 10 seconds, allowing at most 3 browser-followed hops. Tier 1 escalates eligible HTML forwarders to a browser; Tiers 2–4 follow in the existing context. Reload-only refreshes are ignored. Navigation failures, loops, and exhausted budgets fail the attempt instead of returning the forwarder. |
 | `favicons` | boolean | false | Fetch the apex `/favicon.ico` and every declared link whose `rel` contains `icon` from inside the page on the browser tiers (2–4) and return them as `favicons`. Tier 1 never produces them; use `skipHttp: true` to force a browser attempt — see the note below |
 
 Captured response bodies, headers, console messages, URLs, blocked-page HTML, screenshots,
@@ -139,6 +154,8 @@ interface TierResult {
 
 A scrape that runs a browser but never clears the challenge is still a failure: it answers
 **500**, and `ScrapeResult` never carries a challenge wall dressed up as content.
+
+Google Search's `/sorry` and `/sorry/` URLs on `google.com`, `www.google.com`, `ipv4.google.com` and `ipv6.google.com` are recognized as challenge destinations. Tier 1 reports `google-sorry-challenge` and escalates; browser tiers report `google-sorry-persistent` if the final URL remains there after the existing solver attempts. This does not guarantee a successful Google CAPTCHA solve.
 
 `blockedEvidence: true` attaches the wall to that failure instead, so a caller can tell
 "blocked by a challenge" from "TRAWL broke" and can keep the page as evidence:

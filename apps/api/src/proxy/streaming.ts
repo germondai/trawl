@@ -2,7 +2,7 @@
 //
 // Goal: keep memory footprint low for big binaries (videos, archives, ISO images)
 // while still letting small JSON/HTML/text responses round-trip through the
-// challenge detector in a single Buffer — which is required because Tier 0
+// challenge detector in a single Buffer - which is required because Tier 0
 // (direct forward) only knows whether the response is CF-challenged after it
 // has the body to inspect.
 //

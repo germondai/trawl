@@ -1,208 +1,137 @@
-// GeeTest v3/v4 slide captcha solver.
-//
-// GeeTest v4 flow:
-//   1. Click the "Click to verify" button → center modal popup opens.
-//   2. Screenshot the challenge image area, analyze pixel brightness column-by-column
-//      to find the notch shadow (darkest region), compute drag distance.
-//   3. Drag the slider rightward with a bezier trajectory until the piece fills the notch.
-//   4. Success: popup closes (modal disappears).
+import { sleep } from "../utils/deadline"
+// GeeTest slide solver: match piece texture, recalculate live popup geometry,
+// drag the handle and require an explicit completed state.
 
 import { randomUUID } from "node:crypto"
-import { $ } from "bun"
+import { unlink } from "node:fs/promises"
 import type { Page } from "patchright"
-
-const FFMPEG = process.env.FFMPEG_PATH?.trim() || "ffmpeg"
+import { matchGeetestPiece } from "./geetestImage"
+import { runFfmpeg } from "./subprocess"
 
 // Initial "Click to verify" button selectors (GeeTest v4 entry point).
-// Use aria-label and specific class — avoid [class*="geetest_btn"] which also matches the icon SVG.
+// Use aria-label and specific class - avoid [class*="geetest_btn"] which also matches the icon SVG.
 const VERIFY_BUTTON = [
   'div[aria-label="Click to verify"]',
   "div.geetest_btn_click",
   ".geetest_btn_click",
   ".geetest_wind_style",
+  ".geetest_radar_tip",
+  ".gt_ajax_tip",
 ].join(", ")
 
-// Actual drag handle selectors (v3 CSS classes; v4 is SVG-based with no clear CSS class)
+// Legacy v3 handles; v4 uses the button inside its slider.
 const DRAG_HANDLE_V3 = ".geetest_slider_button, .gt_slider_knob"
 
-export async function solveGeetestSlide(page: Page, timeoutMs = 30_000): Promise<boolean> {
+type Box = { x: number; y: number; width: number; height: number }
+
+async function visibleBox(page: Page, selector: string, deadline: number): Promise<Box | undefined> {
+  if (Date.now() >= deadline) return undefined
+  return page
+    .evaluate((sel) => {
+      for (const el of document.querySelectorAll(sel)) {
+        const box = el.getBoundingClientRect()
+        if (box.width > 0 && box.height > 0 && getComputedStyle(el).visibility !== "hidden")
+          return { x: box.x, y: box.y, width: box.width, height: box.height }
+      }
+    }, selector)
+    .catch(() => undefined)
+}
+
+export async function solveGeetestSlide(page: Page, timeoutMs = 30_000, signal?: AbortSignal): Promise<boolean> {
+  if (timeoutMs <= 0 || signal?.aborted) return false
+  signal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, timeoutMs))])
+    : AbortSignal.timeout(Math.max(1, timeoutMs))
   const deadline = Date.now() + timeoutMs
-
   try {
-    const frames = page.frames()
-    console.log("[geetest] frames:", frames.map((f) => f.url().slice(0, 80)).join(" | "))
-
-    // Phase 1: Click the initial "Click to verify" button to trigger the slide challenge
-    const verifyBtn = page.locator(VERIFY_BUTTON).first()
-    const verifyVisible = await verifyBtn.isVisible({ timeout: 8000 }).catch(() => false)
-    if (!verifyVisible) {
-      console.log("[geetest] no initial verify button found")
-      return false
-    }
-    console.log("[geetest] clicking initial verify button")
-    // The div has tabindex and aria-label — use page.mouse.click at its actual coordinates
-    // so the browser dispatches the click to the div (not forced through a covering element).
-    const verifyBox = await verifyBtn.boundingBox().catch(() => undefined)
-    if (verifyBox) {
-      await page.mouse.click(verifyBox.x + verifyBox.width / 2, verifyBox.y + verifyBox.height / 2)
-    } else {
-      await verifyBtn.click({ force: true })
+    if (await isGeetestSuccess(page)) return true
+    const mountedUntil = Math.min(deadline, Date.now() + 5000)
+    while (Date.now() < mountedUntil) {
+      if (await isGeetestSuccess(page)) return true
+      const verify = await visibleBox(page, VERIFY_BUTTON, deadline)
+      if (verify) {
+        await page.mouse.click(verify.x + verify.width / 2, verify.y + verify.height / 2)
+        break
+      }
+      if (await visibleBox(page, ".geetest_bg, .geetest_canvas_bg, .gt_cut_bg", deadline)) break
+      await sleep(150, signal)
     }
 
-    // Phase 2: Wait for the challenge modal popup to load.
-    // GeeTest v4 opens a CENTER MODAL (not an expansion of the widget).
-    // Wait for the image content to load inside the modal (up to ~4.5s total).
-    await new Promise((r) => setTimeout(r, 3000))
+    for (let attempt = 0; attempt < 3 && Date.now() < deadline && !signal.aborted; attempt++) {
+      let image: Box | undefined, piece: Box | undefined, handle: Box | undefined
+      const readyUntil = Math.min(deadline, Date.now() + 5000)
+      let previous: Box[] | undefined
+      while (Date.now() < readyUntil) {
+        if (await isGeetestSuccess(page)) return true
+        image = await visibleBox(page, ".geetest_bg, .geetest_canvas_bg, .gt_cut_bg", deadline)
+        piece = await visibleBox(page, ".geetest_slice, .geetest_canvas_slice, .gt_slice", deadline)
+        handle = await visibleBox(page, `${DRAG_HANDLE_V3}, .geetest_slider .geetest_btn`, deadline)
+        if (image && piece && handle) {
+          const boxes = [image, piece, handle]
+          const stable = previous?.every((old, i) =>
+            Object.keys(old).every((key) => Math.abs(old[key as keyof Box] - boxes[i][key as keyof Box]) < 0.5),
+          )
+          if (stable) break
+          previous = boxes
+        }
+        await sleep(150, signal)
+      }
+      if (!image || !piece || !handle) return false
 
-    // Enumerate all geetest elements to find the modal popup (large element in center)
-    const gElements = await page
-      .evaluate(() => {
-        const els = Array.from(document.querySelectorAll('[class*="geetest"]'))
-        return els
-          .map((el) => {
-            const r = el.getBoundingClientRect()
-            const cls =
-              typeof el.className === "string"
-                ? (el.className.split(" ").find((c) => c.startsWith("geetest") && !c.includes("_")) ??
-                  el.className.split(" ")[0])
-                : String(el.className)
-            return {
-              cls,
-              x: Math.round(r.x),
-              y: Math.round(r.y),
-              w: Math.round(r.width),
-              h: Math.round(r.height),
-              tag: el.tagName,
-            }
-          })
-          .filter((e) => e.w > 50 && e.h > 50)
-      })
-      .catch(() => [] as { cls: string; x: number; y: number; w: number; h: number; tag: string }[])
-    console.log("[geetest] visible elements:", JSON.stringify(gElements.slice(0, 15)))
-
-    // Find the popup/panel: prefer geetest_box (v4 modal container), else largest
-    // non-full-viewport element (backdrop excluded by position check: must be offset from (0,0))
-    const vpW = page.viewportSize()?.width ?? 1920
-    const vpH = page.viewportSize()?.height ?? 1080
-    const popup =
-      gElements.find((e) => e.cls.includes("geetest_box") && !e.cls.includes("hint")) ??
-      gElements
-        .filter((e) => e.w < vpW * 0.6 && e.h < vpH * 0.6 && e.h > 200 && (e.x > 0 || e.y > 0))
-        .sort((a, b) => b.w * b.h - a.w * a.h)[0]
-
-    if (!popup) {
-      console.log("[geetest] no challenge popup found")
-      await page.screenshot({ path: "/tmp/gt-no-challenge.png" }).catch(() => {})
-      return false
-    }
-    console.log(`[geetest] challenge popup: ${popup.w}x${popup.h} at (${popup.x},${popup.y}) [${popup.cls}]`)
-
-    // Wait a bit more for the challenge image to fully render
-    await new Promise((r) => setTimeout(r, 1500))
-
-    // Extract specific elements from the challenge popup
-    const imageEl = gElements.find((e) => e.cls.includes("geetest_bg") || e.cls.includes("geetest_window"))
-    const sliceEl = gElements.find((e) => e.cls.includes("geetest_slice") && !e.cls.includes("bg"))
-    const sliderTrackEl = gElements.find(
-      (e) => e.cls.includes("geetest_slider") && !e.cls.includes("button") && !e.cls.includes("bg"),
-    )
-
-    console.log(
-      `[geetest] image=${imageEl ? `${imageEl.w}x${imageEl.h}@(${imageEl.x},${imageEl.y})` : "n/a"} slice=${sliceEl ? `${sliceEl.w}x${sliceEl.h}@(${sliceEl.x},${sliceEl.y})` : "n/a"} slider=${sliderTrackEl ? `${sliderTrackEl.w}x${sliderTrackEl.h}@(${sliderTrackEl.x},${sliderTrackEl.y})` : "n/a"}`,
-    )
-
-    // Use actual image element for screenshot area
-    const svgBox = imageEl
-      ? { x: imageEl.x, y: imageEl.y, width: imageEl.w, height: imageEl.h }
-      : { x: popup.x, y: popup.y + Math.round(popup.h * 0.15), width: popup.w, height: Math.round(popup.h * 0.57) }
-
-    // Phase 3: Determine drag handle position.
-    // The drag handle (blue pill button) is at the LEFT of the slider track.
-    // Its width ≈ puzzle piece width (geetest_slice width).
-    // startX = sliderTrack.x + pieceHalfW, startY = sliderTrack center.
-    const pieceW = sliceEl?.w ?? 80
-    let sliderBox: { x: number; y: number; width: number; height: number }
-
-    const v3Handle = await page
-      .locator(DRAG_HANDLE_V3)
-      .first()
-      .boundingBox()
-      .catch(() => undefined)
-    if (v3Handle) {
-      sliderBox = v3Handle
+      const images = await readGeetestImages(page, Math.min(2500, deadline - Date.now()))
+      const match = images ? matchGeetestPiece(images.background, images.piece, images.top) : undefined
+      // The popup animates while its images decode. Use the live geometry for
+      // input coordinates and scale the match from the sampled image dimensions.
+      image = await visibleBox(page, ".geetest_bg, .geetest_canvas_bg, .gt_cut_bg", deadline)
+      piece = await visibleBox(page, ".geetest_slice, .geetest_canvas_slice, .gt_slice", deadline)
+      handle = await visibleBox(page, `${DRAG_HANDLE_V3}, .geetest_slider .geetest_btn`, deadline)
+      if (!image || !piece || !handle) return false
+      const gap =
+        match !== undefined
+          ? image.x + (match * image.width) / (images?.background.width ?? image.width) - piece.x
+          : await findSliderGapByScreenshot(page, handle, image, piece.width / 2, signal)
+      const track = await visibleBox(page, ".geetest_slider, .geetest_slider_track, .gt_slider", deadline)
+      const ratio = track ? (track.width - handle.width) / (image.width - piece.width) : 1
+      const distance = gap * ratio
+      if (!Number.isFinite(distance) || distance <= 0 || (track && distance > track.width - handle.width + 2))
+        return false
       console.log(
-        `[geetest] drag handle (CSS v3): ${sliderBox.width}x${sliderBox.height} at (${sliderBox.x},${sliderBox.y})`,
+        `[geetest] attempt ${attempt + 1}, drag ${Math.round(distance)}px (${match === undefined ? "screenshot" : "texture"})`,
       )
-    } else if (sliderTrackEl) {
-      // Drag handle occupies the left portion of the track, same width as puzzle piece
-      sliderBox = { x: sliderTrackEl.x, y: sliderTrackEl.y, width: pieceW, height: sliderTrackEl.h }
-      console.log(
-        `[geetest] drag handle (track-left): ${sliderBox.width}x${sliderBox.height} at (${sliderBox.x},${sliderBox.y})`,
-      )
-    } else {
-      sliderBox = { x: popup.x + 2, y: popup.y + Math.round(popup.h * 0.74), width: pieceW, height: 44 }
-      console.log("[geetest] using estimated drag handle position")
-    }
-
-    // Phase 4: Detect the notch position from the screenshot of the image area
-    // pieceHalfW is the half-width of the puzzle piece for center-to-center alignment
-    const gapX = await findSliderGapByScreenshot(page, sliderBox, svgBox, pieceW / 2)
-    console.log("[geetest] estimated gap x-offset:", Math.round(gapX))
-
-    // Phase 5: Drag — try up to 3 times with slight offset adjustments
-    const offsets = [0, 15, -15]
-    for (let attempt = 0; attempt < offsets.length && Date.now() < deadline; attempt++) {
-      const adjustedGap = Math.max(10, gapX + offsets[attempt])
-
-      // Re-read slider box — GeeTest may reset position between attempts
-      const currentSlider = await page
-        .locator(DRAG_HANDLE_V3)
-        .first()
-        .boundingBox()
-        .catch(() => sliderBox)
-      const cur = currentSlider ?? sliderBox
-      const startX = cur.x + cur.width / 2
-      const startY = cur.y + cur.height / 2
-
-      console.log(
-        `[geetest] attempt ${attempt + 1}: drag ${Math.round(adjustedGap)}px from (${Math.round(startX)},${Math.round(startY)})`,
-      )
-
+      const startX = handle.x + handle.width / 2,
+        startY = handle.y + handle.height / 2
       await page.mouse.move(startX, startY)
       await page.mouse.down()
-
-      const steps = 35
-      for (let i = 0; i <= steps; i++) {
-        const t = i / steps
-        const x = startX + adjustedGap * easeInOut(t) + (Math.random() - 0.5) * 2
-        const y = startY + Math.sin(t * Math.PI) * 5 + (Math.random() - 0.5) * 2
-        await page.mouse.move(x, y, { steps: 1 })
-        if (Date.now() >= deadline) break
-        await new Promise((r) => setTimeout(r, 10 + Math.random() * 30))
+      try {
+        for (let i = 1; i <= 12; i++) {
+          if (Date.now() >= deadline || signal.aborted) return false
+          const t = i / 12
+          await page.mouse.move(startX + distance * easeInOut(t), startY + Math.sin(t * Math.PI) * 3, { steps: 1 })
+          await sleep(15 + Math.random() * 15, signal)
+        }
+      } finally {
+        await page.mouse.up().catch(() => {})
       }
 
-      await new Promise((r) => setTimeout(r, 400 + Math.random() * 200))
-      await page.mouse.up()
-      await new Promise((r) => setTimeout(r, 2500))
-
-      const success = await isGeetestSuccess(page)
-      if (success) {
-        console.log("[geetest] slide solved ✓ (attempt", attempt + 1, ")")
-        return true
-      }
-
-      console.log(`[geetest] attempt ${attempt + 1} failed`)
-      if (attempt < offsets.length - 1) {
-        // Reset for next attempt
-        await page
-          .locator('[class*="geetest"][class*="refresh"], [class*="geetest"][class*="retry"], .geetest_radar_tip')
+      const resultUntil = Math.min(deadline, Date.now() + 4000)
+      while (Date.now() < resultUntil) {
+        if (await isGeetestSuccess(page)) return true
+        const retry = await page
+          .locator(".geetest_result_tips")
           .first()
-          .click({ timeout: 2000 })
-          .catch(() => {})
-        await new Promise((r) => setTimeout(r, 1500))
+          .textContent({ timeout: 200 })
+          .catch(() => "")
+        if (/try again|failed|incorrect/i.test(retry ?? "")) break
+        await sleep(200, signal)
+      }
+      if (attempt < 2) {
+        // Refresh changes the puzzle. Re-read geometry and recalculate its gap.
+        const refresh = await visibleBox(page, ".geetest_refresh, .gt_refresh_button", deadline)
+        if (!refresh) return false
+        await page.mouse.click(refresh.x + refresh.width / 2, refresh.y + refresh.height / 2)
+        await sleep(1000, signal)
       }
     }
-
     return false
   } catch (err) {
     console.log("[geetest] error:", err instanceof Error ? err.message : err)
@@ -210,24 +139,94 @@ export async function solveGeetestSlide(page: Page, timeoutMs = 30_000): Promise
   }
 }
 
+async function readGeetestImages(page: Page, timeout: number) {
+  if (timeout <= 0) return undefined
+  return page
+    .evaluate(async (timeoutMs) => {
+      const bg = document.querySelector<HTMLElement>(".geetest_bg")
+      const piece = document.querySelector<HTMLElement>(".geetest_slice_bg")
+      if (!bg || !piece) return
+      const rect = bg.getBoundingClientRect(),
+        tile = piece.getBoundingClientRect()
+      if (
+        rect.width < 1 ||
+        rect.height < 1 ||
+        tile.width < 1 ||
+        tile.height < 1 ||
+        rect.width * rect.height > 1_000_000
+      )
+        return
+      const read = (el: HTMLElement, width: number, height: number) =>
+        new Promise<{ width: number; height: number; pixels: number[] } | undefined>((resolve) => {
+          const url = /^url\(["']?(.*?)["']?\)$/.exec(getComputedStyle(el).backgroundImage)?.[1]
+          if (!url) {
+            resolve(undefined)
+            return
+          }
+          const img = new Image()
+          const finish = (value?: { width: number; height: number; pixels: number[] }) => {
+            clearTimeout(timer)
+            img.onload = null
+            img.onerror = null
+            resolve(value)
+          }
+          const timer = setTimeout(() => finish(), timeoutMs)
+          img.crossOrigin = "anonymous"
+          img.onerror = () => finish()
+          img.onload = () => {
+            try {
+              const canvas = document.createElement("canvas")
+              canvas.width = Math.round(width)
+              canvas.height = Math.round(height)
+              const ctx = canvas.getContext("2d")
+              if (!ctx) {
+                finish()
+                return
+              }
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+              finish({
+                width: canvas.width,
+                height: canvas.height,
+                pixels: Array.from(ctx.getImageData(0, 0, canvas.width, canvas.height).data),
+              })
+            } catch {
+              finish()
+            }
+          }
+          // Browser loading preserves the context's proxy and outbound request policy.
+          img.src = url
+        })
+      const [background, image] = await Promise.all([
+        read(bg, rect.width, rect.height),
+        read(piece, tile.width, tile.height),
+      ])
+      if (background && image) return { background, piece: image, top: Math.round(tile.y - rect.y) }
+    }, timeout)
+    .catch(() => undefined)
+}
+
 async function findSliderGapByScreenshot(
   page: Page,
   sliderBox: { x: number; y: number; width: number; height: number },
   svgBox: { x: number; y: number; width: number; height: number },
   pieceHalfW = 27,
+  signal?: AbortSignal,
 ): Promise<number> {
   const id = randomUUID().slice(0, 8)
   const pngPath = `/tmp/gt-${id}.png`
   const rawPath = `/tmp/gt-${id}.raw`
 
   try {
-    // Screenshot the SVG challenge image — this is where the notch is
+    // Screenshot the SVG challenge image - this is where the notch is
     const clip = { x: svgBox.x, y: svgBox.y, width: svgBox.width, height: svgBox.height }
 
     const png = await page.screenshot({ clip })
     await Bun.write(pngPath, png)
 
-    const ff = await $`${FFMPEG} -i ${pngPath} -f rawvideo -pix_fmt rgb24 ${rawPath} -y -loglevel error`.nothrow()
+    const ff = await runFfmpeg(
+      ["-i", pngPath, "-f", "rawvideo", "-pix_fmt", "rgb24", "-threads", "1", rawPath, "-y", "-loglevel", "error"],
+      signal,
+    )
     if (ff.exitCode !== 0) {
       console.log("[geetest] ffmpeg failed")
       return fallback(sliderBox)
@@ -242,8 +241,8 @@ async function findSliderGapByScreenshot(
     }
 
     // Analyze pixel brightness column by column.
-    // The notch is a puzzle-piece-shaped shadow region — distinctly darker than the rest.
-    // The puzzle piece starts at the left — skip it (half of its width + small margin).
+    // The notch is a puzzle-piece-shaped shadow region - distinctly darker than the rest.
+    // The puzzle piece starts at the left - skip it (half of its width + small margin).
     const PIECE_W = Math.round(pieceHalfW * 2 + 10) // skip puzzle piece area at left
     const yStart = Math.floor(h * 0.15)
     const yEnd = Math.floor(h * 0.85)
@@ -266,7 +265,7 @@ async function findSliderGapByScreenshot(
     const rows = yEnd - yStart
     for (let x = 0; x < w; x++) avgBright[x] /= rows
 
-    // Darkest column in [PIECE_W, w-30] — center of the notch shadow
+    // Darkest column in [PIECE_W, w-30] - center of the notch shadow
     let minBright = Number.POSITIVE_INFINITY
     let darkX = 0
     for (let x = PIECE_W; x < w - 30; x++) {
@@ -276,7 +275,7 @@ async function findSliderGapByScreenshot(
       }
     }
 
-    // Strongest edge in [PIECE_W, w-30] — notch boundary
+    // Strongest edge in [PIECE_W, w-30] - notch boundary
     let maxEdge = 0
     let edgeX = 0
     for (let x = PIECE_W; x < w - 30; x++) {
@@ -314,7 +313,7 @@ async function findSliderGapByScreenshot(
     console.log("[geetest] screenshot analysis error:", err instanceof Error ? err.message : err)
     return fallback(sliderBox)
   } finally {
-    await $`rm -f ${pngPath} ${rawPath}`.nothrow().catch(() => {})
+    await Promise.all([pngPath, rawPath].map((path) => unlink(path).catch(() => {})))
   }
 }
 
@@ -323,40 +322,17 @@ function fallback(_sliderBox: { x: number; y: number; width: number; height: num
   return 120
 }
 
-async function isGeetestSuccess(page: Page): Promise<boolean> {
-  // GeeTest v4: success = popup modal closes (the box/ghost disappear)
-  const boxGone = await page
-    .locator('[class*="geetest_box"]')
-    .first()
-    .isVisible({ timeout: 500 })
-    .then((v) => !v)
-    .catch(() => true)
-  if (boxGone) {
-    console.log("[geetest] success: popup closed")
-    return true
-  }
-
-  const ghostGone = await page
-    .locator('[class*="geetest_popup_ghost"]')
-    .first()
-    .isVisible({ timeout: 500 })
-    .then((v) => !v)
-    .catch(() => true)
-  if (ghostGone) {
-    console.log("[geetest] success: ghost disappeared")
-    return true
-  }
-
-  // GeeTest v3 / fallback: look for success CSS class
-  const successSels = [
-    ".geetest_success_radar_tip",
-    ".gt_success",
-    ".geetest_holder.geetest_success",
-    '[class*="geetest"][class*="success"]',
-  ].join(", ")
+export async function isGeetestSuccess(page: Page): Promise<boolean> {
+  // A hidden popup can mean failure, reset or close. Require an explicit
+  // completed widget state, not a permanent success icon hidden in its markup.
   return page
-    .locator(successSels)
-    .isVisible({ timeout: 2000 })
+    .evaluate(() =>
+      Array.from(
+        document.querySelectorAll(
+          ".geetest_captcha.geetest_lock_success, .geetest_holder.geetest_success, .gt_success, .geetest_success_radar_tip",
+        ),
+      ).some((el) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== "hidden"),
+    )
     .catch(() => false)
 }
 

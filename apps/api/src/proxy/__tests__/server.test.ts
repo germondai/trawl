@@ -77,20 +77,21 @@ describe("serveViaScrape error handling", () => {
   const WALL_HTML =
     '<html><head><title>Challenge</title></head><body><form id="challenge-form">blocked</form></body></html>'
 
-  const mockBlockedDeps = (status = 403): OrchestratorDeps => {
+  const mockBlockedDeps = (status = 403, html = WALL_HTML, headers: Record<string, string> = {}): OrchestratorDeps => {
     const mainFrame = {}
     const wallPage = {
       url: () => "https://example.com/blocked",
-      title: async () => "Access denied",
-      content: async () => WALL_HTML,
+      title: async () => (status === 200 ? "Results" : "Access denied"),
+      content: async () => html,
       goto: async () => {},
       on: (event: string, handler: (response: unknown) => void) => {
         if (event !== "response") return
         handler({
           url: () => "https://example.com/blocked",
           status: () => status,
-          headers: () => ({}),
-          body: async () => Buffer.from(WALL_HTML),
+          headers: () => headers,
+          allHeaders: async () => headers,
+          body: async () => Buffer.from(html),
           request: () => ({ isNavigationRequest: () => true, frame: () => mainFrame }),
         })
       },
@@ -123,6 +124,37 @@ describe("serveViaScrape error handling", () => {
       minTier: 2,
     }
   }
+
+  test("writes solved legacy-encoded HTML as a UTF-8 HTTP response", async () => {
+    const html = `<html><body><h1>Рик и Морти</h1><p>${"Результаты поиска. ".repeat(10)}</p></body></html>`
+    const stream = new PassThrough()
+    const chunks: Buffer[] = []
+    stream.on("data", (chunk: Buffer) => chunks.push(chunk))
+    await serveViaScrape(stream as unknown as net.Socket, "https://example.com/blocked", "GET", {}, undefined, {
+      port: 8192,
+      host: "127.0.0.1",
+      caDir: "",
+      maxTier: 2,
+      maxTimeout: 2000,
+      deps: mockBlockedDeps(200, html, {
+        "content-type": "text/html; charset=windows-1251",
+        "content-encoding": "gzip",
+        "content-length": "999",
+        "set-cookie": "session=value",
+      }),
+    })
+    const raw = Buffer.concat(chunks)
+    const boundary = raw.indexOf("\r\n\r\n")
+    expect(boundary).toBeGreaterThan(0)
+    const head = raw.subarray(0, boundary).toString("latin1").toLowerCase()
+    const body = raw.subarray(boundary + 4)
+    expect(head).toContain("http/1.1 200 ok")
+    expect(head).toContain("content-type: text/html; charset=utf-8")
+    expect(head).toContain(`content-length: ${body.length}`)
+    expect(head).toContain("set-cookie: session=value")
+    expect(head).not.toContain("content-encoding:")
+    expect(new TextDecoder("utf-8").decode(body)).toBe(html)
+  })
 
   test("passes through challenge wall with original status and headers when scrape fails on a wall", async () => {
     const stream = new PassThrough()

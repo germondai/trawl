@@ -1,8 +1,7 @@
 import type { Page } from "patchright"
+import { sleep } from "../utils/deadline"
 
 const POLL_INTERVAL_MS = 250
-
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 async function altchaVerified(page: Page): Promise<boolean> {
   return page
@@ -17,7 +16,7 @@ async function altchaVerified(page: Page): Promise<boolean> {
     .catch(() => false)
 }
 
-export async function hasAltchaWidget(page: Page, timeoutMs = 3000): Promise<boolean> {
+export async function hasAltchaWidget(page: Page, timeoutMs = 3000, signal?: AbortSignal): Promise<boolean> {
   const deadline = Date.now() + Math.max(0, timeoutMs)
 
   do {
@@ -28,18 +27,21 @@ export async function hasAltchaWidget(page: Page, timeoutMs = 3000): Promise<boo
 
     const remaining = deadline - Date.now()
     if (remaining <= 0) break
-    await sleep(Math.min(POLL_INTERVAL_MS, remaining))
+    await sleep(Math.min(POLL_INTERVAL_MS, remaining), signal)
   } while (Date.now() < deadline)
 
   return false
 }
 
-export async function solveAltcha(page: Page, timeoutMs = 30_000): Promise<boolean> {
-  if (timeoutMs <= 0) return false
+export async function solveAltcha(page: Page, timeoutMs = 30_000, signal?: AbortSignal): Promise<boolean> {
+  if (timeoutMs <= 0 || signal?.aborted) return false
+  signal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, timeoutMs))])
+    : AbortSignal.timeout(Math.max(1, timeoutMs))
   const deadline = Date.now() + timeoutMs
 
   try {
-    if (!(await hasAltchaWidget(page, Math.min(5000, timeoutMs)))) return false
+    if (!(await hasAltchaWidget(page, Math.min(5000, timeoutMs), signal))) return false
     if (await altchaVerified(page)) return true
 
     // ALTCHA v3 exposes verify() on its Web Component. Start it without awaiting
@@ -100,7 +102,7 @@ export async function solveAltcha(page: Page, timeoutMs = 30_000): Promise<boole
         if (settles.length > 0) await Promise.race(settles)
         return true
       }
-      await sleep(Math.min(POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())))
+      await sleep(Math.min(POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())), signal)
     }
   } catch (err) {
     console.log("[altcha] error:", err instanceof Error ? err.message : err)

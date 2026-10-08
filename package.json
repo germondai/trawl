@@ -1,7 +1,7 @@
 {
   "private": true,
   "name": "trawl",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -20,6 +20,6 @@
     "verify": "bun run check && bun run typecheck && bun run test && bun run build"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.14"
+    "@biomejs/biome": "2.5.15"
   }
 }

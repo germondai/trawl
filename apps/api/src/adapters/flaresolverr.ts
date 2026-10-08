@@ -1,6 +1,6 @@
 import type { SupportedMethod } from "@trawl/tiers"
-import { normalizeProxy, requireContentTypeForBody, sanitizeHeaders } from "@trawl/tiers"
-import type { FlareSolverrRequest, FlareSolverrResponse, ScrapeRequest } from "@trawl/types"
+import { normalizeInputCookies, normalizeProxy, requireContentTypeForBody, sanitizeHeaders } from "@trawl/tiers"
+import type { FlareSolverrResponse, FlareSolverrScrapeRequest, ScrapeRequest } from "@trawl/types"
 
 function normalizeProwlarrHeaders(headers?: Record<string, string>): Record<string, string> | undefined {
   if (!headers) return
@@ -30,12 +30,19 @@ function normalizeProwlarrHeaders(headers?: Record<string, string>): Record<stri
   return normalized
 }
 
-export function buildScrapeRequestFromFlareSolverr(req: FlareSolverrRequest): ScrapeRequest {
+export function buildScrapeRequestFromFlareSolverr(req: FlareSolverrScrapeRequest): ScrapeRequest {
   const method: SupportedMethod = req.cmd === "request.post" ? "POST" : "GET"
-  const headers = sanitizeHeaders(normalizeProwlarrHeaders(req.headers))
+  const headers = sanitizeHeaders(normalizeProwlarrHeaders(req.headers)) ?? {}
+  if (method === "POST" && req.postData && !Object.keys(headers).some((name) => name.toLowerCase() === "content-type"))
+    headers["Content-Type"] = "application/x-www-form-urlencoded"
   requireContentTypeForBody(headers, Boolean(req.postData))
+  if (req.cookies !== undefined) normalizeInputCookies(req.cookies, req.url)
   return {
     url: req.url,
+    sessionId: req.session,
+    cookies: req.cookies,
+    screenshot: req.returnScreenshot,
+    skipHttp: req.returnScreenshot || req.returnOnlyCookies || Boolean(req.cookies?.length),
     maxTimeout: req.maxTimeout ?? 60_000,
     headers,
     method,
@@ -43,8 +50,8 @@ export function buildScrapeRequestFromFlareSolverr(req: FlareSolverrRequest): Sc
     // Prowlarr's Cardigann flow serializes proxy as {url, username, password};
     // other callers may send a plain URL string. Normalize to a single URL string
     // here so downstream Playwright/Camoufox `newContext({proxy})` calls receive
-    // a string (issue #12 — proxy.server: expected string, got object).
-    proxy: normalizeProxy(req.proxy),
+    // a string (issue #12 - proxy.server: expected string, got object).
+    proxy: req.session ? undefined : normalizeProxy(req.proxy),
   }
 }
 

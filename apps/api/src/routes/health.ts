@@ -11,10 +11,10 @@ export function healthRoute(
   return new Elysia().get("/health", ({ set }) => {
     const stats = getStats()
     // `pool` is assigned before `await pool.init()` completes, so a non-null pool does
-    // not mean any browser is warm — gate readiness on real capacity instead.
+    // not mean any browser is warm - gate readiness on real capacity instead.
     //
-    // `available + busy > 0` looks like the right test — a busy browser is still a live
-    // browser — but it isn't. A request that hangs mid-solve never reaches the
+    // `available + busy > 0` looks like the right test - a busy browser is still a live
+    // browser - but it isn't. A request that hangs mid-solve never reaches the
     // orchestrator's `finally`, so it never calls release() and its browser stays `busy`
     // for the life of the process. `busy` therefore counts dead entries, and the pod can
     // report 200/"ok" indefinitely with zero usable browsers.
@@ -22,7 +22,7 @@ export function healthRoute(
     // `live` excludes both restarting entries (no browser attached) and entries whose
     // checkout has outlived the stall threshold, so it cannot be propped up by a wedge.
     // It still counts genuinely in-flight work, so a merely saturated pool won't flap.
-    const ready = Boolean(stats && stats.live > 0)
+    const ready = Boolean(stats && (stats.live > 0 || (stats.sleeping ?? 0) > 0))
     if (!ready) set.status = 503
     const memory = getMemory()
     return {

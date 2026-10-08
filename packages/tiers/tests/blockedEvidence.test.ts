@@ -12,7 +12,7 @@ const WALL_HTML = `<html><head><title>Access denied</title></head><body><h1>403<
 const JPEG = Buffer.from("fake-jpeg-bytes")
 const JPEG_BASE64 = JPEG.toString("base64")
 
-const fingerprint = { userAgent: "test-agent", platform: "Linux x86_64", locale: "en-US", timezone: "UTC" }
+const fingerprint = { userAgent: "test-agent", platform: "Linux x86_64" as const, locale: "en-US", timezone: "UTC" }
 const session: SessionData = { cookies: [], userAgent: "cached-user-agent", savedAt: 1 }
 
 interface PageStub {
@@ -67,6 +67,7 @@ const poolHandle = (page: unknown): BrowserHandle =>
   ({
     id: 1,
     lease: 1,
+    headful: false,
     context: { newPage: async () => page, addCookies: async () => {}, cookies: async () => [] },
     browser: {},
     fingerprint,
@@ -76,6 +77,7 @@ const freshHandle = (page: unknown): BrowserHandle =>
   ({
     id: 2,
     lease: 1,
+    headful: false,
     context: {},
     browser: {
       newContext: async () => ({
@@ -145,7 +147,7 @@ describe("blocked evidence", () => {
     expect(untouched.contentReads()).toBe(1)
   })
 
-  test("keeps markup but does not start a screenshot after the request budget is spent", async () => {
+  test("does not start browser work or a screenshot with an expired request budget", async () => {
     const { reported, sink: asked } = sink(true)
     const wall = makePage()
 
@@ -162,9 +164,8 @@ describe("blocked evidence", () => {
       { blockedEvidence: asked },
     )
 
-    expect(blocked.status).toBe("blocked")
-    expect(reported[0].html).toContain("Access denied")
-    expect(reported[0].screenshot).toBeUndefined()
+    expect(blocked.status).toBe("timeout")
+    expect(reported).toHaveLength(0)
     expect(wall.screenshotCalls()).toBe(0)
   })
 

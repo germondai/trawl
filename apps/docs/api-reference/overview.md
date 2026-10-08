@@ -33,6 +33,9 @@ Content-Type: application/json
 | `GET`  | `/stats`  | Public numbers for dashboards |
 | `POST` | `/v1`     | FlareSolverr v2 compatible    |
 | `POST` | `/scrape` | Native TRAWL API              |
+| `POST` | `/sessions` | Create an isolated browser session |
+| `GET` | `/sessions` | List live browser sessions |
+| `DELETE` | `/sessions/:id` | Close a browser session |
 
 ## Forward proxy
 
@@ -59,6 +62,10 @@ HTTP status codes:
 
 | Code | Meaning                                                              |
 | ---- | -------------------------------------------------------------------- |
+| 201 | Browser session created |
+| 404 | Session missing or expired |
+| 409 | Duplicate ID or session busy |
+| 410 | Session browser lost during acquisition |
 | 200  | Success                                                              |
 | 400  | Bad request (missing/invalid fields)                                 |
 | 429  | Pool exhausted — all browsers busy past `BROWSER_ACQUIRE_TIMEOUT_MS` |

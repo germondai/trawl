@@ -41,7 +41,7 @@ describe("Akamai challenge detection", () => {
           mouseMoves++
         },
       },
-    } as Page
+    } as unknown as Page
 
     expect(await waitForAkamaiResolution(page, 0)).toBe("timeout")
     expect(mouseMoves).toBe(0)

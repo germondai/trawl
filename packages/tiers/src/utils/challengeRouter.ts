@@ -1,14 +1,23 @@
 import type { Page } from "patchright"
+import type { ExternalCaptchaSession } from "../solvers/externalCaptcha"
 import { waitForAkamaiResolution } from "./akamaiWait"
+import { type AnubisResolution, waitForAnubisResolution } from "./anubisWait"
 import { type AwsWafResolution, waitForAwsWafResolution } from "./awsWafWait"
 import { waitForChallengeResolution } from "./challengeWait"
 import type { ChallengeCookieSnapshot } from "./cookies"
 import { type DataDomeResolution, waitForDataDomeResolution } from "./datadomeWait"
 import { waitForDdosGuardResolution } from "./ddosGuardWait"
-import { type ChallengeType, detectChallengeType, getAwsWafAction, getDataDomeAction, hasAwsWafCaptcha } from "./detect"
+import {
+  type ChallengeType,
+  detectChallengeType,
+  getAwsWafAction,
+  getDataDomeAction,
+  hasAwsWafCaptcha,
+  isCloudflarePage,
+} from "./detect"
 import { waitForImpervaResolution } from "./impervaWait"
 
-type Resolution = AwsWafResolution | DataDomeResolution
+type Resolution = AwsWafResolution | DataDomeResolution | AnubisResolution
 type Waiter = (page: Page, timeoutMs: number, originalUrl?: string) => Promise<Resolution>
 
 interface ChallengeWaiters {
@@ -46,7 +55,7 @@ const defaultWaiters: ChallengeWaiters = {
     waitForDataDomeResolution(page, timeoutMs, originalUrl, { initialCookies }),
 }
 
-export async function routeChallengeWait(
+async function routeLocalChallengeWait(
   page: Page,
   html: string,
   headers: Record<string, string>,
@@ -55,6 +64,7 @@ export async function routeChallengeWait(
   waiters: ChallengeWaiters = defaultWaiters,
   status?: number,
   initialCookies?: ChallengeCookieSnapshot,
+  responseHeaders: () => Record<string, string> = () => headers,
 ): Promise<{ challengeType: ChallengeType; resolution: Resolution }> {
   const challengeType = detectChallengeType(html, headers, status)
   if (getAwsWafAction(status, headers) === "captcha" || hasAwsWafCaptcha(html)) {
@@ -65,8 +75,21 @@ export async function routeChallengeWait(
   if (challengeType === "duckduckgo") return { challengeType, resolution: "captcha-required" }
   // Provider widgets are solved after routing by solvePageCaptchas(). They are
   // page content, not interstitial walls, so never send them through a WAF waiter.
-  if (challengeType === "altcha" || challengeType === "friendly-captcha") {
+  if (
+    challengeType === "altcha" ||
+    challengeType === "friendly-captcha" ||
+    ((challengeType === "cloudflare-turnstile" ||
+      challengeType === "recaptcha" ||
+      challengeType === "hcaptcha" ||
+      challengeType === "cap") &&
+      !isCloudflarePage(html, headers))
+  ) {
     return { challengeType, resolution: "ok" }
+  }
+  // Anubis resolves itself in the browser (PoW or metarefresh, then re-navigation) and
+  // has no interactive widget.
+  if (challengeType === "anubis") {
+    return { challengeType, resolution: await waitForAnubisResolution(page, timeoutMs) }
   }
   // Neither the DataDome slider nor its hard block resolves by waiting, so they never reach
   // a waiter: report them straight away and let the tier escalate.
@@ -86,6 +109,66 @@ export async function routeChallengeWait(
             ? await waiters.awsWaf(page, timeoutMs, originalUrl, initialCookies?.awsWaf)
             : challengeType === "datadome"
               ? await waiters.dataDome(page, timeoutMs, originalUrl, initialCookies?.dataDome)
-              : await waiters.cloudflare(page, timeoutMs, originalUrl, () => headers)
+              : await waiters.cloudflare(page, timeoutMs, originalUrl, responseHeaders)
   return { challengeType, resolution }
+}
+
+export async function routeChallengeWait(
+  page: Page,
+  html: string,
+  headers: Record<string, string>,
+  timeoutMs: number,
+  originalUrl?: string,
+  waiters: ChallengeWaiters = defaultWaiters,
+  status?: number,
+  initialCookies?: ChallengeCookieSnapshot,
+  responseHeaders: () => Record<string, string> = () => headers,
+  external?: ExternalCaptchaSession,
+  proxy?: string,
+  signal?: AbortSignal,
+): Promise<{ challengeType: ChallengeType; resolution: Resolution; captchasSolved?: string[] }> {
+  const deadline = Date.now() + timeoutMs
+  let eligible = false
+  if (external) {
+    for (const kind of await external.discover(page, html)) {
+      if (signal?.aborted) break
+      if (await external.canSolve(page, kind, proxy)) eligible = true
+    }
+  }
+  const result = await routeLocalChallengeWait(
+    page,
+    html,
+    headers,
+    eligible && external
+      ? external.localBudget(Math.max(0, deadline - Date.now()))
+      : Math.max(0, deadline - Date.now()),
+    originalUrl,
+    waiters,
+    status,
+    initialCookies,
+    responseHeaders,
+  )
+  if (
+    !eligible ||
+    !external ||
+    result.resolution === "ok" ||
+    result.resolution === "browser-closed" ||
+    result.resolution === "ip-blocked" ||
+    signal?.aborted
+  )
+    return result
+  const solved = await external.solveProfiles(page, Math.max(0, deadline - Date.now()), signal, proxy)
+  if (!solved.length || signal?.aborted) return result
+  const verified = await routeLocalChallengeWait(
+    page,
+    await page.content(),
+    responseHeaders(),
+    Math.max(0, deadline - Date.now()),
+    originalUrl,
+    waiters,
+    status,
+    initialCookies,
+    responseHeaders,
+  )
+  return verified.resolution === "ok" ? { ...verified, captchasSolved: solved } : verified
 }

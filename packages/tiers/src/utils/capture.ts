@@ -1,7 +1,9 @@
-import type { CapturedResponseEntry, ConsoleLogEntry, NetworkLogEntry } from "@trawl/types"
+import type { CapturedResponseEntry, ConsoleLogEntry, InputCookie, NetworkLogEntry } from "@trawl/types"
 import type { ConsoleMessage, Page, Request } from "patchright"
+import type { ExternalCaptchaSession } from "../solvers/externalCaptcha"
 import type { BlockedEvidenceSink } from "./blockedEvidence"
 import { captureLimit } from "./captureConfig"
+import type { RequestBudget } from "./deadline"
 import { attachResponseCapture, type ResponseCaptureOptions } from "./responseCapture"
 
 // Captured evidence lives in memory alongside a browser slot, so every dimension is
@@ -24,8 +26,14 @@ const CONSOLE_LEVELS: Record<string, ConsoleLogEntry["level"]> = {
 
 // Mirrors the opt-in flags on ScrapeRequest. `redirectChain` is served by
 // MainDocumentResponseTracker (the response listener already exists there) rather than
-// by this module — it travels in the same bag so a tier takes one capture argument.
+// by this module - it travels in the same bag so a tier takes one capture argument.
 export interface CaptureOptions extends ResponseCaptureOptions {
+  cookies?: InputCookie[]
+  sessionContext?: Awaited<ReturnType<typeof import("@trawl/browser").newFreshContext>>
+  sessionStorage?: Map<string, [string, string][]>
+  budget?: RequestBudget
+  externalCaptcha?: ExternalCaptchaSession
+  followMetaRefresh?: boolean
   screenshotFullPage?: boolean
   screenshotWaitForSelector?: string
   screenshotSelector?: string
@@ -39,7 +47,7 @@ export interface CaptureOptions extends ResponseCaptureOptions {
   // captured responses, the network log or the MHTML archive.
   favicons?: boolean
   // Where a tier hands back the challenge wall it could not clear. Attaches no listener
-  // and buffers nothing — the tier reads the page once, on the branch that gives up.
+  // and buffers nothing - the tier reads the page once, on the branch that gives up.
   blockedEvidence?: BlockedEvidenceSink
 }
 
@@ -64,7 +72,7 @@ const ms = (value: number): number => Math.round(value * 100) / 100
 /**
  * Records console messages and per-request timings for one page. Attaches nothing at
  * all unless asked, detaches on drain and again on page close, and never throws into
- * the caller — a capture failure degrades that field, not the scrape.
+ * the caller - a capture failure degrades that field, not the scrape.
  */
 export function attachPageCapture(page: Page, options: CaptureOptions): PageCapture {
   if (!options.consoleLogs && !options.networkLogs && !options.captureResponses?.length && !options.mhtml)

@@ -92,6 +92,94 @@ describe("responseFromScrapeResult", () => {
     expect(response.headers.etag).toBe('"raw-validator"')
   })
 
+  test.each([2, 3, 4] as const)("labels rendered Tier %i HTML as UTF-8", (tier) => {
+    const html = "<html><body>Рик и Морти / Příliš žluťoučký / 日本語</body></html>"
+    const response = responseFromScrapeResult(
+      result({
+        tier,
+        html,
+        body: Buffer.from("upstream challenge"),
+        contentType: "text/html; charset=windows-1251",
+        responseHeaders: {
+          "content-type": "text/html; charset=windows-1251",
+          "content-encoding": "gzip",
+          "content-length": "999",
+          "set-cookie": "session=value",
+          "cache-control": "private",
+        },
+      }),
+    )
+    expect(response.contentType).toBe("text/html; charset=utf-8")
+    expect(response.headers["content-type"]).toBe(response.contentType)
+    const charset = response.contentType.match(/charset=([^;]+)/)?.[1]
+    expect(new TextDecoder(charset).decode(response.body)).toBe(html)
+    expect(response.headers["set-cookie"]).toBe("session=value")
+    expect(response.headers["cache-control"]).toBe("private")
+    const head = serializeResponseHeaders(200, response.headers, response.contentType, {
+      bodyLength: response.body.length,
+    })
+    expect(head.toLowerCase()).toContain("content-type: text/html; charset=utf-8\r\n")
+    expect(head).toContain(`Content-Length: ${Buffer.byteLength(html)}\r\n`)
+    expect(head.toLowerCase()).not.toContain("content-encoding:")
+  })
+
+  test.each([
+    ["text/html", "text/html; charset=utf-8"],
+    [
+      'text/html; profile="example;charset=legacy"; charset=windows-1251',
+      'text/html; profile="example;charset=legacy"; charset=utf-8',
+    ],
+    ['text/html; charset=windows-1251; charset="iso-8859-1"', "text/html; charset=utf-8"],
+    ['application/xhtml+xml; charset="ISO-8859-1"', "application/xhtml+xml; charset=utf-8"],
+    ["text/html; profile=example; CHARSET = windows-1251", "text/html; profile=example; charset=utf-8"],
+  ])("normalizes the charset of rendered %s", (contentType, expected) => {
+    const response = responseFromScrapeResult(result({ html: "<html>é</html>", contentType }))
+    expect(response.contentType).toBe(expected)
+    expect(response.headers["content-type"]).toBe(expected)
+  })
+
+  test("uses the header charset when the browser result has no contentType", () => {
+    const response = responseFromScrapeResult(
+      result({ html: "<html>Рик</html>", responseHeaders: { "content-type": "text/html; charset=windows-1251" } }),
+    )
+    expect(response.contentType).toBe("text/html; charset=utf-8")
+    expect(response.body.toString("utf8")).toBe("<html>Рик</html>")
+  })
+
+  test("preserves Tier 1 legacy HTML bytes even when decoded HTML is available", () => {
+    const bytes = Buffer.from([0xd0, 0xe8, 0xea])
+    const contentType = "text/html; charset=windows-1251"
+    const response = responseFromScrapeResult(
+      result({
+        tier: 1,
+        html: "Рик",
+        body: bytes,
+        contentType,
+        responseHeaders: { "content-type": contentType, etag: '"original"' },
+      }),
+    )
+    expect(response.body).toEqual(bytes)
+    expect(response.contentType).toBe(contentType)
+    expect(response.headers.etag).toBe('"original"')
+    expect(new TextDecoder("windows-1251").decode(response.body)).toBe("Рик")
+  })
+
+  test("labels an HTML-only Tier 1 fallback as UTF-8", () => {
+    const response = responseFromScrapeResult(
+      result({ tier: 1, html: "Рик", contentType: "text/html; charset=windows-1251" }),
+    )
+    expect(response.contentType).toBe("text/html; charset=utf-8")
+    expect(response.body.toString("utf8")).toBe("Рик")
+  })
+
+  test("preserves decoded non-HTML browser bytes and their charset", () => {
+    const bytes = Buffer.from([0xd0, 0xe8, 0xea])
+    const contentType = "text/plain; charset=windows-1251"
+    const response = responseFromScrapeResult(result({ html: "Рик", body: bytes, contentType }))
+    expect(response.body).toEqual(bytes)
+    expect(response.contentType).toBe(contentType)
+  })
+
   test("serializes decoded browser content with its actual length and no stale encoding", () => {
     const response = responseFromScrapeResult(
       result({
@@ -141,6 +229,23 @@ describe("responseFromBlockedEvidence", () => {
       const response = responseFromBlockedEvidence({ ...baseEvidence, statusCode })
       expect(response.statusCode).toBe(403)
     }
+  })
+
+  test("returns an error status for unresolved Anubis at HTTP 200", () => {
+    expect(responseFromBlockedEvidence({ ...baseEvidence, reason: "anubis-blocked", statusCode: 200 }).statusCode).toBe(
+      403,
+    )
+    expect(
+      responseFromBlockedEvidence({
+        ...baseEvidence,
+        reason: "anubis-challenge-timeout",
+        status: "timeout",
+        statusCode: 200,
+      }).statusCode,
+    ).toBe(504)
+    expect(responseFromBlockedEvidence({ ...baseEvidence, reason: "anubis-blocked", statusCode: 429 }).statusCode).toBe(
+      429,
+    )
   })
 
   test("omits x-trawl-reason when reason is undefined", () => {

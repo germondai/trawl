@@ -9,11 +9,11 @@ import { type MetricsStore, metrics } from "../metrics"
 import { runLoggedScrape } from "../requestLogging"
 import { requestUrl, validateScrapeRequest } from "../validation"
 
-// Native TRAWL API — richer response (tier, timings, sessionCached).
+// Native TRAWL API - richer response (tier, timings, sessionCached).
 // Error mapping:
-//   503 — pool still initializing (native { error })
-//   429 — pool exhausted (FlareSolverr envelope; uniform with /v1)
-//   500 — other scrape exception (native { error, timings, blockedEvidence })
+//   503 - pool still initializing (native { error })
+//   429 - pool exhausted (FlareSolverr envelope; uniform with /v1)
+//   500 - other scrape exception (native { error, timings, blockedEvidence })
 export function scrapeRoute(
   deps: () => OrchestratorDeps = getDeps,
   poolReady: () => unknown = getPool,
@@ -73,6 +73,7 @@ export function scrapeRoute(
           error: err.message,
           timings: err.timings,
           ...(err.blockedEvidence ? { blockedEvidence: err.blockedEvidence } : {}),
+          ...(err.captchaDiagnostics?.length ? { captchaDiagnostics: err.captchaDiagnostics } : {}),
         }
       }
       return { error: err instanceof Error ? err.message : String(err) }

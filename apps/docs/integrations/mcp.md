@@ -62,6 +62,11 @@ Tier 2 and accept a `maxTier` from 2 through 4.
 Its structured metadata includes the title and, when detected, the byline,
 excerpt, site name and language.
 
+For non-HTML text documents such as TXT, JSON and XML, `read` returns the file
+text directly for either format, subject to `maxCharacters`. Whitespace and empty
+files are preserved. TRAWL uses the declared HTTP charset, falling back to UTF-8
+when it is absent or unsupported. HTML pages continue to use article extraction.
+
 `scrape` returns at most 50,000 characters of page HTML. Its structured output
 includes the final URL, status, winning tier, content type, elapsed time,
 per-tier attempt history, cache use, truncation and non-sensitive CAPTCHA/proxy

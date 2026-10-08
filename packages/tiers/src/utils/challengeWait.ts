@@ -15,13 +15,13 @@ export async function waitForChallengeResolution(
   originalUrl?: string,
   responseHeaders: () => Record<string, string> = () => ({}),
 ): Promise<"ok" | "ip-blocked" | "timeout"> {
-  const deadline = Date.now() + Math.max(timeoutMs, 30_000)
+  const deadline = Date.now() + Math.max(timeoutMs, 0)
   let lastClickAttempt = 0
   let cfClearanceAt: number | undefined
   let challengeSeen = false
   let inactiveSamples = 0
 
-  // Only count cf_clearance for the current domain — warm browser may have cookies from prior domains
+  // Only count cf_clearance for the current domain - warm browser may have cookies from prior domains
   const targetHost = (() => {
     try {
       return new URL(originalUrl ?? page.url()).hostname
@@ -55,8 +55,10 @@ export async function waitForChallengeResolution(
       // Two observations prevent a transient normal title/DOM during navigation from
       // declaring a challenge solved. This also applies before the first active sample.
       if (inactiveSamples >= 2) {
-        // 'load' not 'networkidle' — networkidle stalls indefinitely on JS-heavy pages
-        await page.waitForLoadState("load", { timeout: 5000 }).catch(() => {})
+        // 'load' not 'networkidle' - networkidle stalls indefinitely on JS-heavy pages
+        await page
+          .waitForLoadState("load", { timeout: Math.max(1, Math.min(5000, deadline - Date.now())) })
+          .catch(() => {})
         return "ok"
       }
 
@@ -82,9 +84,16 @@ export async function waitForChallengeResolution(
         // CF auto-redirect normally fires within 2-3s. If it hasn't, navigate ourselves.
         if (originalUrl && Date.now() - cfClearanceAt > 5000) {
           console.log("[challenge] cf_clearance set but still on challenge page — navigating to original URL")
-          await page.goto(originalUrl, { waitUntil: "domcontentloaded", timeout: 15_000 }).catch(() => {})
-          await page.waitForLoadState("networkidle", { timeout: 8_000 }).catch(() => {})
-          return "ok"
+          await page
+            .goto(originalUrl, {
+              waitUntil: "domcontentloaded",
+              timeout: Math.max(1, Math.min(15_000, deadline - Date.now())),
+            })
+            .catch(() => {})
+          // Navigation can serve another wall even with clearance. Inspect the new
+          // document in the next poll instead of passing it to embedded CAPTCHA solvers.
+          cfClearanceAt = Date.now()
+          continue
         }
       }
 
@@ -103,12 +112,12 @@ export async function waitForChallengeResolution(
   return "timeout"
 }
 
-async function attemptTurnstileClick(page: Page): Promise<boolean> {
+export async function attemptTurnstileClick(page: Page, allowKeyboard = true): Promise<boolean> {
   const frames = page.frames()
   for (const frame of frames) {
     if (!isChallengeFrame(frame)) continue
 
-    // A: shadow DOM click via shadowRootUnl patch — real DOM event, resolves faster than coords
+    // A: shadow DOM click via shadowRootUnl patch - real DOM event, resolves faster than coords
     const shadowClicked = await clickShadowCheckbox(page, frame)
     if (shadowClicked) return true
 
@@ -116,7 +125,7 @@ async function attemptTurnstileClick(page: Page): Promise<boolean> {
     const clicked = await clickInFrame(frame)
     if (clicked) return true
 
-    // C: page-coordinate click — bypasses Fission by clicking on page instead of inside frame
+    // C: page-coordinate click - bypasses Fission by clicking on page instead of inside frame
     const frameEl = await frame.frameElement().catch(() => undefined)
     const box = frameEl ? await frameEl.boundingBox().catch(() => undefined) : undefined
     if (box && box.width > 20) {
@@ -132,9 +141,9 @@ async function attemptTurnstileClick(page: Page): Promise<boolean> {
     }
   }
 
-  // D: keyboard Tab → Space — last resort
+  // D: keyboard Tab → Space - last resort
   const html = await page.content().catch(() => "")
-  if (hasTurnstile(html) || isCloudflarePage(html, {})) {
+  if (allowKeyboard && (hasTurnstile(html) || isCloudflarePage(html, {}))) {
     try {
       await page.keyboard.press("Tab")
       await new Promise((r) => setTimeout(r, 200))

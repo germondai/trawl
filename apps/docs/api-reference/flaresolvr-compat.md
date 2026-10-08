@@ -5,7 +5,7 @@ description: POST /v1 — the drop-in FlareSolverr v2 endpoint.
 
 # `POST /v1` — FlareSolverr Compatible
 
-This endpoint implements the FlareSolverr v2 API contract. Any client that works with FlareSolverr works with TRAWL without code changes.
+This endpoint supports FlareSolverr request commands and explicit browser session management. See [Browser Sessions](/api-reference/browser-sessions) for lifecycle commands and compatibility limits.
 
 **No authentication required.**
 
@@ -14,11 +14,16 @@ This endpoint implements the FlareSolverr v2 API contract. Any client that works
 ```typescript
 interface FlareSolverrRequest {
   cmd?: 'request.get' | 'request.post'  // default: 'request.get'
-  url: string
+  url: string           // required for request.get / request.post
+  session?: string      // reuse a named browser session
+  session_ttl_minutes?: number // rotate sessions older than this value
+  cookies?: InputCookie[]      // import cookies before navigation
+  returnOnlyCookies?: boolean // omit solution.response
+  returnScreenshot?: boolean  // include solution.screenshot
   maxTimeout?: number   // milliseconds, default 60000
   postData?: string     // body for request.post
   headers?: Record<string, string>
-  proxy?: string         // TRAWL extension — not part of the real FlareSolverr contract
+  proxy?: string | { url: string; username?: string; password?: string }
 }
 ```
 
@@ -29,9 +34,9 @@ interface FlareSolverrRequest {
 | `cmd`        | string | No       | `"request.get"` or `"request.post"` (default `"request.get"`)                                                                                                                                                                       |
 | `url`        | string | Yes      | The URL to scrape                                                                                                                                                                                                                   |
 | `maxTimeout` | number | No       | Max wait in ms (default 60000)                                                                                                                                                                                                      |
-| `postData`   | string | No       | POST body (only for `request.post`). On TRAWL's native `/scrape` endpoint this field is named `body`; the `/v1` adapter maps `postData` → `body` internally so the FlareSolverr wire contract stays unchanged for existing callers. |
+| `postData`   | string | No       | POST body (only for `request.post`); defaults to form encoding when no content-type header is supplied. On native `/scrape` this field is named `body`. |
 | `headers`    | object | No       | Custom headers forwarded to the target across all tiers — see [Custom Headers](/api-reference/custom-headers). For Prowlarr compatibility, `contentType` is accepted as `Content-Type`; serialized `contentLength` is ignored and recalculated by the HTTP client. An explicit standard `Content-Type` takes precedence. |
-| `proxy`      | string | No       | **TRAWL-specific extension** (not in the real FlareSolverr v2 contract) — per-request proxy override for Tier 3/4, see [Configuration § Proxies](/getting-started/configuration#proxies)                                            |
+| `proxy`      | string | No       | Per-request proxy override for Tier 3/4; with a session, set it on `sessions.create` instead, see [Configuration § Proxies](/getting-started/configuration#proxies)                                            |
 
 ## Response
 
@@ -46,7 +51,8 @@ interface FlareSolverrResponse {
     url: string                // final URL after redirects
     status: number             // HTTP status code
     headers: Record<string, string>
-    response: string           // raw HTML body
+    response?: string          // raw HTML; omitted with returnOnlyCookies
+    screenshot?: string        // base64 image when returnScreenshot is true
     cookies: Cookie[]
     userAgent: string
   }

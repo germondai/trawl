@@ -6,5 +6,5 @@
       "@trawl/browser": ["../browser/src/index.ts"]
     }
   },
-  "include": ["src", "../types/src", "../browser/src"]
+  "include": ["src", "tests", "../types/src", "../browser/src"]
 }

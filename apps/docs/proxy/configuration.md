@@ -15,6 +15,7 @@ description: Enable and configure TRAWL's challenge-bypassing HTTP/HTTPS proxy.
 | `MITM_CA_DIR`        | `/data/proxy-ca` | Persistent root CA certificate and private-key directory |
 | `MITM_MAX_TIER`      | `4`              | Highest solver tier available to proxy escalation        |
 | `MITM_ALWAYS_SCRAPE` | `false`          | Skip direct Tier 0 and enter the scraper immediately     |
+| `MITM_ESCALATE_429` | `false` | Try scraping after an unrecognized proxy HTTP 429 response |
 | `MITM_DEBUG`         | `false`          | Logs proxied requests and tier attempts                  |
 | `SCRAPE_MIN_TIER`    | `1`              | Lowest tier once a request enters the scraper ladder     |
 | `SCRAPE_PROXY_SELECTION` | `failover`   | Tier 3/4 pool policy: failover, round-robin, or random   |
@@ -28,6 +29,7 @@ MITM_PORT=8192
 MITM_CA_DIR=/data/proxy-ca
 MITM_MAX_TIER=4
 MITM_ALWAYS_SCRAPE=false
+MITM_ESCALATE_429=false
 SCRAPE_MIN_TIER=1
 SCRAPE_PROXY_SELECTION=failover
 MITM_DEBUG=false
@@ -50,6 +52,20 @@ a general download or media proxy: video, archives, Range requests, and other la
 instead be buffered by the scraper, and request bodies pass through the scraper's text-oriented
 request interface. Prefer a separate TRAWL instance or narrowly scoped proxy rule for affected
 sites.
+
+## Google Search challenge redirects
+
+Tier 0 recognizes HTTP 301, 302, 303, 307 and 308 redirects to `/sorry` or `/sorry/` on `google.com`, `www.google.com`, `ipv4.google.com` and `ipv6.google.com`. It enters the existing scraper ladder using the original request URL, without following the redirect in the direct forwarder. Absolute, protocol-relative and relative destinations are resolved against the request URL.
+
+Ordinary search redirects, login redirects and unrelated hosts remain direct responses. Tier 1 also escalates final responses on these challenge URLs; browser tiers report `google-sorry-persistent` when the final URL is still the challenge, rather than returning it as successful content. Existing tier limits, outbound validation and TLS checks still apply. This does not add a new CAPTCHA solver or guarantee that Google will accept the browser or its IP. Other Google country domains are not covered by this rule.
+
+## Optional HTTP 429 escalation
+
+Set `MITM_ESCALATE_429=true` to treat otherwise unrecognized HTTP 429 responses from proxy Tier 0 as blocked and try the existing scraper ladder. The flag is off by default, applies to HTTP and HTTPS proxy traffic, and does not change the native API, which already treats 429 as blocked. Recognized challenges retain their existing handling.
+
+A plain 429 does not mark the entire host as challenged in the routing cache. If scraping fails or returns another error response, the proxy forwards the original 429 body and headers, including `Retry-After`. Successful responses and ordinary downloads keep their direct forwarding path.
+
+This can repeat requests and acquire a browser. It does not reset a site's rate limit or guarantee a successful response. Existing tier limits, outbound validation, proxy routing, and TLS checks still apply. `MITM_ALWAYS_SCRAPE` bypasses Tier 0 entirely, so there is no direct response for this flag to inspect in that mode. WebSocket upgrades remain direct relays.
 
 ## Docker Compose
 

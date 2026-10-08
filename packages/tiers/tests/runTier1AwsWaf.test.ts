@@ -1,15 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { runTier1 } from "../src/tiers/1"
-
-async function withFetch(response: Response, run: () => Promise<void>) {
-  const original = globalThis.fetch
-  ;(globalThis as { fetch: typeof fetch }).fetch = (async () => response) as typeof fetch
-  try {
-    await run()
-  } finally {
-    ;(globalThis as { fetch: typeof fetch }).fetch = original
-  }
-}
+import { withFetch } from "./helpers/fetch"
 
 describe("Tier 1 AWS WAF handling", () => {
   test("escalates Challenge from headers before consuming an open body and preserves metadata", async () => {

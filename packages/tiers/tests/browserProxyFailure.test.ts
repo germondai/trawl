@@ -21,6 +21,7 @@ function handleWithNavigationError(message: string): BrowserHandle {
   return {
     id: 1,
     lease: 1,
+    headful: false,
     context: context as BrowserHandle["context"],
     browser: { newContext: async () => context } as BrowserHandle["browser"],
     fingerprint: { userAgent: "test", platform: "Linux x86_64", locale: "en-US", timezone: "UTC" },
@@ -50,6 +51,7 @@ function handleWithBrowserErrorPage(): BrowserHandle {
   return {
     id: 1,
     lease: 1,
+    headful: false,
     context: context as BrowserHandle["context"],
     browser: { newContext: async () => context } as BrowserHandle["browser"],
     fingerprint: { userAgent: "test", platform: "Linux x86_64", locale: "en-US", timezone: "UTC" },

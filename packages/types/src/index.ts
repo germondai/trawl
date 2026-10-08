@@ -9,10 +9,22 @@ export interface Cookie {
   sameSite?: string
 }
 
-// CONNECT is intentionally excluded — it's a tunneling verb, not a normal
+export interface InputCookie {
+  name: string
+  value: string
+  domain?: string
+  path?: string
+  expires?: number
+  expiry?: number
+  httpOnly?: boolean
+  secure?: boolean
+  sameSite?: "Strict" | "Lax" | "None"
+}
+
+// CONNECT is intentionally excluded - it's a tunneling verb, not a normal
 // request body, and would let a caller establish arbitrary TCP tunnels.
-// QUERY (RFC 9341) is included — safe verb, body carries the query params.
-// Single source of truth for the request-method union — @trawl/tiers derives its
+// QUERY (RFC 9341) is included - safe verb, body carries the query params.
+// Single source of truth for the request-method union - @trawl/tiers derives its
 // runtime SUPPORTED_METHODS array from this same literal set (see sanitize.ts).
 export type SupportedMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS" | "TRACE" | "QUERY"
 
@@ -22,13 +34,14 @@ export interface ScrapeRequest {
   skipHttp?: boolean
   maxTier?: 1 | 2 | 3 | 4
   sessionId?: string
+  cookies?: InputCookie[]
   headers?: Record<string, string>
   method?: SupportedMethod
   body?: string
   // Strict per-request route: target traffic must use this proxy and never fall back direct.
   proxy?: string
   // Opt-in viewport screenshot from the browser tiers (2-4), returned as
-  // `ScrapeResult.screenshot`. Off by default — it costs a settle wait and payload
+  // `ScrapeResult.screenshot`. Off by default - it costs a settle wait and payload
   // size. Tier 1 is a plain HTTP fetch and never produces one.
   screenshot?: boolean
   // Browser screenshot options. Ignored unless `screenshot` is true.
@@ -39,17 +52,17 @@ export interface ScrapeRequest {
   // the final HTML. Independent of response-body capture's waitForSelector.
   contentWaitForSelector?: string
   // Opt-in browser console capture from the browser tiers (2-4), returned as
-  // `ScrapeResult.consoleLogs`. Off by default — no listener is attached without it.
+  // `ScrapeResult.consoleLogs`. Off by default - no listener is attached without it.
   consoleLogs?: boolean
   // Opt-in per-request resource timings from the browser tiers (2-4), returned as
-  // `ScrapeResult.networkLogs`. Off by default — no listener is attached without it.
+  // `ScrapeResult.networkLogs`. Off by default - no listener is attached without it.
   networkLogs?: boolean
   // Opt-in main-document redirect chain from the browser tiers (2-4), returned as
   // `ScrapeResult.redirectChain`. Off by default.
   redirectChain?: boolean
   // Opt-in response-body capture from the browser tiers (2-4), returned as
   // `ScrapeResult.capturedResponses`. Each entry is a URL substring, or a glob matched
-  // against the whole URL when it contains `*` or `?`. Off by default — no listener is
+  // against the whole URL when it contains `*` or `?`. Off by default - no listener is
   // attached without it.
   captureResponses?: string[]
   // How long (milliseconds) to hold the page open after load waiting for a match. Ends
@@ -66,16 +79,18 @@ export interface ScrapeRequest {
   blockedEvidence?: boolean
   // Opt-in MHTML archive of the page from the browser tiers (2-4), returned as
   // `ScrapeResult.mhtml`. Assembled from the subresources the response listener observes,
-  // not snapshotted by the engine — Firefox has no Page.captureSnapshot. Off by default;
+  // not snapshotted by the engine - Firefox has no Page.captureSnapshot. Off by default;
   // only bounded, identity-encoded responses with a declared length are read.
   mhtml?: boolean
   // Opt-in: load the page even when its TLS certificate fails verification (expired,
   // self-signed, issued for another host). Off by default, so every other caller keeps a
   // verified connection. Because an unverified connection no longer proves whose page came
   // back, a landing on a host the requested URL does not demonstrably lead to is refused
-  // instead of returned — see `certificateError` and the crossed-landing guard in
+  // instead of returned - see `certificateError` and the crossed-landing guard in
   // @trawl/tiers.
   ignoreCertificateErrors?: boolean
+  // Follow bounded HTTP(S) meta refresh redirects, escalating HTML forwarders to a browser.
+  followMetaRefresh?: boolean
   // Opt-in favicon collection from the browser tiers (2-4), returned as
   // `ScrapeResult.favicons`. The apex `/favicon.ico` and every declared
   // `<link rel~="icon">` are fetched from inside the page, so they carry the origin's
@@ -126,7 +141,7 @@ export interface CapturedResponseEntry {
 
 // One of the page's favicons, fetched from inside the page. `data` is base64 with no
 // `data:` prefix and is absent when the icon could not be read, in which case `error`
-// says why — "no icon there" and "we could not fetch it" are different answers, and
+// says why - "no icon there" and "we could not fetch it" are different answers, and
 // collapsing them is what hides a favicon the site serves but the scraper never gets.
 // `url` is the absolute icon URL, or `data:<mime>` for an inline icon.
 export interface FaviconEntry {
@@ -138,7 +153,7 @@ export interface FaviconEntry {
 
 // The challenge wall a scrape stopped at, from the last browser tier that rendered one.
 // Returned only on the failure path (`blockedEvidence` on the 500 body) and only when the
-// request asked for it — a blocked outcome is never dressed up as a successful result.
+// request asked for it - a blocked outcome is never dressed up as a successful result.
 export interface BlockedEvidence {
   tier: 2 | 3 | 4
   status: "blocked" | "timeout"
@@ -172,10 +187,11 @@ export interface ScrapeResult {
   timings: TierResult[]
   totalMs: number
   captchasSolved?: string[] // captcha types solved during this request (e.g. ['turnstile', 'recaptcha-v2'])
+  captchaDiagnostics?: { kind: string; status: string }[]
   proxyUsed?: boolean // true if the winning tier routed through a proxy (Tier 1, 3, or 4)
-  // Raw response payload — populated by all tiers when available. The MITM proxy
+  // Raw response payload - populated by all tiers when available. The MITM proxy
   // (:8192) consumes this; /scrape and FlareSolverr /v1 still rely on `html` only.
-  // Binary content (images, .torrent, videos) MUST use this field — `html` would
+  // Binary content (images, .torrent, videos) MUST use this field - `html` would
   // corrupt non-UTF8 bytes via normalizeHtml().
   body?: Uint8Array
   // Upstream response headers (lowercased keys), preserved verbatim so the proxy
@@ -207,7 +223,7 @@ export interface ScrapeResult {
   // Why a Tier 1 TLS hop's certificate failed verification when `ignoreCertificateErrors`
   // was set and the page was served anyway (e.g. "self-signed certificate"). Absent when
   // every observed certificate verified, when the caller did not opt in, and when no
-  // verified attempt was made (`skipHttp`) — absence is "not observed", not proof that the
+  // verified attempt was made (`skipHttp`) - absence is "not observed", not proof that the
   // certificate was valid.
   certificateError?: string
   // The page's favicons, apex `/favicon.ico` first and then the declared icons in
@@ -241,18 +257,20 @@ export interface PoolStats {
   restarts: number
   avgRestarts: number
   // Subset of `busy` that has been checked out longer than the pool's stall threshold.
-  // A stalled entry is counted in `busy` but is not real capacity — its request wedged
+  // A stalled entry is counted in `busy` but is not real capacity - its request wedged
   // and will never call release(). `live` is the honest capacity number.
   stalled: number
   live: number
   // Current acquire() callers waiting for a free browser, and the age of the oldest
   // active checkout. Omitted by older pool implementations.
+  /** Intentionally retired idle browsers which acquire() can wake. */
+  sleeping?: number
   queueDepth?: number
   longestBusyMs?: number
 }
 
 // Per-instance HTTP-level fingerprint (User-Agent + matching navigator.platform /
-// locale / timezone) — @trawl/browser's FINGERPRINT_POOL is typed against this shape.
+// locale / timezone) - @trawl/browser's FINGERPRINT_POOL is typed against this shape.
 export interface BrowserFingerprint {
   userAgent: string
   platform: "Win32" | "MacIntel" | "Linux x86_64" | "Linux armv8"
@@ -261,7 +279,7 @@ export interface BrowserFingerprint {
 }
 
 // A leased browser+context pair handed to a tier by @trawl/browser's BrowserPool.
-// `context`/`browser` are `any` — camoufox-js doesn't export Playwright's
+// `context`/`browser` are `any` - camoufox-js doesn't export Playwright's
 // Browser/BrowserContext types, and browsers from Playwright vs patchright aren't
 // structurally assignable to each other, so `any` is the pragmatic escape hatch
 // (consumers call .newPage()/.newContext()/.cookies() etc directly on these fields).
@@ -277,6 +295,7 @@ export interface BrowserHandle {
   // biome-ignore lint/suspicious/noExplicitAny: see comment above
   browser: any
   fingerprint: BrowserFingerprint
+  retainBrowser?: () => () => void
   noteTemporaryContext?: () => void
   requestBrowserReplacement?: (reason: string) => void
 }
@@ -287,16 +306,43 @@ export interface BrowserHandle {
 // into a single URL string before handing off to the orchestrator.
 export type ProxyEndpointInput = string | { url?: string; server?: string; username?: string; password?: string }
 
-export interface FlareSolverrRequest {
+export interface BrowserSession {
+  id: string
+  createdAt: number
+  expiresAt: number
+  busy: boolean
+}
+
+export interface CreateBrowserSession {
+  id?: string
+  proxy?: string
+  headful?: boolean
+  ignoreCertificateErrors?: boolean
+}
+
+export interface FlareSolverrScrapeRequest {
   cmd?: "request.get" | "request.post"
+  session?: string
+  session_ttl_minutes?: number
+  cookies?: InputCookie[]
+  returnOnlyCookies?: boolean
+  returnScreenshot?: boolean
   url: string
   maxTimeout?: number
   postData?: string
   headers?: Record<string, string>
-  // TRAWL extension (not part of the FlareSolverr v2 contract) — per-request proxy override.
+  // TRAWL extension (not part of the FlareSolverr v2 contract) - per-request proxy override.
   // Accepts Prowlarr's {url, username, password} object shape OR a plain URL string.
   proxy?: ProxyEndpointInput
 }
+
+export interface FlareSolverrSessionRequest {
+  cmd: "sessions.create" | "sessions.list" | "sessions.destroy"
+  session?: string
+  proxy?: ProxyEndpointInput
+}
+
+export type FlareSolverrRequest = FlareSolverrScrapeRequest | FlareSolverrSessionRequest
 
 export interface FlareSolverrResponse {
   status: "ok" | "error"
@@ -308,7 +354,8 @@ export interface FlareSolverrResponse {
     url: string
     status: number
     headers: Record<string, string>
-    response: string
+    response?: string
+    screenshot?: string
     cookies: Cookie[]
     userAgent: string
   }

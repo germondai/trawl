@@ -68,7 +68,7 @@ used session. Expired sessions are removed automatically on reads and writes.
 
 **Default:** _(empty — Redis driver disabled)_
 
-Standard Redis connection URL — TRAWL's cache backend is Redis 8.8. Set a non-empty URL to enable
+Standard Redis connection URL — the bundled Compose service uses Redis 8. Set a non-empty URL to enable
 the session cache. When running inside Docker Compose use the service name:
 
 ```ini
@@ -144,6 +144,27 @@ floor to Tier 2 but cannot lower this deployment-wide setting.
 For the MITM forward proxy, this setting applies only after the request enters the scraper ladder.
 Set `MITM_ALWAYS_SCRAPE=true` as well when the proxy's direct Tier 0 probe must also be disabled.
 
+## User Prefs
+
+### `USER_PREFS`
+
+**Default:** _(unset)_
+
+A JSON object of Firefox prefs applied to every launched browser, merged after TRAWL's built-in
+launch prefs. Values must be strings, booleans or signed 32-bit integers; arrays, objects,
+`null` and fractional numbers are rejected at startup. Prefs apply at browser launch,
+so restart TRAWL after changing them.
+
+For a deployment that already routes `.onion` traffic through Tor and supplies DNS:
+
+```ini
+USER_PREFS={"network.dns.blockDotOnion":false}
+```
+
+`network.proxy.failover_direct=false` and `network.proxy.socks_remote_dns=true` remain
+enforced even if supplied in `USER_PREFS`. Other preferences can override built-in
+values, including process counts, so configure them with your resource limits in mind.
+
 ## Browser Pool
 
 ### `METRICS_DASHBOARD_ENABLED` and `METRICS_DASHBOARD_TOKEN`
@@ -192,7 +213,7 @@ BROWSER_POOL_SIZE=8   # high-throughput (6+ GB host RAM)
 
 **Default:** `15000` (15 seconds)
 
-How long `BrowserPool.acquire()` will poll for a free browser before rejecting with `PoolExhaustedError`. The default pool intentionally favors low memory use; raise the pool when sustained concurrent browser solves are expected.
+Maximum queue wait for a free browser before rejecting with `PoolExhaustedError`. Queue time also consumes the request's remaining `maxTimeout`: the shorter deadline wins. Waiting requests wake when capacity becomes available, without periodic queue polling. The default pool intentionally favors low memory use; raise the pool when sustained concurrent browser solves are expected.
 
 Lower it for fail-fast client feedback (Prowlarr will see 429s sooner and retry on its own). Raise it for very heavy upstream targets or when you've bumped `BROWSER_POOL_SIZE` higher.
 
@@ -208,12 +229,47 @@ When the timeout fires, both `/v1` and `/scrape` return **HTTP 429** with the Fl
 
 **Default:** `8`
 
-How many Tier 3 or Tier 4 temporary contexts a pooled browser can create before TRAWL rolling-replaces the full browser process. Every context counts, regardless of whether the attempt succeeds, times out, errors, or is blocked. TRAWL warms one replacement while the existing browser remains available, installs it when the entry is idle, then closes the retired browser. This briefly raises the pool by one browser, and replacements are serialized pool-wide to bound that peak.
+How many Tier 3 or Tier 4 temporary contexts a pooled browser can create before TRAWL replaces the browser process. Every context counts, regardless of outcome. With at least 512 MiB of container memory headroom, TRAWL warms one replacement while the existing browser remains available. In containers limited to 1 GiB or less, or with less headroom, it closes the old browser first; queued requests may wait for the new browser to start.
+
+The API reads Linux cgroup v1/v2 memory usage, subtracting reclaimable inactive file cache for recycling decisions. After a browser-backed request finishes, working-set usage above 85% of the container limit also requests recycling. Outside supported cgroups, only context-count recycling applies. This reduces sustained memory growth and replacement peaks; it cannot prevent a single memory-heavy page or CAPTCHA from exhausting the container.
 
 ```ini
 BROWSER_RECYCLE_AFTER_CONTEXTS=8   # default - replace after 8 Tier 3/4 contexts
-BROWSER_RECYCLE_AFTER_CONTEXTS=0   # disable browser recycling entirely
+BROWSER_RECYCLE_AFTER_CONTEXTS=0   # disable count-based recycling; memory-pressure recovery remains
 ```
+
+### `BROWSER_IDLE_TIMEOUT_MS`
+
+Default: `0` (disabled).
+
+Retire an unused browser after this many milliseconds. The next browser-backed request launches it again; ordinary HTTP scraping stays available. Session cookies stored in the configured cache survive idle retirement. The first browser request after retirement pays a cold start, and Firefox's in-memory cache is lost. Active requests, cleanup and queued acquires prevent retirement. The health endpoint counts intentionally sleeping capacity separately from live browsers.
+
+```dotenv
+BROWSER_IDLE_TIMEOUT_MS=300000 # optional: retire after five minutes idle
+```
+
+### `BROWSER_BLOCK_ADS`
+
+**Default:** `true`
+
+Load Camoufox's bundled uBlock Origin extension. Set `false` to omit it and reduce extension memory and CPU overhead. Both headless and optional headful pools use this setting. Ads, trackers and other resources normally blocked by uBlock can then load; resource use may increase on ad-heavy pages. Scripts, images, proxy routing and TLS verification otherwise retain their existing behavior.
+
+For a small single-browser container, start with:
+
+```ini
+BROWSER_POOL_SIZE=1
+BROWSER_MAX_CONTENT_PROCESSES=2
+BROWSER_HARDWARE_CONCURRENCY=4
+BROWSER_BLOCK_ADS=false
+```
+
+This is a resource tuning option, not a guarantee that every browser workload fits in 1 GiB. Use a larger limit for heavy pages, difficult CAPTCHAs or the additional headful pool.
+
+### `BROWSER_HARDWARE_CONCURRENCY`
+
+Optional browser-reported logical CPU count, from 1 to 64. Unset preserves Camoufox's generated fingerprint. This changes the native browser configuration, rather than injecting JavaScript into target pages.
+
+PoW implementations such as Anubis size their worker pool from this value. For a small container, try `BROWSER_HARDWARE_CONCURRENCY=4` with `BROWSER_POOL_SIZE=1`. Fewer workers can reduce CPU and RAM usage, but may take longer to solve difficult challenges. This is not a hard CPU or memory limit; configure those in Docker.
 
 ### `BROWSER_MAX_CONTENT_PROCESSES`
 
@@ -222,7 +278,7 @@ BROWSER_RECYCLE_AFTER_CONTEXTS=0   # disable browser recycling entirely
 Caps Firefox content processes per pooled browser via the `dom.ipc.processCount` Firefox pref. Firefox's default of 8 lets thread count climb when Tier 3 / Tier 4 churn disposable contexts (see #13). The cap bounds the leak at the source without paying the recycle cost. Raise if specific targets fail with empty content (rare).
 
 ```ini
-BROWSER_MAX_CONTENT_PROCESSES=2   # default - conservative cap, lowest RAM/CPU
+BROWSER_MAX_CONTENT_PROCESSES=2   # default content-process preference
 BROWSER_MAX_CONTENT_PROCESSES=4   # raise if CF/Imperva challenges stall
 ```
 
@@ -404,6 +460,200 @@ up to `MHTML_MAX_OMISSION_RECORDS` are listed in its final part. Non-HTML respon
 that cannot fit the total cap, or an assembly failure leave `mhtml` unset and never fail
 the scrape. Archives may contain credentials, personal data and executable target scripts,
 so treat them as sensitive untrusted output.
+
+## Optional external CAPTCHA solver
+
+Built-in solvers remain the default. Set `CAPTCHA_SOLVER=2captcha` and
+`TWOCAPTCHA_API_KEY` to try a paid fallback after local solving fails. A key by
+itself never enables the service. No additional model or solver SDK is installed.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `CAPTCHA_SOLVER` | `none` | `none` or `2captcha` |
+| `TWOCAPTCHA_API_KEY` | unset | Required when selecting 2Captcha; keep it secret |
+| `CAPTCHA_SOLVER_MAX_TASKS` | `1` | Maximum paid task creation attempts per scrape, shared across tiers and proxy retries; range 1-3 |
+| `CAPTCHA_SOLVER_LOCAL_TIMEOUT_MS` | `10000` | Budget offered to a supported built-in solver before fallback; range 1000-30000 ms |
+| `CAPTCHA_SOLVER_TIMEOUT_MS` | `120000` | External operation limit, also capped by the remaining scrape budget; range 1000-180000 ms |
+| `CAPTCHA_SOLVER_PROFILES` | unset | JSON array of hostname-specific task and delivery profiles; up to 64 profiles, 256 KB total |
+
+```dotenv
+CAPTCHA_SOLVER=2captcha
+TWOCAPTCHA_API_KEY=your-key
+```
+
+### Automatic widget fallback
+
+The default adapter handles **one declarative reCAPTCHA v2, v2 Enterprise or
+standalone Turnstile widget per provider on a page**, with `data-sitekey` and an
+optional named `data-callback`. It installs the response in the current page and
+invokes the callback in the page's JavaScript realm. It does not submit forms
+itself. Turnstile custom response fields, callback-only widgets and reCAPTCHA
+compatibility mode are supported. reCAPTCHA uses the browser user agent and the
+widget's Google or recaptcha.net API domain. Enterprise `data-s` is sent inside
+`enterprisePayload`.
+
+A restrictive script CSP or missing named callback prevents task creation.
+Anonymous callbacks, explicitly rendered widgets, multiple widgets, reCAPTCHA v3
+and Cloudflare interstitials require a site-specific profile. Existing local
+solvers, including hCaptcha, remain available. A token delivered to a field is
+reported as `delivered`, not as proof of target-server acceptance.
+
+### Provider task catalogue
+
+TRAWL validates the API v2 task shapes documented by
+[2Captcha](https://2captcha.com/api-docs). The catalogue covers reCAPTCHA
+v2/Enterprise/v3, Turnstile, Arkose/FunCaptcha, GeeTest, Capy, KeyCaptcha, Lemin,
+AWS WAF, CyberSiara, MTCaptcha, DataDome, Friendly Captcha, CutCaptcha, ATB,
+Tencent, Prosopo, CaptchaFox, VK, ALTCHA, Yidun, Binance, Hunt, TSPD, Basilisk,
+Imperva, Alibaba and Yandex, plus image/text/audio, rotation, coordinates, grids,
+drawing, bounding boxes, drag-and-drop, Temu, SmartCaptcha and Pazl tasks.
+
+Recognizable SDK and widget markers produce diagnostic candidates. A marker
+alone never starts a paid task. Apart from the automatic widgets above, these
+tasks need a profile providing the required dynamic parameters and a way to
+apply and verify the response. Generic images or audio are not automatically
+classified as CAPTCHA. Detection cannot cover every customized website or SDK
+variant. hCaptcha is not included in the current API v2 catalogue used here; no
+undocumented external task type is sent.
+
+The catalogue accepts the alternative names and field spellings present in the
+provider's examples, including Imperva/Incapsula and Alibaba. Those documentation
+inconsistencies have not been resolved against a live paid account. Structural
+validation is not a guarantee that the provider will accept a task.
+
+### Site-specific profiles
+
+Profiles are server configuration, not request parameters. Each profile binds an
+exact lowercase hostname, a unique widget root, a documented `taskType`, task
+inputs and an explicit delivery method. The selector must identify one widget;
+missing or ambiguous targets prevent payment. No wildcard hostnames are allowed.
+
+For example, save this array as the JSON value of `CAPTCHA_SOLVER_PROFILES`:
+
+```json
+[
+  {
+    "hostname": "example.com",
+    "selector": "#captcha",
+    "taskType": "GeeTestTaskProxyless",
+    "inputs": {
+      "gt": { "selector": "#captcha", "attribute": "data-gt" },
+      "challenge": { "source": "global", "path": ["captchaConfig", "challenge"] }
+    },
+    "delivery": {
+      "fields": [
+        { "selector": "#geetest-challenge", "path": ["challenge"] },
+        { "selector": "#geetest-validate", "path": ["validate"] },
+        { "selector": "#geetest-seccode", "path": ["seccode"] }
+      ],
+      "callback": "captchaAccepted",
+      "verifySelector": "#protected-content"
+    }
+  }
+]
+```
+
+Use selectors and callback names belonging to your target integration. The
+example is a schema illustration, not a universal GeeTest configuration.
+Configured hostnames force otherwise successful HTTP HTML responses through a
+browser so the widget can be inspected; enabling a profile therefore has a
+browser cost even on pages without its widget. `maxTier` still limits execution.
+
+| Input | Meaning |
+| --- | --- |
+| `{ "value": ... }` | Explicit literal task parameter |
+| `{ "selector": "...", "attribute": "..." }` | Unique element's attribute; without an attribute, its input value or text |
+| `{ "selector": "...", "json": true }` | Parse the selected value as JSON |
+| `{ "source": "global", "path": ["config", "key"] }` | Read a named page global; requires page CSP to allow the bridge |
+| `{ "source": "url" }` / `{ "source": "userAgent" }` | Current browser URL / user agent |
+| `{ "source": "screenshot", "selector": "..." }` | PNG crop of one element, at most 100 KB before Base64 encoding |
+| `{ "source": "cookies" }` / `{ "source": "html" }` | Current-site cookies / page HTML; requires `allowSessionData: true` |
+
+Where the task supports them, `websiteURL` and `userAgent` default to the current
+browser values. A configured website URL must equal the current page URL.
+`htmlPageBase64` from the HTML source is Base64 encoded. Inputs are checked against
+the task's supported fields, types and required combinations. Incomplete tasks
+are skipped. Profile task JSON is limited to 3 MB; provider responses to 512 KB.
+
+Delivery paths are arrays indexing the provider's `solution` object; an empty
+path selects the whole value. Use only the paths documented for that task:
+
+- `fields`: unique input/textarea selectors and response paths. Values must be
+  nonempty strings; TRAWL emits input/change events.
+- `callback` and optional `callbackPath`: call a named function with one selected
+  response value, including a structured object. Without a path, pass the whole
+  solution. No arbitrary JavaScript is evaluated from configuration.
+- `cookies`: an explicit name, response path and `format` (`value` or
+  `set-cookie`). Cookies are restricted to the current URL. Provider-supplied
+  Domain/Path attributes are discarded; unrelated domains cannot be updated.
+- `clicks`: a unique target, response path and `mode`. `grid` uses one-based cell
+  numbers with configured `rows` and `columns` (1-20 each). `coordinates` uses
+  `{x,y}` values within the PNG identified by `imageInput`, scaled to the target's
+  browser bounds. At most 32 clicks are applied. Drawing, dragging and rotation
+  responses need a target-specific callback or field adapter.
+- `submitSelector`: optional explicit submission after fields/clicks, restricted
+  to the widget or its surrounding form. Use a callback or submit selector, not
+  both. Submission is never inferred.
+- `reload`: optionally reload after installing cookies or values.
+- `verifySelector`: required unique visible success element, initially absent or
+  hidden. TRAWL waits for this state within the remaining request budget. Choose
+  an element that appears only after server acceptance; a cosmetic UI change is
+  not independent verification.
+
+The complete task is read again before delivery. Changed challenge parameters,
+page navigation while waiting, missing targets and incompatible returned browser
+identities reject the response. Dynamic image grids that replace themselves
+mid-task need a new attempt; the request-wide task allowance still applies.
+
+Native results include `captchaDiagnostics` with provider kind and status such as
+`profile-required`, `incomplete-profile`, `ready`, `verified`, `delivery-failed`,
+`identity-mismatch`, `provider-failed` or `cancelled`. The diagnostics contain no
+parameters or credentials. Verified profiles appear in `captchasSolved` as
+`<kind>:2captcha`. The Prowlarr response shape remains unchanged.
+
+For supported widgets, local solving receives at most half the remaining widget
+budget, capped by the local timeout setting. Disabling the provider preserves the
+original local budget. The external phase polls at five-second intervals and does
+not extend `maxTimeout`. No paid task is created when five seconds or less remain;
+other short scrape budgets may still expire before workers finish.
+Increase `maxTimeout` within the API's supported limits when needed.
+Temporary polling failures receive at most two consecutive retries for the same
+task, five seconds apart. Reloading or navigating the page while waiting aborts
+delivery, and changed widget parameters reject the returned token.
+
+An explicit HTTP, SOCKS4 or SOCKS5 browser proxy is passed to the provider instead
+of silently switching to a proxyless task. HTTPS proxy URLs are currently skipped
+by this adapter. The provider must be able to reach the supplied proxy; local Tor
+or Gluetun endpoints may not be reachable from its workers. Implicit VPN or Firefox
+proxy preferences are not converted into provider proxy settings. Profiles must
+select the proxy or proxyless task variant matching the actual browser route;
+proxy-required tasks are skipped without an explicit supported proxy. Tasks with
+no proxy variant are skipped when a browser proxy is configured.
+
+Enabling this feature sends the full target URL, sitekey, supported widget
+parameters, the reCAPTCHA browser user agent and explicit proxy credentials to 2Captcha. Browser session cookies
+and page content are sent only by explicitly configured profile inputs with
+`allowSessionData: true`. Image/audio tasks send their configured media. Provider API traffic uses the server's network
+route, rather than the browser's per-context proxy. TRAWL does not log the API key,
+provider error descriptions or returned token in this adapter.
+
+Each creation attempt consumes the allowance even if the connection fails: the
+provider may have created a billable task before the response was lost. TRAWL
+never retries task creation automatically. Stopping a request cancels local
+polling but cannot cancel or refund a task already accepted by the provider.
+This is a task-count limit, not a deployment-wide spending cap.
+No-slot and HTTP 429 responses pause new external tasks for five seconds. Invalid
+keys, zero balance and account/IP restrictions pause them for sixty seconds.
+These cooldowns are shared by scrapes using the same provider configuration in
+one process; local solving continues with its original budget during a cooldown.
+
+Browser fixtures and the official task examples are tested without submitting
+paid tasks. Real worker acceptance, latency, billing and success rates remain
+unverified.
+
+See the provider's [reCAPTCHA v2](https://2captcha.com/api-docs/recaptcha-v2),
+[Turnstile](https://2captcha.com/api-docs/cloudflare-turnstile) and
+[polling API](https://2captcha.com/api-docs/get-task-result) documentation.
 
 ## CAPTCHA audio and media tools
 
@@ -588,3 +838,15 @@ canonical copyable environment template.
 The configuration namespaces changed without legacy aliases. Follow the complete
 [configuration migration table](/deployment/configuration-migration) before recreating the container.
 :::
+
+### Request deadlines and resource limits
+
+`maxTimeout` is shared by HTTP fetching, waiting for a browser, navigation, challenge handling, CAPTCHA solving and requested captures. Expiry aborts HTTP/transcription, stops owned FFmpeg subprocesses and closes the request's page or temporary context. Cleanup is bounded separately (up to five seconds for a page/context); replacing an unhealthy browser may continue after the request has ended. An expired request does not start additional capture work.
+
+`BROWSER_MAX_CONTENT_PROCESSES` is not a limit on all OS processes or threads: Firefox also runs network, extension and other helper processes, and isolates sites separately. `BROWSER_HARDWARE_CONCURRENCY` controls the CPU count reported to page scripts, not a CPU quota. A 1 GiB limit can still be exceeded by an unusually demanding page; use Docker resource limits and measure the target workload. Disabling ad blocking may reduce extension overhead while increasing page subresource traffic.
+
+## Named browser sessions
+
+`BROWSER_SESSION_MAX_ENTRIES` (default `4`) limits isolated contexts created through `/sessions` or `/v1` session commands. `BROWSER_SESSION_TTL_SECONDS` (default `3600`) expires idle sessions and frees their contexts. These settings are independent of the domain clearance cache and `REDIS_SESSION_TTL_SECONDS`.
+
+Start with `BROWSER_SESSION_MAX_ENTRIES=1` on a small container. Multiple contexts retain more memory, even after their request pages close. Live sessions postpone count-based recycling and idle retirement; memory pressure and crash recovery can still invalidate them. See [Browser Sessions](/api-reference/browser-sessions).
