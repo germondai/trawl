@@ -20,6 +20,6 @@
     "verify": "bun run check && bun run typecheck && bun run test && bun run build"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.14"
+    "@biomejs/biome": "2.5.15"
   }
 }

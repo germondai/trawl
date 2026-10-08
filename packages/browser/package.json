@@ -9,8 +9,8 @@
   },
   "dependencies": {
     "@trawl/types": "workspace:*",
-    "camoufox-js": "0.12.0",
-    "playwright-core": "1.60.0"
+    "camoufox-js": "0.12.1",
+    "playwright-core": "1.62.1"
   },
   "devDependencies": {
     "typescript": "^7.0.2",
