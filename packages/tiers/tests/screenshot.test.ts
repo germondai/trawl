@@ -12,7 +12,7 @@ const PAGE_HTML = `<html><head><title>Ordinary Page</title></head><body>${"conte
 const JPEG = Buffer.from("fake-jpeg-bytes")
 const JPEG_BASE64 = JPEG.toString("base64")
 
-const fingerprint = { userAgent: "test-agent", platform: "Linux x86_64", locale: "en-US", timezone: "UTC" }
+const fingerprint = { userAgent: "test-agent", platform: "Linux x86_64" as const, locale: "en-US", timezone: "UTC" }
 
 const session: SessionData = { cookies: [], userAgent: "cached-user-agent", savedAt: 1 }
 
@@ -319,7 +319,7 @@ describe("orchestrator", () => {
     const originalFetch = globalThis.fetch
     let browserAcquired = false
     globalThis.fetch = (async () =>
-      new Response(PAGE_HTML, { status: 200, headers: { "content-type": "text/html" } })) as typeof fetch
+      new Response(PAGE_HTML, { status: 200, headers: { "content-type": "text/html" } })) as unknown as typeof fetch
 
     try {
       const result = await scrape(

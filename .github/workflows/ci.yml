@@ -24,3 +24,15 @@ jobs:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
       - run: bun run verify
+
+  browser-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Build standard runtime
+        run: docker build -f apps/api/Dockerfile -t trawl-smoke .
+      - name: Test owned browser fixtures
+        run: bash scripts/browser-smoke.sh trawl-smoke

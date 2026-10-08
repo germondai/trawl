@@ -14,7 +14,7 @@ describe("Google sorry final response", () => {
     const originalFetch = globalThis.fetch
     const response = new Response(html, { headers: { "content-type": "text/html" } })
     Object.defineProperty(response, "url", { value: finalUrl })
-    globalThis.fetch = (async () => response) as typeof fetch
+    globalThis.fetch = (async () => response) as unknown as typeof fetch
     try {
       const result = await runTier1(searchUrl)
       expect(result.status).toBe(finalUrl === sorryUrl ? "needs-js" : "success")
@@ -52,6 +52,7 @@ describe("Google sorry final response", () => {
       const handle: BrowserHandle = {
         id: 1,
         lease: 1,
+        headful: false,
         context,
         browser: { newContext: async () => context },
         fingerprint: { userAgent: "test-agent", platform: "Linux x86_64", locale: "en-US", timezone: "UTC" },

@@ -4,7 +4,7 @@ import { runTier1 } from "../src/tiers/1"
 
 type EncodingCase = {
   encoding: string
-  encode: (body: Buffer) => Buffer
+  encode: (body: Buffer<ArrayBuffer>) => Buffer<ArrayBuffer>
 }
 
 const encodingCases: EncodingCase[] = [
@@ -27,7 +27,7 @@ describe("runTier1 — encoded response bodies", () => {
       const server = Bun.serve({
         port: 0,
         fetch() {
-          return new Response(encoded, {
+          return new Response(new Uint8Array(encoded), {
             headers: {
               "content-type": "text/html; charset=utf-8",
               "content-encoding": encoding,
@@ -59,7 +59,7 @@ describe("runTier1 — encoded response bodies", () => {
     const server = Bun.serve({
       port: 0,
       fetch() {
-        return new Response(encoded, {
+        return new Response(new Uint8Array(encoded), {
           status: 403,
           headers: {
             "content-type": "text/html",
@@ -154,7 +154,8 @@ describe("runTier1 raw text documents", () => {
     const encoded = gzipSync(body)
     const server = Bun.serve({
       port: 0,
-      fetch: () => new Response(encoded, { headers: { "content-type": type, "content-encoding": "gzip" } }),
+      fetch: () =>
+        new Response(new Uint8Array(encoded), { headers: { "content-type": type, "content-encoding": "gzip" } }),
     })
     try {
       const result = await runTier1(`http://127.0.0.1:${server.port}/`)

@@ -11,7 +11,7 @@ const PAGE_HTML = `<html><head><title>Shell</title></head><body>${"content ".rep
 
 const session: SessionData = { cookies: [], userAgent: "cached-user-agent", savedAt: 1 }
 
-const fingerprint = { userAgent: "test-agent", platform: "Linux x86_64", locale: "en-US", timezone: "UTC" }
+const fingerprint = { userAgent: "test-agent", platform: "Linux x86_64" as const, locale: "en-US", timezone: "UTC" }
 
 const mainFrame = {}
 
@@ -107,6 +107,7 @@ const poolHandle = (page: unknown): BrowserHandle =>
   ({
     id: 1,
     lease: 1,
+    headful: false,
     context: { newPage: async () => page, addCookies: async () => {}, cookies: async () => [] },
     browser: {},
     fingerprint,
@@ -735,7 +736,7 @@ describe("orchestrator", () => {
       { ...depsFor(page), loadSession: async () => undefined },
       {
         tier3: async (_url, _handle, _timeout, _proxy, _headers, _method, _body, _validator, _screenshot, capture) => {
-          expect(capture.mhtml).toBe(true)
+          expect(capture?.mhtml).toBe(true)
           return { tier: 3, status: "success", durationMs: 1, html: PAGE_HTML, mhtml: "tier-3-archive" }
         },
       },
@@ -759,7 +760,7 @@ describe("orchestrator", () => {
       {
         tier3: async () => ({ tier: 3, status: "blocked", durationMs: 1, reason: "challenge" }),
         tier4: async (_url, _handle, _timeout, _proxy, _headers, _method, _body, _validator, _screenshot, capture) => {
-          expect(capture.mhtml).toBe(true)
+          expect(capture?.mhtml).toBe(true)
           return { tier: 4, status: "success", durationMs: 1, html: PAGE_HTML, mhtml: "tier-4-archive" }
         },
       },

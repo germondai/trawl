@@ -49,7 +49,7 @@ describe("Anubis audit regressions", () => {
       evaluate: async () => (++samples === 1 ? { state: "challenge" } : { ready: true, content: true }),
       isClosed: () => false,
       url: () => "https://example.test/",
-    } as Page
+    } as unknown as Page
     expect(await waitForAnubisResolution(page, 1000)).toBe("ok")
   })
 })

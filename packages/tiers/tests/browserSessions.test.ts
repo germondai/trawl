@@ -34,7 +34,7 @@ function fixture(options: { maxSessions?: number; ttlMs?: number; now?: () => nu
         addInitScript: async () => {},
         async close() {
           this.closed = true
-          this.emit("close")
+          context.emit("close")
         },
       })
       contexts.push(context)

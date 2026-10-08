@@ -23,6 +23,7 @@ const session: SessionData = {
 const handleWithContext = (context: BrowserHandle["context"]): BrowserHandle => ({
   id: 3,
   lease: 7,
+  headful: false,
   context,
   browser: {},
   fingerprint: {

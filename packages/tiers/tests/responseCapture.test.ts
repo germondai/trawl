@@ -10,7 +10,7 @@ const PAGE_HTML = `<html><head><title>Shell</title></head><body>${"content ".rep
 
 const session: SessionData = { cookies: [], userAgent: "cached-user-agent", savedAt: 1 }
 
-const fingerprint = { userAgent: "test-agent", platform: "Linux x86_64", locale: "en-US", timezone: "UTC" }
+const fingerprint = { userAgent: "test-agent", platform: "Linux x86_64" as const, locale: "en-US", timezone: "UTC" }
 
 const mainFrame = {}
 
@@ -121,6 +121,7 @@ const poolHandle = (page: unknown): BrowserHandle =>
   ({
     id: 1,
     lease: 1,
+    headful: false,
     context: { newPage: async () => page, addCookies: async () => {}, cookies: async () => [] },
     browser: {},
     fingerprint,
@@ -382,7 +383,7 @@ describe("attachResponseCapture", () => {
 
   test("returns an immutable snapshot that a late body read cannot change", async () => {
     const { page, emitter } = makePage()
-    let release = (value: Buffer) => value
+    let release: (value: Buffer) => void = () => {}
     const body = new Promise<Buffer>((resolve) => {
       release = resolve
     })

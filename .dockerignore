@@ -33,6 +33,7 @@ apps/docs/**
 # Local scripts used for human-in-the-loop testing (e2e probe, soak test); not used in image.
 scripts/
 
-# Tests never run inside the image.
+# Test sources are mounted read-only for smoke tests; exclude them from shipped images.
 **/*.test.ts
 **/__tests__/
+**/tests/

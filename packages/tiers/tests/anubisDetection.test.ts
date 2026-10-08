@@ -13,16 +13,7 @@ import {
   needsJs,
 } from "../src/utils/detect"
 import { ANUBIS_CHALLENGE, ANUBIS_DOCS_PAGE, ANUBIS_POW_CHALLENGE } from "./fixtures/anubis"
-
-async function withFetch(response: Response, run: () => Promise<void>) {
-  const original = globalThis.fetch
-  ;(globalThis as { fetch: typeof fetch }).fetch = (async () => response) as typeof fetch
-  try {
-    await run()
-  } finally {
-    ;(globalThis as { fetch: typeof fetch }).fetch = original
-  }
-}
+import { withFetch } from "./helpers/fetch"
 
 const htmlResponse = (body: string, status: number, headers: Record<string, string> = {}) =>
   new Response(body, { status, headers: { "content-type": "text/html", ...headers } })

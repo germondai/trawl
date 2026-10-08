@@ -53,7 +53,8 @@ describe.skipIf(process.env.TRAWL_RAW_TEXT_TESTS !== "1")("Camoufox raw text int
       context: await browser.newContext(),
       id: 1,
       lease: 1,
-      fingerprint: { userAgent: "test-agent", platform: "Linux", locale: "en-US", timezone: "UTC" },
+      headful: false,
+      fingerprint: { userAgent: "test-agent", platform: "Linux x86_64", locale: "en-US", timezone: "UTC" },
     }
   }, 120_000)
 

@@ -200,7 +200,7 @@ describe("headful pool routing", () => {
       proxyPool: {
         next: () => "https://datacenter.test:8443",
         markBad: () => {},
-      } as OrchestratorDeps["proxyPool"],
+      } as unknown as OrchestratorDeps["proxyPool"],
     }
     const result = await scrape({ url: "https://example.test", skipHttp: true, maxTier: 3 }, deps, {
       tier3: async (_url, handle, _timeout, proxy) => {
@@ -225,7 +225,7 @@ describe("headful pool routing", () => {
       residentialProxyPool: {
         next: () => "http://residential.test:8080",
         markBad: () => {},
-      } as OrchestratorDeps["residentialProxyPool"],
+      } as unknown as OrchestratorDeps["residentialProxyPool"],
     }
     const result = await scrape({ url: "https://example.test", skipHttp: true }, deps, {
       tier3: async () => ({ tier: 3, status: "blocked", durationMs: 1, reason: "other-wall" }),

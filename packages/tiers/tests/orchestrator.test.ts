@@ -55,7 +55,9 @@ describe("public tier attempt metadata", () => {
           dependencies(tier, attempts),
           runners("success", reason),
         )
-        const expected = [{ tier, status: "success", durationMs: 12, ...(reason === undefined ? {} : { reason }) }]
+        const expected: TierResult[] = [
+          { tier, status: "success", durationMs: 12, ...(reason === undefined ? {} : { reason }) },
+        ]
         expect(result.timings).toStrictEqual(expected)
         expect(attempts).toStrictEqual(expected)
         expect(result.html).toBe(payload.html)
@@ -72,7 +74,7 @@ describe("public tier attempt metadata", () => {
       ...failed,
       tier4: runners("success").tier4,
     })
-    const expected = [
+    const expected: TierResult[] = [
       { tier: 1, status: "blocked", durationMs: 12, reason: "challenge" },
       { tier: 2, status: "blocked", durationMs: 12, reason: "challenge" },
       { tier: 3, status: "blocked", durationMs: 12, reason: "challenge" },
@@ -92,7 +94,7 @@ describe("public tier attempt metadata", () => {
     }
     expect(failure).toBeInstanceOf(ScrapeError)
     if (!(failure instanceof ScrapeError)) throw new Error("Expected scrape to fail")
-    const expected = [{ tier: 1, status: "error", durationMs: 12, reason: "failed" }]
+    const expected: TierResult[] = [{ tier: 1, status: "error", durationMs: 12, reason: "failed" }]
     expect(failure.timings).toStrictEqual(expected)
     expect(attempts).toStrictEqual(expected)
   })
@@ -122,7 +124,12 @@ describe("Anubis browser crash recovery", () => {
           ignoreCertificateErrors: true,
         },
         dependencies(tier, attempts),
-        { ...runners("success"), ...(tier === 3 ? { tier3: crashRunner } : { tier4: crashRunner }) },
+        {
+          ...runners("success"),
+          ...(tier === 3
+            ? { tier3: async (...args: unknown[]) => ({ ...(await crashRunner(...args)), tier: 3 as const }) }
+            : { tier4: async (...args: unknown[]) => ({ ...(await crashRunner(...args)), tier: 4 as const }) }),
+        },
       )
       expect(result.tier).toBe(tier)
       expect(calls).toHaveLength(2)
