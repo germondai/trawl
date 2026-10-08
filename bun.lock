@@ -10,7 +10,7 @@
     },
     "apps/api": {
       "name": "@trawl/api",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "dependencies": {
         "@modelcontextprotocol/sdk": "^1.32.1",
         "@mozilla/readability": "^0.6.0",
@@ -32,14 +32,14 @@
     },
     "apps/docs": {
       "name": "@trawl/docs",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "devDependencies": {
         "vitepress": "^1.6.4",
       },
     },
     "apps/web": {
       "name": "@trawl/web",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "devDependencies": {
         "@nuxt/fonts": "^0.14.0",
         "@nuxtjs/color-mode": "^4.0.1",
@@ -52,7 +52,7 @@
     },
     "packages/browser": {
       "name": "@trawl/browser",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "dependencies": {
         "@trawl/types": "workspace:*",
         "camoufox-js": "0.12.1",
@@ -66,7 +66,7 @@
     },
     "packages/tiers": {
       "name": "@trawl/tiers",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "dependencies": {
         "@trawl/browser": "workspace:*",
         "@trawl/types": "workspace:*",
@@ -80,7 +80,7 @@
     },
     "packages/types": {
       "name": "@trawl/types",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "devDependencies": {
         "typescript": "^7.0.2",
       },

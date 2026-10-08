@@ -68,7 +68,7 @@ used session. Expired sessions are removed automatically on reads and writes.
 
 **Default:** _(empty — Redis driver disabled)_
 
-Standard Redis connection URL — TRAWL's cache backend is Redis 8.8. Set a non-empty URL to enable
+Standard Redis connection URL — the bundled Compose service uses Redis 8. Set a non-empty URL to enable
 the session cache. When running inside Docker Compose use the service name:
 
 ```ini
