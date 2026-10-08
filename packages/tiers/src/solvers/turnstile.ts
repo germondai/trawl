@@ -1,5 +1,5 @@
 import { sleep } from "../utils/deadline"
-// Cloudflare Turnstile solver — handles both:
+// Cloudflare Turnstile solver - handles both:
 //
 // 1. Interstitial mode: CF serves a full-page Turnstile challenge BEFORE
 //    letting the user through. The challengeWait.ts loop handles this by
@@ -12,7 +12,7 @@ import { sleep } from "../utils/deadline"
 //
 // Non-interactive mode: When Cloudflare determines the browser has a good
 // risk score (Camoufox Firefox, residential IP, no automation signals), Turnstile
-// auto-solves without any click — a spinner briefly appears then turns into
+// auto-solves without any click - a spinner briefly appears then turns into
 // a green checkmark.
 
 import type { Page } from "patchright"
@@ -61,12 +61,5 @@ async function turnstileVerified(page: Page): Promise<boolean> {
         return false
       }
     })
-    .catch(() => false)
-}
-
-export async function hasTurnstileWidget(page: Page): Promise<boolean> {
-  return page
-    .locator('.cf-turnstile, #cf-turnstile, input[name="cf-turnstile-response"]')
-    .isVisible({ timeout: 2000 })
     .catch(() => false)
 }

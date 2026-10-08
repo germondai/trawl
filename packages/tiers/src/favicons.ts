@@ -17,8 +17,8 @@ const TIMED_OUT = Symbol("favicon-collection-timed-out")
 /**
  * Reads the page's favicons from inside the page that rendered it.
  *
- * A page may declare several icons — size and device variants, `apple-touch-icon`,
- * `mask-icon`, `shortcut icon` — and the browser renders exactly one of them. Everything
+ * A page may declare several icons - size and device variants, `apple-touch-icon`,
+ * `mask-icon`, `shortcut icon` - and the browser renders exactly one of them. Everything
  * declared is collected here, plus the apex `/favicon.ico` whether or not the page points
  * at it, because that is the icon a browser falls back to and a page that declares none
  * still usually serves.
@@ -28,14 +28,14 @@ const TIMED_OUT = Symbol("favicon-collection-timed-out")
  * page that declares no icon yields nothing at all. They are resolved and fetched
  * explicitly instead, and the fetch runs in page context so it carries the origin's
  * cookies, the session's challenge clearance and the same egress the page was served
- * over — an icon fetched afterwards from outside the browser knocks on the door as a
+ * over - an icon fetched afterwards from outside the browser knocks on the door as a
  * stranger, which is why bot walls answer it with a 403.
  *
  * Returns `[]` rather than throwing: a favicon that cannot be read degrades that field,
  * never the scrape.
  *
  * `budgetMs` is what is left of the request's `maxTimeout`. Collection never outlives it,
- * and is skipped outright once it is spent — the icons are worth a wait the caller still
+ * and is skipped outright once it is spent - the icons are worth a wait the caller still
  * has, never one it does not.
  */
 export async function capturePageFavicons(page: Page, budgetMs = TOTAL_TIMEOUT_MS): Promise<FaviconEntry[]> {
@@ -100,7 +100,7 @@ export async function capturePageFavicons(page: Page, budgetMs = TOTAL_TIMEOUT_M
           add(new URL("/favicon.ico", location.origin).href)
         }
         // `rel` is matched as a substring so apple-touch-icon, mask-icon, shortcut icon
-        // and alternate icon all count — the whole declared set, not just the one the
+        // and alternate icon all count - the whole declared set, not just the one the
         // browser chose to paint.
         for (const link of document.querySelectorAll("link[rel]")) {
           if (candidates.length >= maxEntries) break

@@ -1,15 +1,15 @@
 // Proxy pool with sticky-per-domain routing, round-robin fallback, and failure cooldown.
-// Sourced from a user-supplied comma-separated list or line-delimited file — TRAWL never
+// Sourced from a user-supplied comma-separated list or line-delimited file - TRAWL never
 // fetches or trusts any third-party proxy list.
 
 import { readFileSync } from "node:fs"
 
-const COOLDOWN_MS = 5 * 60 * 1000 // 5 minutes — matches the plan's "time-boxed cooldown"
+const COOLDOWN_MS = 5 * 60 * 1000 // 5 minutes - matches the plan's "time-boxed cooldown"
 
 // Normalizes the per-request `proxy` field at the API boundary into a single URL string.
 // Prowlarr's Cardigann flow serializes proxy config as an object {url, username, password};
 // other callers send a plain URL string. Playwright's `newContext({proxy})` expects
-// `server` to be a string — passing the object through untyped crashes with
+// `server` to be a string - passing the object through untyped crashes with
 // `proxy.server: expected string, got object` (issue #12).
 //
 // Returns undefined for null/undefined/empty/non-string-non-object inputs.
@@ -60,7 +60,7 @@ export class ProxyPool {
   }
 
   // Builds a pool from a comma-separated env var and/or a line-delimited file (one proxy
-  // per line, '#' comments allowed). A single URL still works — it's just a 1-element list.
+  // per line, '#' comments allowed). A single URL still works - it's just a 1-element list.
   // Returns undefined if neither source yields any proxies, so callers can treat "no proxy
   // configured" the same way they did with the old single-string PROXY_URL/RESIDENTIAL_PROXY_URL.
   static fromEnv(urlListEnv?: string, fileEnv?: string, selection: ProxySelection = "failover") {
@@ -133,7 +133,7 @@ export class ProxyPool {
     return available[Math.floor(Math.random() * available.length)].url
   }
 
-  // Puts a proxy in cooldown after a tier reports "blocked"/"ip-blocked" for it — skipped
+  // Puts a proxy in cooldown after a tier reports "blocked"/"ip-blocked" for it - skipped
   // by next()/random() until the cooldown expires. Also drops any sticky-domain mapping
   // pointing at it so the next call for that domain picks a different proxy.
   markBad(url: string): void {

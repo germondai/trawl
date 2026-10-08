@@ -34,7 +34,7 @@ export async function reportBlocked(
 ): Promise<void> {
   if (!sink) return
   try {
-    // settle: false — a challenge wall never reaches network idle, so waiting for it only
+    // settle: false - a challenge wall never reaches network idle, so waiting for it only
     // spends the budget the next tier still needs. The screenshot still obeys the
     // request's remaining budget and its own configured time and size ceilings.
     const screenshot =

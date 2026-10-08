@@ -1,7 +1,7 @@
 // Speech-to-text for reCAPTCHA v2 audio challenge solving.
 //
 // Default (zero-cost, no key): uses Google's own free Speech Recognition endpoint.
-// Google's reCAPTCHA audio is designed for screen-reader accessibility — their own
+// Google's reCAPTCHA audio is designed for screen-reader accessibility - their own
 // STT transcribes it perfectly. We download the MP3, convert to FLAC via ffmpeg
 // (ships in the Docker image), and POST to Google's endpoint. No billing, no signup.
 // This is the same technique the open-source Buster accessibility extension uses.
@@ -21,7 +21,7 @@ const STT_KEY = process.env.STT_API_KEY ?? ""
 // On macOS with Playwright's bundled binary it's named 'ffmpeg-mac'; set this
 // env var or create a symlink to make 'ffmpeg' resolve.
 
-// Google's public Speech API key — used in Google's own demos and the Buster extension.
+// Google's public Speech API key - used in Google's own demos and the Buster extension.
 // Has been public since 2013. Google can't revoke it without breaking their own accessibility tooling.
 const GOOGLE_STT =
   "https://www.google.com/speech-api/v2/recognize?output=json&lang=en-US&key=AIzaSyBOti4mM-6x9WDnZIjIeyEU21OpBXqWBgw"
@@ -66,7 +66,7 @@ async function transcribeGoogle(audioUrl: string, signal?: AbortSignal): Promise
     const res = await fetch(audioUrl, {
       signal,
       headers: {
-        // Use Firefox UA to match Camoufox — Google may serve different content by browser
+        // Use Firefox UA to match Camoufox - Google may serve different content by browser
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0",
         Referer: "https://www.google.com/recaptcha/api2/bframe",
         Accept: "audio/webm,audio/ogg,audio/wav,audio/*;q=0.9,application/ogg;q=0.7,video/*;q=0.6,*/*;q=0.5",
@@ -85,7 +85,7 @@ async function transcribeGoogle(audioUrl: string, signal?: AbortSignal): Promise
     }
     await Bun.write(mp3, audioBytes)
 
-    // Try both sample rates — reCAPTCHA audio varies (8kHz native, 16kHz after processing)
+    // Try both sample rates - reCAPTCHA audio varies (8kHz native, 16kHz after processing)
     for (const [rate, flac] of [
       [8000, flac8],
       [16000, flac16],

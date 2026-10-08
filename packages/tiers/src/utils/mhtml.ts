@@ -18,7 +18,7 @@ const DEFAULT_CONTENT_TYPES: Record<string, string> = {
 // Longest line a quoted-printable or base64 part may use, per RFC 2045.
 const MAX_LINE_CHARS = 76
 
-// A header line is not folded, so a Content-Location longer than this is not archivable —
+// A header line is not folded, so a Content-Location longer than this is not archivable -
 // folding a URL is what makes an MHTML unreadable in the browsers that reject it.
 export const MAX_LOCATION_CHARS = 2_000
 
@@ -49,7 +49,7 @@ export const isArchivableResourceType = (resourceType: string): boolean => ARCHI
 export const defaultContentType = (resourceType: string): string =>
   DEFAULT_CONTENT_TYPES[resourceType] ?? "application/octet-stream"
 
-/** Strips anything a header line cannot carry — a line break above all. */
+/** Strips anything a header line cannot carry - a line break above all. */
 const headerSafe = (value: string, maxChars = MAX_LOCATION_CHARS): string => {
   let safe = ""
   for (const char of value) {

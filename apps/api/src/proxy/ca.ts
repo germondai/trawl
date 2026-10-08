@@ -20,7 +20,7 @@ import forge from "node-forge"
 // short per-host leaf certificate on demand, signed by that CA.
 //
 // The CA private key never leaves this container. Installing the CA cert in a client
-// lets THIS proxy impersonate any host to THAT client — so the proxy must only ever be
+// lets THIS proxy impersonate any host to THAT client - so the proxy must only ever be
 // reachable by the trusted client (e.g. bound to localhost / a private Docker netns).
 export class MitmCa {
   private readonly caCert: forge.pki.Certificate
@@ -39,12 +39,12 @@ export class MitmCa {
     this.caKey = initialized.key
     this.caCertPem = initialized.pem
 
-    // One leaf keypair shared across every minted host cert — only the certificate
+    // One leaf keypair shared across every minted host cert - only the certificate
     // (subject + SAN) differs per host, so there's no need to pay RSA keygen per host.
     this.leafKeys = forge.pki.rsa.generateKeyPair(2048)
   }
 
-  // The shared leaf private key (PEM) — every minted host cert is signed for this key,
+  // The shared leaf private key (PEM) - every minted host cert is signed for this key,
   // so one key serves all per-host TLS servers.
   get leafKeyPem(): string {
     return forge.pki.privateKeyToPem(this.leafKeys.privateKey)
@@ -67,7 +67,7 @@ export class MitmCa {
     cert.serialNumber = randomSerial()
     // Backdate 1h to tolerate mild clock skew between proxy and client containers.
     cert.validity.notBefore = new Date(Date.now() - 3600_000)
-    cert.validity.notAfter = new Date(Date.now() + 397 * 24 * 3600_000) // 397d — CA/B leaf max
+    cert.validity.notAfter = new Date(Date.now() + 397 * 24 * 3600_000) // 397d - CA/B leaf max
     const subject = [{ name: "commonName", value: host }]
     cert.setSubject(subject)
     cert.setIssuer(this.caCert.subject.attributes)
@@ -232,7 +232,7 @@ function replaceFileAtomically(path: string, contents: string): void {
 // SAN must carry an IP entry (type 7) for literal-IP hosts and a DNS entry (type 2)
 // otherwise, or strict clients reject the leaf. node-forge's TypeScript types narrow
 // `type` to string at the CertificateField boundary, but the runtime accepts the
-// numeric GeneralName tags ("2" / "7") — the cast below bridges the two.
+// numeric GeneralName tags ("2" / "7") - the cast below bridges the two.
 function altNamesFor(host: string): forge.pki.CertificateField[] {
   const isIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(host)
   const entry = isIp ? { type: "7", value: host } : { type: "2", value: host }

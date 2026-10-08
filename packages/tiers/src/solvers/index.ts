@@ -1,18 +1,6 @@
 import { sleep } from "../utils/deadline"
-// In-page captcha solver orchestrator.
-// Built-in solvers run first. An explicitly configured external session may follow.
-//
-// Handles:
-//   Cloudflare Turnstile  — iframe checkbox click (embedded widget mode)
-//   reCAPTCHA v2          — checkbox auto-pass + audio challenge via Google's free STT
-//   hCaptcha              — checkbox click (auto-pass path only; image grids need AI)
-//   GeeTest slide         — human-like mouse drag with canvas gap detection
-//   Altcha PoW           — client-side SHA-256 Proof-of-Work computation
-//   Friendly Captcha PoW  — client-side Proof-of-Work puzzle solving
-//   CAP                   — native component PoW and response token verification
-//
-// Called after the page is loaded (post-CF-interstitial).
-// Interstitial-level CF challenges are handled separately in challengeWait.ts.
+// Solve embedded widgets after interstitial resolution. Built-in solvers run
+// first; an explicitly configured external solver can handle remaining widgets.
 
 import type { Page } from "patchright"
 import {
@@ -38,7 +26,7 @@ export interface SolveResult {
 }
 
 // Check for an in-page Turnstile widget via frame URLs and DOM polling.
-// Avoids page.waitForSelector whose timeout option is silently ignored by camoufox-js —
+// Avoids page.waitForSelector whose timeout option is silently ignored by camoufox-js -
 // it always uses the 30s Playwright default regardless of what we pass. We poll instead.
 //
 // IMPORTANT: we distinguish in-page widgets from the CF interstitial (just-solved)
@@ -48,13 +36,13 @@ async function detectTurnstile(page: Page, timeoutMs: number, signal?: AbortSign
   const deadline = Date.now() + timeoutMs
 
   while (Date.now() < deadline) {
-    // If the current page is itself a CF challenge, skip — we're still in the interstitial,
+    // If the current page is itself a CF challenge, skip - we're still in the interstitial,
     // not on the target page with an embedded in-page widget.
     const pageUrl = page.url()
     const pageIsCfChallenge =
       pageUrl.includes("cdn-cgi/challenge-platform") || pageUrl.includes("challenges.cloudflare.com")
     if (!pageIsCfChallenge) {
-      // Frame URL scan — only count sub-frames in the current (non-challenge) page
+      // Frame URL scan - only count sub-frames in the current (non-challenge) page
       const viaFrame = page.frames().some((f) => {
         // Skip main frame (already checked above), skip same-origin CF challenge frames
         if (f === page.mainFrame()) return false
@@ -66,7 +54,7 @@ async function detectTurnstile(page: Page, timeoutMs: number, signal?: AbortSign
         return true
       }
 
-      // DOM check — immediate evaluate on the real page
+      // DOM check - immediate evaluate on the real page
       const viaDOM = await page
         .evaluate(() => {
           if (
@@ -106,7 +94,7 @@ export async function solvePageCaptchas(
   const attempted: string[] = []
   const solved: string[] = []
 
-  // Quick HTML scan — skip detection entirely for pages with no widget markers
+  // Quick HTML scan - skip detection entirely for pages with no widget markers
   const html = await page.content().catch(() => "")
   const externalProfiles = (await external?.discover(page, html).catch(() => [])) ?? []
   const mightHaveTurnstile = /cf-turnstile|cloudflare\.com\/turnstile/i.test(html)
@@ -145,7 +133,7 @@ export async function solvePageCaptchas(
     .filter((u) => u && u !== "about:blank")
   if (frameUrls.length > 0) console.log("[solvers] frames:", frameUrls.map((u) => u.slice(0, 80)).join(" | "))
 
-  // waitForSelector already handles waiting for widgets — no blind sleep needed.
+  // waitForSelector already handles waiting for widgets - no blind sleep needed.
   // 5s: Turnstile/reCAPTCHA iframes typically appear within 2s of page load;
   // dynamic script-mounted widgets (e.g. Mojeek ALTCHA) can take 2-4s to load module scripts.
   const DETECT_MS = Math.min(5_000, Math.max(0, deadline - Date.now()))

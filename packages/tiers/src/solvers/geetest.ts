@@ -9,7 +9,7 @@ import { matchGeetestPiece } from "./geetestImage"
 import { runFfmpeg } from "./subprocess"
 
 // Initial "Click to verify" button selectors (GeeTest v4 entry point).
-// Use aria-label and specific class — avoid [class*="geetest_btn"] which also matches the icon SVG.
+// Use aria-label and specific class - avoid [class*="geetest_btn"] which also matches the icon SVG.
 const VERIFY_BUTTON = [
   'div[aria-label="Click to verify"]',
   "div.geetest_btn_click",
@@ -217,7 +217,7 @@ async function findSliderGapByScreenshot(
   const rawPath = `/tmp/gt-${id}.raw`
 
   try {
-    // Screenshot the SVG challenge image — this is where the notch is
+    // Screenshot the SVG challenge image - this is where the notch is
     const clip = { x: svgBox.x, y: svgBox.y, width: svgBox.width, height: svgBox.height }
 
     const png = await page.screenshot({ clip })
@@ -241,8 +241,8 @@ async function findSliderGapByScreenshot(
     }
 
     // Analyze pixel brightness column by column.
-    // The notch is a puzzle-piece-shaped shadow region — distinctly darker than the rest.
-    // The puzzle piece starts at the left — skip it (half of its width + small margin).
+    // The notch is a puzzle-piece-shaped shadow region - distinctly darker than the rest.
+    // The puzzle piece starts at the left - skip it (half of its width + small margin).
     const PIECE_W = Math.round(pieceHalfW * 2 + 10) // skip puzzle piece area at left
     const yStart = Math.floor(h * 0.15)
     const yEnd = Math.floor(h * 0.85)
@@ -265,7 +265,7 @@ async function findSliderGapByScreenshot(
     const rows = yEnd - yStart
     for (let x = 0; x < w; x++) avgBright[x] /= rows
 
-    // Darkest column in [PIECE_W, w-30] — center of the notch shadow
+    // Darkest column in [PIECE_W, w-30] - center of the notch shadow
     let minBright = Number.POSITIVE_INFINITY
     let darkX = 0
     for (let x = PIECE_W; x < w - 30; x++) {
@@ -275,7 +275,7 @@ async function findSliderGapByScreenshot(
       }
     }
 
-    // Strongest edge in [PIECE_W, w-30] — notch boundary
+    // Strongest edge in [PIECE_W, w-30] - notch boundary
     let maxEdge = 0
     let edgeX = 0
     for (let x = PIECE_W; x < w - 30; x++) {

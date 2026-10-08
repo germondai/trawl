@@ -50,7 +50,7 @@ export function buildScrapeRequestFromFlareSolverr(req: FlareSolverrScrapeReques
     // Prowlarr's Cardigann flow serializes proxy as {url, username, password};
     // other callers may send a plain URL string. Normalize to a single URL string
     // here so downstream Playwright/Camoufox `newContext({proxy})` calls receive
-    // a string (issue #12 — proxy.server: expected string, got object).
+    // a string (issue #12 - proxy.server: expected string, got object).
     proxy: req.session ? undefined : normalizeProxy(req.proxy),
   }
 }

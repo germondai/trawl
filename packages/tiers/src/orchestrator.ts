@@ -18,7 +18,7 @@ import type { ProxyPool } from "./utils/proxyRotator"
 import { isHtmlContentType } from "./utils/response"
 import { RequestValidationError, requireContentTypeForBody, sanitizeHeaders } from "./utils/sanitize"
 
-// Bounds how many distinct proxies a single request will try per tier before giving up —
+// Bounds how many distinct proxies a single request will try per tier before giving up -
 // keeps a long proxy list from blowing the request's maxTimeout budget.
 const MAX_PROXY_ATTEMPTS = 2
 
@@ -26,7 +26,7 @@ type InternalTierResult = Tier1Result | Tier2Result | Tier3Result | Tier4Result
 
 // Carries the per-tier attempt history alongside the failure message, so callers
 // (the API layer) can report exactly which tier failed and why instead of just a
-// flat string — this data already exists in-memory by the time we throw, it just
+// flat string - this data already exists in-memory by the time we throw, it just
 // wasn't reaching anyone outside the orchestrator.
 export class ScrapeError extends Error {
   timings: TierResult[]
@@ -201,7 +201,7 @@ async function scrapeWithinBudget(
   }
 
   // Evidence from the last browser tier that rendered a wall it could not clear. Kept out
-  // of `timings` — that stays the thin, machine-readable attempt history — and reached
+  // of `timings` - that stays the thin, machine-readable attempt history - and reached
   // only via the thrown ScrapeError.
   let blockedEvidence: BlockedEvidence | undefined
   const capture = {
@@ -552,7 +552,7 @@ async function scrapeWithinBudget(
           mhtml: t2.mhtml,
         }
       }
-      // Session failed — purge it
+      // Session failed - purge it
       await deps.invalidateSession(domain)
     }
 
@@ -661,7 +661,7 @@ async function scrapeWithinBudget(
       throw failure("Max tier reached without success")
     }
 
-    // Tier 4: residential proxy escalation — requires at least one residential proxy,
+    // Tier 4: residential proxy escalation - requires at least one residential proxy,
     // supplied either per-request (req.proxy) or via the configured residential pool.
     let proxy4 = forcedTier4Proxy ?? req.proxy ?? deps.residentialProxyPool?.next(domain)
     if (!proxy4) {

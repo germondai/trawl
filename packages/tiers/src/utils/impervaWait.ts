@@ -1,10 +1,10 @@
-// Imperva/Incapsula sensor-cookie wait — mirrors challengeWait.ts's CF polling loop.
+// Imperva/Incapsula sensor-cookie wait - mirrors challengeWait.ts's CF polling loop.
 // Imperva's reese84 (current) / ___utmvc (legacy) cookies are produced by an obfuscated
 // in-page JS challenge that a real browser executing real JS satisfies without any
-// challenge-specific logic — we just wait for the cookie and let the page proceed.
+// challenge-specific logic - we just wait for the cookie and let the page proceed.
 //
 // Known risk: unlike CF Turnstile, Imperva's script sometimes layers in TLS/JA3 and
-// behavioral checks beyond plain cookie generation — success isn't guaranteed just
+// behavioral checks beyond plain cookie generation - success isn't guaranteed just
 // because we're a real browser. Validate against a real Imperva-protected site.
 
 import type { Page } from "patchright"
@@ -62,7 +62,7 @@ export async function waitForImpervaResolution(
           return "ok"
         }
 
-        // Sensor cookie set but still on the challenge page — Imperva's redirect
+        // Sensor cookie set but still on the challenge page - Imperva's redirect
         // sometimes doesn't auto-fire (unlike CF). Navigate ourselves after a grace period.
         if (originalUrl && Date.now() - sensorCookieAt > 5000) {
           console.log("[imperva] sensor cookie set but still on challenge page — navigating to original URL")

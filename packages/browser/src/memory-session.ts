@@ -8,7 +8,7 @@ interface Entry {
 
 /**
  * In-process session cache backed by a plain Map. Zero external dependencies,
- * zero network latency. Sessions are scoped to this process — if you run
+ * zero network latency. Sessions are scoped to this process - if you run
  * multiple API instances behind a load balancer, each instance keeps its own
  * independent cache and a solve on instance A is NOT visible to instance B.
  * Use the Redis driver when cross-instance sharing is required.

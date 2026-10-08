@@ -8,7 +8,7 @@ import { type MetricsStore, metrics } from "../metrics"
 import { runLoggedScrape } from "../requestLogging"
 import { requestUrl, validateFlareSolverrRequest } from "../validation"
 
-// FlareSolverr v2 compat — always open (the v2 spec has no auth header)
+// FlareSolverr v2 compat - always open (the v2 spec has no auth header)
 interface V1RouteOptions {
   runScrape?: typeof scrape
   poolReady?: () => boolean

@@ -57,7 +57,7 @@ export function startMitmProxy(opts: MitmProxyOptions): MitmProxyHandle {
   const ca = new MitmCa(opts.caDir)
 
   // Per-host loopback TLS terminators. We know the target host from the CONNECT line, so
-  // each host gets its own real listening TLS server whose base cert is that host's leaf —
+  // each host gets its own real listening TLS server whose base cert is that host's leaf -
   // no SNI routing needed (Bun's node:tls doesn't invoke SNICallback, and can't drive a
   // handshake via emit("connection"), so a real listening server per host is the reliable
   // path). On CONNECT we bridge the raw client socket to the matching server's loopback
@@ -112,7 +112,7 @@ export function startMitmProxy(opts: MitmProxyOptions): MitmProxyHandle {
   return { ca, server, tlsServers, unregisterTrust }
 }
 
-// Graceful shutdown — stops accepting new connections and closes existing ones.
+// Graceful shutdown - stops accepting new connections and closes existing ones.
 // Called from lifecycle.ts on SIGTERM/SIGINT before the browser pool shutdown.
 export async function shutdownMitmProxy(handle: MitmProxyHandle, timeoutMs = 5_000): Promise<void> {
   handle.unregisterTrust()
@@ -134,7 +134,7 @@ export async function shutdownMitmProxy(handle: MitmProxyHandle, timeoutMs = 5_0
 }
 
 // CONNECT host:port → 200, then bridge the raw client socket to the host's loopback TLS
-// terminator. We pause first because reading the CONNECT line left the socket flowing —
+// terminator. We pause first because reading the CONNECT line left the socket flowing -
 // pipe() resumes it once the bridge is wired, so the client's ClientHello isn't dropped.
 async function handleConnect(
   clientSocket: net.Socket,
@@ -166,7 +166,7 @@ async function handleConnect(
 
 // Read one HTTP/1.1 request off the decrypted stream, re-issue it through the browser,
 // and write the solved response back. We answer one request per TLS connection and close
-// (Connection: close) — clients open a fresh CONNECT per request, which keeps parsing
+// (Connection: close) - clients open a fresh CONNECT per request, which keeps parsing
 // trivial and lets each request pick up the freshest cached session.
 function serveRequests(stream: tls.TLSSocket, host: string, opts: MitmProxyOptions): void {
   const chunks: Buffer[] = []
@@ -194,7 +194,7 @@ function serveRequests(stream: tls.TLSSocket, host: string, opts: MitmProxyOptio
     if (contentLength > 0 && bodyAvailable < contentLength) return // wait for full body
 
     stream.off("data", onData)
-    // Raw body bytes — UTF-8 decoding would corrupt binary uploads (PDFs, .torrent
+    // Raw body bytes - UTF-8 decoding would corrupt binary uploads (PDFs, .torrent
     // POSTs, etc.). proxyRequest() forwards them as Buffer.
     const body = contentLength > 0 ? buf.subarray(bodyStart, bodyStart + contentLength) : undefined
     const url = `https://${headers.host ?? host}${path}`
@@ -265,7 +265,7 @@ async function proxyWebSocket(
       upstream.write(`${requestLines.join("\r\n")}\r\n\r\n`)
 
       // Read until end of HTTP response headers (\r\n\r\n). For 101 Switching
-      // Protocols there is no body — once we see the blank line, both sides
+      // Protocols there is no body - once we see the blank line, both sides
       // speak raw WebSocket frames.
       const chunks: Buffer[] = []
       let totalBytes = 0
@@ -284,12 +284,12 @@ async function proxyWebSocket(
         }
         upstream.off("data", onData)
         // Forward the entire response (including any bytes past the header
-        // terminator — rare for 101 but defensive).
+        // terminator - rare for 101 but defensive).
         clientSocket.write(combined.subarray(0, headerEnd + 4))
         if (headerEnd + 4 < combined.length) {
           clientSocket.write(combined.subarray(headerEnd + 4))
         }
-        // Both sides now speak raw WebSocket frames — bidirectional byte pipe.
+        // Both sides now speak raw WebSocket frames - bidirectional byte pipe.
         upstream.pipe(clientSocket)
         clientSocket.pipe(upstream)
         resolve()
@@ -314,7 +314,7 @@ async function proxyWebSocket(
 
 // New request entry point used by serveRequests. Tier 0 = direct TCP/TLS forward
 // to upstream with challenge detection. On challenge, escalate to the existing
-// tier pipeline (`scrape()` from @trawl/tiers — Tier 1 plain HTTP, Tier 2 cached
+// tier pipeline (`scrape()` from @trawl/tiers - Tier 1 plain HTTP, Tier 2 cached
 // browser session, Tier 3 fresh CF solve, Tier 4 residential).
 //
 async function proxyRequest(
@@ -333,7 +333,7 @@ async function proxyRequest(
     return
   }
 
-  // Trust the cache for repeat visits — skip Tier 0 entirely if we recently saw
+  // Trust the cache for repeat visits - skip Tier 0 entirely if we recently saw
   // a CF challenge here and jump straight to scrape().
   const cachedMode = challengeCache.get(domain)
   if (shouldBypassTier0(opts.alwaysScrape, cachedMode)) {
@@ -548,7 +548,7 @@ export async function serveViaScrape(
 
 // Minimal plain-HTTP (non-TLS) proxy support, mainly for completeness / http:// targets.
 async function handlePlainHttp(clientSocket: net.Socket, first: Buffer, opts: MitmProxyOptions): Promise<void> {
-  // Accumulate full HTTP headers before dispatching — needed to detect Upgrade: websocket
+  // Accumulate full HTTP headers before dispatching - needed to detect Upgrade: websocket
   // and to know where the body starts. The first chunk from the main listener is already
   // a complete request in most cases (curl/Chromium send headers + small body in one packet),
   // so check the boundary inline before waiting for another 'data' event.
