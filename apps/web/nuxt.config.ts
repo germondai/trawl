@@ -39,9 +39,7 @@ export default defineNuxtConfig({
 
   seo: {
     meta: {
-      description,
       themeColor: "#00e87a",
-      ogType: "website",
       ogTitle: `TRAWL — ${title}`,
       ogDescription: socialDescription,
       twitterCard: "summary_large_image",

@@ -15,7 +15,6 @@
     "@trawl/types": "workspace:*",
     "elysia": "^1.4.30",
     "linkedom": "^0.18.13",
-    "memoirist": "1.2.2",
     "node-forge": "^1.4.0",
     "turndown": "^7.2.4",
     "zod": "^4.6.5"

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Share fresh and proxy browser execution, final wall checks, capture handling and browser result types across tiers.
+- Skip global network-idle waits when a content readiness selector is provided; preserve default JavaScript settling and Cloudflare iframe readiness in browser requests.
+- Typecheck browser and tier tests along with their runtime code, and reuse common HTTP test fixtures.
+- Drain and exit after unexpected process errors, retain the specific malformed browser page-error workaround, and coalesce shutdown signals.
+- Remove an unused Turnstile detector and the redundant direct routing dependency; retain Elysia's supported dependency version.
+
 - Share scrape deadlines across HTTP and browser work, cancel owned pages/contexts and FFmpeg processes on expiry, and limit FFmpeg threading for small CAPTCHA conversions (#191).
 - Finish page cleanup before reusing browser capacity or assessing memory pressure; add opt-in idle retirement with `BROWSER_IDLE_TIMEOUT_MS` (default off) (#191).
 - Aggregate dashboard history in SQLite and fetch only bounded recent-event lists without changing the dashboard response.
