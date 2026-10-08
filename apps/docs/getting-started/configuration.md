@@ -844,3 +844,9 @@ The configuration namespaces changed without legacy aliases. Follow the complete
 `maxTimeout` is shared by HTTP fetching, waiting for a browser, navigation, challenge handling, CAPTCHA solving and requested captures. Expiry aborts HTTP/transcription, stops owned FFmpeg subprocesses and closes the request's page or temporary context. Cleanup is bounded separately (up to five seconds for a page/context); replacing an unhealthy browser may continue after the request has ended. An expired request does not start additional capture work.
 
 `BROWSER_MAX_CONTENT_PROCESSES` is not a limit on all OS processes or threads: Firefox also runs network, extension and other helper processes, and isolates sites separately. `BROWSER_HARDWARE_CONCURRENCY` controls the CPU count reported to page scripts, not a CPU quota. A 1 GiB limit can still be exceeded by an unusually demanding page; use Docker resource limits and measure the target workload. Disabling ad blocking may reduce extension overhead while increasing page subresource traffic.
+
+## Named browser sessions
+
+`BROWSER_SESSION_MAX_ENTRIES` (default `4`) limits isolated contexts created through `/sessions` or `/v1` session commands. `BROWSER_SESSION_TTL_SECONDS` (default `3600`) expires idle sessions and frees their contexts. These settings are independent of the domain clearance cache and `REDIS_SESSION_TTL_SECONDS`.
+
+Start with `BROWSER_SESSION_MAX_ENTRIES=1` on a small container. Multiple contexts retain more memory, even after their request pages close. Live sessions postpone count-based recycling and idle retirement; memory pressure and crash recovery can still invalidate them. See [Browser Sessions](/api-reference/browser-sessions).

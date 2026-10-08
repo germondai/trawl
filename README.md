@@ -15,6 +15,7 @@ For existing FlareSolverr users, the compatible `/v1` endpoint works with Prowla
 
 ## Features
 
+- **Isolated browser sessions** - preserve login cookies and localStorage across native API, MCP and FlareSolverr requests, with capacity limits and automatic idle expiry. [Session API](https://docs.trawl.germondai.com/api-reference/browser-sessions).
 - **MCP tools for AI agents** - read pages as Markdown or text, scrape HTML, extract JSON records, capture screenshots, and inspect browser diagnostics from known public URLs
 - **4-tier execution** - plain HTTP fetch → cached browser session → fresh challenge solve → optional residential proxy
 - **Structured extraction and screenshots** - select fields from repeated elements, render JavaScript pages, and capture a viewport, full page, or specific element
@@ -429,6 +430,8 @@ for pool and mounted-file examples.
 | `BROWSER_MAX_CONTENT_PROCESSES`    | `2`                          | Cap Firefox content processes per browser (`dom.ipc.processCount`); lowers RAM/CPU      |
 | `SCRAPE_MIN_TIER`                  | `1`                          | Lowest tier allowed globally (`1` HTTP, `2` cached browser, `3` fresh, `4` residential) |
 | `SESSION_CACHE_DRIVER`             | `redis`                      | Session cache backend: `redis` or single-process `memory`                               |
+| `BROWSER_SESSION_MAX_ENTRIES` | `4` | Maximum named browser contexts per instance; start with `1` for small containers |
+| `BROWSER_SESSION_TTL_SECONDS` | `3600` | Named session idle expiry in seconds; independent of the clearance cache |
 | `REDIS_SESSION_TTL_SECONDS`        | `3600`                       | Redis or in-memory session TTL (seconds)                                                |
 | `MEMORY_SESSION_CACHE_MAX_ENTRIES` | `1000`                       | Maximum LRU-bounded entries for the memory driver                                       |
 | `REDIS_URL`                        | —                            | Redis connection string; empty or unset disables the Redis cache                        |
