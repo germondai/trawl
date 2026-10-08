@@ -15,7 +15,7 @@ import { hasAnubisDestinationContent, isAnubisVerificationUrl } from "../utils/a
 import { reportBlocked } from "../utils/blockedEvidence"
 import { attachPageCapture, type CaptureOptions } from "../utils/capture"
 import { routeChallengeWait } from "../utils/challengeRouter"
-import { snapshotChallengeCookies, toCookies } from "../utils/cookies"
+import { normalizeInputCookies, snapshotChallengeCookies, toCookies } from "../utils/cookies"
 import { DeadlineError, RequestBudget } from "../utils/deadline"
 import {
   type ChallengeType,
@@ -38,6 +38,7 @@ import { isProxyTransportFailure, normalizeProxyError, proxyResponseFailure } fr
 import { browserDocumentHtml, captureResponse, isHtmlContentType, isNonHtmlTextContentType } from "../utils/response"
 import type { RouteLike } from "../utils/sanitize"
 import { routeContinueOverrides } from "../utils/sanitize"
+import { restoreSessionStorage } from "../utils/sessionStorage"
 import { waitForVisibleSelector } from "../utils/waitForVisibleSelector"
 
 // Why a wall survived its waiter on a datacenter IP. The clearance token was obtained in
@@ -91,7 +92,8 @@ async function runTier3Task(
 ): Promise<Tier3Result> {
   const start = Date.now()
 
-  // CRITICAL: Use a fresh browser context for CF challenge solving.
+  // Ordinary challenge solves use a fresh context. Named sessions explicitly
+  // retain their context because login state must survive subsequent requests.
   // A warm/reused context carries accumulated state (localStorage, service workers, JS
   // engine state) that CF's behavioral analysis scores as suspicious — resulting in 40s
   // challenge evaluation. A fresh context with no prior state gets managed-mode treatment:
@@ -104,22 +106,31 @@ async function runTier3Task(
   let cleanup: Promise<void> | undefined
   const close = () =>
     (cleanup ??= closeTemporaryContext(
-      openingContext ?? freshCtx,
+      capture.sessionContext ? undefined : (openingContext ?? freshCtx),
       handle.requestBrowserReplacement,
       "tier3 context cleanup timed out",
     ))
   let disown = () => {}
   try {
-    openingContext = newFreshContext(handle.browser, {
-      proxy: proxyUrl,
-      onCreated: handle.noteTemporaryContext,
-      requestReplacement: handle.requestBrowserReplacement,
-      ignoreHttpsErrors: ignoreCertificateErrors,
-    })
+    openingContext = capture.sessionContext
+      ? Promise.resolve(capture.sessionContext)
+      : newFreshContext(handle.browser, {
+          proxy: proxyUrl,
+          onCreated: handle.noteTemporaryContext,
+          requestReplacement: handle.requestBrowserReplacement,
+          ignoreHttpsErrors: ignoreCertificateErrors,
+        })
     disown = budget.own(close)
     freshCtx = await openingContext
     budget.check()
+    if (capture.cookies?.length) {
+      await freshCtx.clearCookies()
+      await freshCtx.addCookies(normalizeInputCookies(capture.cookies, url))
+    }
     const page = await freshCtx.newPage()
+    const storageRestore = capture.sessionStorage?.size
+      ? await restoreSessionStorage(page, capture.sessionStorage)
+      : undefined
     budget.check()
     page.setDefaultTimeout?.(Math.max(1, budget.remaining()))
     await installOutboundPolicy(page, validateOutboundUrl)
@@ -142,6 +153,7 @@ async function runTier3Task(
         timeout: Math.min(maxTimeout, 30_000),
       })
       .catch((e: Error) => e)
+    await storageRestore?.dispose()
 
     // Abort early on hard network failures — no point running challenge wait
     if (isHardNetworkFailure(gotoErr)) {

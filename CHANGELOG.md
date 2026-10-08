@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Preserve browser-session sessionStorage without keeping idle pages; support idempotent FlareSolverr session creation, implicit creation, age-based rotation, cookie import and screenshot/cookie-only responses (#188).
+
+- Add isolated browser sessions shared by native `/sessions`, `/scrape` (`sessionId`), MCP requests and FlareSolverr session commands. Preserve cookies and localStorage, bound capacity and idle lifetime, close request pages, and retain proxy/TLS policy without putting login state in the shared clearance cache. Keep memory-pressure recovery active and invalidate sessions on browser loss or request deadline (#188).
+
 - Add an opt-in 2Captcha fallback for single declarative reCAPTCHA v2 and standalone Turnstile widgets after local solving. Share paid task limits across browser tiers, honor cancellation and the request deadline, preserve explicit proxy routing, and keep provider credentials out of solver logs (#27). Add the documented API v2 task catalogue, challenge diagnostics and hostname-bound profiles for structured answers, image tasks, cookies and grid/coordinate clicks, with target verification. Include declarative reCAPTCHA v2 Enterprise. Specialized tasks require site-specific profiles; real paid-service acceptance remains unverified.
 
 - Attempt CAP proof-of-work widgets through their native component and confirm a response token without submitting the surrounding form.

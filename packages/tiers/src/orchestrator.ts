@@ -1,6 +1,7 @@
 import type { BrowserHandle } from "@trawl/browser"
 import { FINGERPRINT, FINGERPRINT_POOL, PoolExhaustedError } from "@trawl/browser"
 import type { BlockedEvidence, Cookie, ScrapeRequest, ScrapeResult, SessionData, TierResult } from "@trawl/types"
+import type { BrowserSessions } from "./browserSessions"
 import { type ExternalCaptchaOptions, ExternalCaptchaSession } from "./solvers/externalCaptcha"
 import { runTier1, type Tier1Result } from "./tiers/1"
 import { runTier2, type Tier2Result } from "./tiers/2"
@@ -8,13 +9,14 @@ import { runTier3, type Tier3Result } from "./tiers/3"
 // Tier 4 (residential proxy) is dynamically imported only when needed.
 import type { runTier4, Tier4Result } from "./tiers/4"
 import { anubisOomKills } from "./utils/anubisRetry"
+import { normalizeInputCookies } from "./utils/cookies"
 import { createCrossedLandingGuard, type LandingProbe } from "./utils/crossedLanding"
 import { DeadlineError, RequestBudget } from "./utils/deadline"
 import { normalizeHtml } from "./utils/html"
 import { metaRefreshTarget } from "./utils/metaRefresh"
 import type { ProxyPool } from "./utils/proxyRotator"
 import { isHtmlContentType } from "./utils/response"
-import { requireContentTypeForBody, sanitizeHeaders } from "./utils/sanitize"
+import { RequestValidationError, requireContentTypeForBody, sanitizeHeaders } from "./utils/sanitize"
 
 // Bounds how many distinct proxies a single request will try per tier before giving up —
 // keeps a long proxy list from blowing the request's maxTimeout budget.
@@ -52,9 +54,11 @@ export class ScrapeError extends Error {
 export interface AcquireOptions {
   signal?: AbortSignal
   headful?: boolean
+  browserId?: number
 }
 
 export interface OrchestratorDeps {
+  sessions?: BrowserSessions
   acquireBrowser(domain: string, budgetMs?: number, options?: AcquireOptions): Promise<BrowserHandle>
   releaseBrowser(handle: BrowserHandle): void
   loadSession(domain: string): Promise<SessionData | undefined>
@@ -164,9 +168,23 @@ async function scrapeWithinBudget(
   budget: RequestBudget,
 ): Promise<ScrapeResult> {
   const totalStart = Date.now()
+  const namedSession = req.sessionId ? deps.sessions?.options(req.sessionId) : undefined
+  if (req.sessionId && !deps.sessions) throw new RequestValidationError("Browser sessions are unavailable", 503)
+  if (namedSession) {
+    if (req.proxy !== undefined && req.proxy !== namedSession.proxy)
+      throw new RequestValidationError("Session proxy is fixed at creation", 400)
+    if (
+      req.ignoreCertificateErrors !== undefined &&
+      req.ignoreCertificateErrors !== Boolean(namedSession.ignoreCertificateErrors)
+    )
+      throw new RequestValidationError("Session TLS policy is fixed at creation", 400)
+    req = { ...req, proxy: namedSession.proxy, ignoreCertificateErrors: namedSession.ignoreCertificateErrors }
+  }
   const maxTimeout = req.maxTimeout ?? 60_000
   const maxTier = req.maxTier ?? 4
-  const minTier = Math.max(deps.minTier ?? 1, req.skipHttp ? 2 : 1) as TierResult["tier"]
+  if (req.cookies !== undefined) normalizeInputCookies(req.cookies, req.url)
+  const importedCookies = Boolean(req.cookies?.length)
+  const minTier = Math.max(deps.minTier ?? 1, importedCookies ? 3 : req.skipHttp ? 2 : 1) as TierResult["tier"]
   const timings: TierResult[] = []
   const domain = extractDomain(req.url)
   const explicitProxy = req.proxy
@@ -187,6 +205,7 @@ async function scrapeWithinBudget(
   // only via the thrown ScrapeError.
   let blockedEvidence: BlockedEvidence | undefined
   const capture = {
+    cookies: req.cookies,
     budget,
     externalCaptcha: deps.externalCaptcha ? new ExternalCaptchaSession(deps.externalCaptcha) : undefined,
     followMetaRefresh: req.followMetaRefresh,
@@ -274,6 +293,78 @@ async function scrapeWithinBudget(
       blockedEvidence,
       capture.externalCaptcha?.diagnostics(),
     )
+
+  if (req.sessionId) {
+    if (maxTier < 3) throw new RequestValidationError("Browser sessions require maxTier >= 3", 400)
+    if (minTier === 4 && !namedSession?.proxy)
+      throw new RequestValidationError("Minimum tier 4 requires a proxy set on session creation", 400)
+    const sessions = deps.sessions
+    if (!sessions) throw new RequestValidationError("Browser sessions are unavailable", 503)
+    return sessions.use(req.sessionId, domain, budget, async (handle, context, storage) => {
+      const sessionCapture = {
+        ...capture,
+        sessionContext: context,
+        sessionStorage: storage,
+      }
+      const result =
+        minTier === 4
+          ? await (runners.tier4 ?? (await import("./tiers/4")).runTier4)(
+              req.url,
+              handle,
+              budget.remaining(),
+              req.proxy as string,
+              sanitizedHeaders,
+              req.method,
+              req.body,
+              deps.validateOutboundUrl,
+              req.screenshot,
+              sessionCapture,
+              ignoreCertificateErrors,
+            )
+          : await (runners.tier3 ?? runTier3)(
+              req.url,
+              handle,
+              budget.remaining(),
+              namedSession?.proxy,
+              sanitizedHeaders,
+              req.method,
+              req.body,
+              deps.validateOutboundUrl,
+              req.screenshot,
+              sessionCapture,
+              ignoreCertificateErrors,
+            )
+      const crossed = hasUsablePayload(result)
+        ? await refuseCrossed(result.effectiveUrl, result.userAgent, namedSession?.proxy)
+        : undefined
+      emit(crossed ? crossedTiming(result, crossed) : result)
+      if (!hasUsablePayload(result) || crossed) throw failure(result.reason ?? "Session scrape failed")
+      return {
+        url: result.effectiveUrl ?? req.url,
+        html: normalizeHtml(result.html ?? ""),
+        cookies: result.cookies ?? [],
+        userAgent: result.userAgent ?? handle.fingerprint.userAgent,
+        statusCode: result.statusCode ?? 200,
+        tier: result.tier,
+        sessionCached: false,
+        timings,
+        totalMs: Date.now() - totalStart,
+        proxyUsed: Boolean(namedSession?.proxy),
+        captchasSolved: result.captchasSolved,
+        captchaDiagnostics: capture.externalCaptcha?.diagnostics(),
+        body: result.body,
+        responseHeaders: result.responseHeaders,
+        contentType: result.contentType,
+        screenshot: result.screenshot,
+        consoleLogs: result.consoleLogs,
+        networkLogs: result.networkLogs,
+        redirectChain: result.redirectChain,
+        capturedResponses: result.capturedResponses,
+        favicons: result.favicons,
+        mhtml: result.mhtml,
+      }
+    })
+  }
 
   // Tier 1 is the only look at the wall that happens before a browser is checked out, so
   // it is also the only chance to pick the right kind of browser for the tiers below.
@@ -530,7 +621,7 @@ async function scrapeWithinBudget(
       emit(crossed3 ? crossedTiming(t3, crossed3) : t3)
       if (hasUsablePayload(t3) && !crossed3) {
         const cookies: Cookie[] = t3.cookies ?? []
-        if (cookies.length > 0 && !explicitProxy) {
+        if (cookies.length > 0 && !explicitProxy && !importedCookies) {
           await deps.saveSession(domain, {
             cookies,
             userAgent: t3.userAgent ?? handle.fingerprint.userAgent,
@@ -632,7 +723,7 @@ async function scrapeWithinBudget(
     emit(crossed4 ? crossedTiming(t4, crossed4) : t4)
     if (hasUsablePayload(t4) && !crossed4) {
       const cookies: Cookie[] = t4.cookies ?? []
-      if (cookies.length > 0 && !explicitProxy) {
+      if (cookies.length > 0 && !explicitProxy && !importedCookies) {
         await deps.saveSession(domain, {
           cookies,
           userAgent: t4.userAgent ?? handle.fingerprint.userAgent,

@@ -71,6 +71,7 @@ interface PoolEntry extends PoolBrowser {
   browser?: Browser
   context?: BrowserContext
   temporaryContextUses: number
+  retainedContexts?: number
   // Page closes started by release(); restartEntry lets them settle before tearing the
   // context down, so it isn't closing a context underneath in-flight page.close() calls.
   pendingPageCloses?: Promise<unknown>
@@ -80,6 +81,7 @@ interface PoolEntry extends PoolBrowser {
   restartReason?: string
   restarting?: boolean
   replacementRequested?: string
+  replacementRecovery?: boolean
   replacementReady?: boolean
   fingerprint: (typeof FINGERPRINT_POOL)[number]
 }
@@ -388,7 +390,7 @@ export class BrowserPool {
   }
 
   // Queue time consumes the caller's remaining request budget.
-  acquire(domain?: string, budgetMs?: number, signal?: AbortSignal): Promise<BrowserHandle> {
+  acquire(domain?: string, budgetMs?: number, signal?: AbortSignal, browserId?: number): Promise<BrowserHandle> {
     const waitMs = Math.min(this.acquireTimeoutMs, budgetMs ?? this.acquireTimeoutMs)
     const deadline = Date.now() + waitMs
     return new Promise((resolve, reject) => {
@@ -411,7 +413,7 @@ export class BrowserPool {
             void this.restartEntry(entry, "browser unavailable during acquisition")
           }
         }
-        const entry = this.pickEntry(domain)
+        const entry = this.pickEntry(domain, browserId)
         if (!entry) return
         finish()
         const now = Date.now()
@@ -428,14 +430,25 @@ export class BrowserPool {
           context: entry.context,
           browser: entry.browser,
           fingerprint: entry.fingerprint,
+          retainBrowser: () => {
+            const browser = entry.browser
+            entry.retainedContexts = (entry.retainedContexts ?? 0) + 1
+            let released = false
+            return () => {
+              if (released || entry.browser !== browser) return
+              released = true
+              entry.retainedContexts = Math.max(0, (entry.retainedContexts ?? 0) - 1)
+              if (entry.replacementRequested) void this.runNextRollingReplacement()
+            }
+          },
           noteTemporaryContext: ((lease: number) => () => {
             if (entry.lease !== lease) return
             this.noteTemporaryContext(entry)
           })(entry.lease),
-          requestBrowserReplacement: ((lease: number) => (reason: string) => {
-            if (entry.lease !== lease) return
+          requestBrowserReplacement: ((browser: Browser | undefined) => (reason: string) => {
+            if (entry.browser !== browser) return
             this.requestRollingReplacement(entry, reason)
-          })(entry.lease),
+          })(entry.browser),
         })
       }
       this.acquireWaiters.add(tryAcquire)
@@ -455,9 +468,16 @@ export class BrowserPool {
     for (const acquire of this.acquireWaiters) acquire()
   }
 
-  private pickEntry(domain?: string): PoolEntry | undefined {
+  private pickEntry(domain?: string, browserId?: number): PoolEntry | undefined {
     const available = this.entries.filter(
-      (e) => !e.busy && !e.cleaning && !e.restarting && !e.replacementReady && e.healthy && this.isUsable(e),
+      (e) =>
+        (browserId === undefined || e.id === browserId) &&
+        !e.busy &&
+        !e.cleaning &&
+        !e.restarting &&
+        !e.replacementReady &&
+        e.healthy &&
+        this.isUsable(e),
     )
     if (available.length === 0) return
     if (domain) {
@@ -470,13 +490,14 @@ export class BrowserPool {
   private noteTemporaryContext(entry: PoolEntry): void {
     entry.temporaryContextUses++
     if (this.recycleAfterTemporaryContexts > 0 && entry.temporaryContextUses >= this.recycleAfterTemporaryContexts) {
-      this.requestRollingReplacement(entry, `${entry.temporaryContextUses} temporary contexts created`)
+      this.requestRollingReplacement(entry, `${entry.temporaryContextUses} temporary contexts created`, false)
     }
   }
 
-  private requestRollingReplacement(entry: PoolEntry, reason: string): void {
+  private requestRollingReplacement(entry: PoolEntry, reason: string, recovery = true): void {
     if (entry.restarting) return
     entry.replacementRequested ??= reason
+    entry.replacementRecovery ||= recovery
     if (!entry.busy) void this.runNextRollingReplacement()
   }
 
@@ -485,12 +506,19 @@ export class BrowserPool {
   private async runNextRollingReplacement(): Promise<void> {
     if (this.replacementRunning || this.shuttingDown) return
     const entry = this.entries.find(
-      (candidate) => candidate.replacementRequested && !candidate.restarting && !candidate.busy && !candidate.cleaning,
+      (candidate) =>
+        candidate.replacementRequested &&
+        !candidate.restarting &&
+        !candidate.busy &&
+        !candidate.cleaning &&
+        (!candidate.retainedContexts || candidate.replacementRecovery),
     )
     if (!entry) return
     this.replacementRunning = true
     const reason = entry.replacementRequested as string
+    const recovery = Boolean(entry.replacementRecovery)
     entry.replacementRequested = undefined
+    entry.replacementRecovery = false
     const memory = this.memoryUsage?.()
     const cold =
       memory?.limitBytes != null &&
@@ -512,6 +540,10 @@ export class BrowserPool {
       replacement = await this.launchWithin(entry.fingerprint, this.launchTimeoutMs)
 
       if (this.shuttingDown || entry.restarting || entry.browser !== incumbent) return
+      if (entry.retainedContexts && !recovery) {
+        entry.replacementRequested ??= reason
+        return
+      }
       // Reserve the entry once warm: repeated short requests must not keep
       // reacquiring the incumbent and extend the two-browser overlap indefinitely.
       entry.replacementReady = true
@@ -521,6 +553,10 @@ export class BrowserPool {
         await new Promise((resolve) => setTimeout(resolve, this.pollIntervalMs))
       }
       if (this.shuttingDown || entry.restarting || entry.browser !== incumbent) return
+      if (entry.retainedContexts && !recovery) {
+        entry.replacementRequested ??= reason
+        return
+      }
 
       const retiredBrowser = entry.browser
       const retiredContext = entry.context
@@ -530,10 +566,12 @@ export class BrowserPool {
       replacement = undefined
       entry.pendingPageCloses = undefined
       entry.temporaryContextUses = 0
+      entry.retainedContexts = 0
       // Contexts created while this replacement was warming belong to the browser
       // being retired. They may have re-asserted the threshold request, but the new
       // browser starts clean and must not immediately replace itself again.
       entry.replacementRequested = undefined
+      entry.replacementRecovery = false
       entry.restartCount++
       entry.healthy = true
       entry.lease++
@@ -548,6 +586,7 @@ export class BrowserPool {
     } catch (err) {
       // A failed warm-up never disturbs the browser currently serving the entry.
       entry.replacementRequested ??= reason
+      entry.replacementRecovery ||= recovery
       console.error(`[${this.label}] browser ${entry.id} failed to warm replacement:`, err)
     } finally {
       if (replacement) {
@@ -608,7 +647,8 @@ export class BrowserPool {
       memory.currentBytes != null &&
       (memory.workingSetBytes ?? memory.currentBytes) > memory.limitBytes * 0.85
     ) {
-      entry.replacementRequested ??= "container memory pressure"
+      entry.replacementRequested = "container memory pressure"
+      entry.replacementRecovery = true
     }
     if (!this.isUsable(entry)) entry.restartReason ??= "browser disconnected on release"
     if (entry.restartReason) {
@@ -663,6 +703,7 @@ export class BrowserPool {
 
       if (
         this.idleTimeoutMs > 0 &&
+        !entry.retainedContexts &&
         !entry.busy &&
         !entry.replacementRequested &&
         this.acquireWaiters.size === 0 &&
@@ -778,6 +819,7 @@ export class BrowserPool {
     entry.lease++
     entry.restartReason = undefined
     entry.replacementRequested = undefined
+    entry.replacementRecovery = false
     entry.replacementReady = false
     console.warn(`[${this.label}] browser ${entry.id} restarting: ${reason}`)
     const dyingContext = entry.context
@@ -831,6 +873,7 @@ export class BrowserPool {
       entry.sleeping = false
       entry.lastUsedAt = Date.now()
       entry.temporaryContextUses = 0
+      entry.retainedContexts = 0
       entry.restartCount++
       this.watchEntry(entry)
       console.log(`[${this.label}] browser ${entry.id} restarted (total: ${entry.restartCount})`)

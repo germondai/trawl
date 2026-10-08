@@ -7,6 +7,8 @@ description: POST /scrape — the native TRAWL endpoint with full tier control.
 
 The native endpoint exposes TRAWL's full feature set: tier capping, session IDs, and rich timing metadata.
 
+Create and manage named sessions through [Browser Sessions](/api-reference/browser-sessions). They preserve cookies and localStorage across requests and always use the browser.
+
 ## Request
 
 ```typescript
@@ -15,7 +17,7 @@ interface ScrapeRequest {
   maxTimeout?: number                    // ms, default 60000
   skipHttp?: boolean                     // skip Tier 1 (plain fetch), default false
   maxTier?: 1 | 2 | 3 | 4              // cap escalation at this tier
-  sessionId?: string                     // sticky session override key
+  sessionId?: string                     // existing isolated browser session ID
   headers?: Record<string, string>       // custom headers forwarded to the target
   proxy?: string                         // per-request proxy override for Tier 3/4
   screenshot?: boolean                   // capture a viewport screenshot, default false

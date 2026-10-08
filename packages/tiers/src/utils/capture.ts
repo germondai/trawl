@@ -1,4 +1,4 @@
-import type { CapturedResponseEntry, ConsoleLogEntry, NetworkLogEntry } from "@trawl/types"
+import type { CapturedResponseEntry, ConsoleLogEntry, InputCookie, NetworkLogEntry } from "@trawl/types"
 import type { ConsoleMessage, Page, Request } from "patchright"
 import type { ExternalCaptchaSession } from "../solvers/externalCaptcha"
 import type { BlockedEvidenceSink } from "./blockedEvidence"
@@ -28,6 +28,9 @@ const CONSOLE_LEVELS: Record<string, ConsoleLogEntry["level"]> = {
 // MainDocumentResponseTracker (the response listener already exists there) rather than
 // by this module — it travels in the same bag so a tier takes one capture argument.
 export interface CaptureOptions extends ResponseCaptureOptions {
+  cookies?: InputCookie[]
+  sessionContext?: Awaited<ReturnType<typeof import("@trawl/browser").newFreshContext>>
+  sessionStorage?: Map<string, [string, string][]>
   budget?: RequestBudget
   externalCaptcha?: ExternalCaptchaSession
   followMetaRefresh?: boolean

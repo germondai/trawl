@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { RequestValidationError, routeContinueOverrides, runTier1 } from "@trawl/tiers"
+import { routeContinueOverrides, runTier1 } from "@trawl/tiers"
 import type { FlareSolverrRequest } from "@trawl/types"
 import { buildScrapeRequestFromFlareSolverr } from "./flaresolverr"
 
@@ -52,14 +52,14 @@ describe("FlareSolverr request adapter", () => {
     expect(result.headers).toEqual({ "content-type": "application/json" })
   })
 
-  test("still rejects POST data without content-type information", () => {
-    expect(() =>
+  test("defaults FlareSolverr POST data to form encoding", () => {
+    expect(
       buildScrapeRequestFromFlareSolverr({
         cmd: "request.post",
         url: "https://example.com/login",
         postData: "user=a&pw=b",
-      }),
-    ).toThrow(RequestValidationError)
+      }).headers,
+    ).toEqual({ "Content-Type": "application/x-www-form-urlencoded" })
   })
 
   test("passes the normalized body and header through Tier 1 and browser route overrides", async () => {

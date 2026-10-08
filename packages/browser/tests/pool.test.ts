@@ -1039,3 +1039,109 @@ test("idle retirement still closes the browser when its context close hangs", as
   expect(pool.getStats().restarts).toBe(1)
   pool.release(next.id, next.lease)
 })
+
+describe("persistent session leases", () => {
+  test("a pinned acquire waits for its browser even when another slot is free", async () => {
+    const { factory } = makeFactory()
+    const pool = createPool({ poolSize: 2, browserFactory: factory, acquireTimeoutMs: 50 })
+    await pool.init()
+    const first = await pool.acquire()
+    await expect(pool.acquire(undefined, 15, undefined, first.id)).rejects.toThrow("exhausted")
+    pool.release(first.id, first.lease)
+    const pinned = await pool.acquire("other.example", 50, undefined, first.id)
+    expect(pinned.browser).toBe(first.browser)
+    pool.release(pinned.id, pinned.lease)
+  })
+
+  test("retention postpones count recycling but releasing it restores recycling", async () => {
+    const { factory, browsers } = makeFactory()
+    const pool = createPool({ poolSize: 1, browserFactory: factory, recycleAfterTemporaryContexts: 1 })
+    await pool.init()
+    const handle = await pool.acquire()
+    const releaseRetention = handle.retainBrowser?.()
+    if (!releaseRetention) throw new Error("Missing browser retention")
+    handle.noteTemporaryContext?.()
+    pool.release(handle.id, handle.lease)
+    await Bun.sleep(20)
+    expect(browsers).toHaveLength(1)
+    const second = await pool.acquire()
+    expect(second.browser).toBe(handle.browser)
+    pool.release(second.id, second.lease)
+    releaseRetention()
+    releaseRetention()
+    await waitFor(() => browsers.length === 2 && browsers[0].closed)
+  })
+
+  test("retention never suppresses the container memory guard", async () => {
+    const { factory, browsers } = makeFactory()
+    const pool = createPool({
+      poolSize: 1,
+      browserFactory: factory,
+      recycleAfterTemporaryContexts: 1,
+      memoryUsage: () => ({ limitBytes: 1024 ** 3, currentBytes: 950 * 1024 ** 2, workingSetBytes: 950 * 1024 ** 2 }),
+    })
+    await pool.init()
+    const handle = await pool.acquire()
+    const releaseRetention = handle.retainBrowser?.()
+    if (!releaseRetention) throw new Error("Missing browser retention")
+    handle.noteTemporaryContext?.()
+    pool.release(handle.id, handle.lease)
+    await waitFor(() => browsers.length === 2 && browsers[0].closed)
+    releaseRetention()
+  })
+})
+
+test("session retention never postpones cleanup recovery, including a previous lease on the same browser", async () => {
+  const { factory, browsers } = makeFactory()
+  const pool = createPool({ poolSize: 1, browserFactory: factory })
+  await pool.init()
+  const first = await pool.acquire()
+  const releaseRetention = first.retainBrowser?.()
+  if (!releaseRetention) throw new Error("Missing browser retention")
+  pool.release(first.id, first.lease)
+  const second = await pool.acquire()
+  first.requestBrowserReplacement?.("session context cleanup timed out")
+  expect(browsers).toHaveLength(1)
+  pool.release(second.id, second.lease)
+  await waitFor(() => browsers.length === 2 && browsers[0].closed)
+  releaseRetention()
+  first.requestBrowserReplacement?.("old browser cleanup")
+  await Bun.sleep(10)
+  expect(browsers).toHaveLength(2)
+})
+
+test("a completed recovery clears requests made while the replacement was warming", async () => {
+  const { factory, browsers } = makeFactory()
+  let launches = 0
+  let finishWarm!: () => void
+  const pool = createPool({
+    poolSize: 1,
+    recycleAfterTemporaryContexts: 1,
+    browserFactory: async () => {
+      launches++
+      if (launches === 2)
+        await new Promise<void>((resolve) => {
+          finishWarm = resolve
+        })
+      return factory()
+    },
+  })
+  await pool.init()
+  const first = await pool.acquire()
+  first.requestBrowserReplacement?.("cleanup recovery")
+  pool.release(first.id, first.lease)
+  await waitFor(() => launches === 2)
+  const duringWarm = await pool.acquire()
+  duringWarm.requestBrowserReplacement?.("second cleanup recovery")
+  pool.release(duringWarm.id, duringWarm.lease)
+  finishWarm()
+  await waitFor(() => browsers.length === 2 && browsers[0].closed)
+  const recovered = await pool.acquire()
+  const releaseRetention = recovered.retainBrowser?.()
+  if (!releaseRetention) throw new Error("Missing browser retention")
+  recovered.noteTemporaryContext?.()
+  pool.release(recovered.id, recovered.lease)
+  await Bun.sleep(20)
+  expect(launches).toBe(2)
+  releaseRetention()
+})

@@ -68,6 +68,7 @@ export default defineConfig({
         items: [
           { text: "Overview", link: "/api-reference/overview" },
           { text: "FlareSolverr Compat", link: "/api-reference/flaresolvr-compat" },
+          { text: "Browser Sessions", link: "/api-reference/browser-sessions" },
           { text: "Native API", link: "/api-reference/native-api" },
           { text: "Custom Headers", link: "/api-reference/custom-headers" },
           { text: "Health & Stats", link: "/api-reference/health-stats" },
