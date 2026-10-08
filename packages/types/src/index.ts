@@ -282,6 +282,7 @@ export interface BrowserHandle {
   // biome-ignore lint/suspicious/noExplicitAny: see comment above
   browser: any
   fingerprint: BrowserFingerprint
+  retainBrowser?: () => () => void
   noteTemporaryContext?: () => void
   requestBrowserReplacement?: (reason: string) => void
 }
