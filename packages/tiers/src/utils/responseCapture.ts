@@ -25,7 +25,7 @@ const MAX_STRING_CHARS = captureLimit(process.env.CAPTURE_MAX_METADATA_CHARS, 2_
 
 // The MHTML archive keeps many small parts rather than a few large bodies, so it carries
 // budgets of its own instead of sharing the pattern-capture ones. A part over its own
-// budget is dropped whole — a trimmed stylesheet or image is corrupt, not partial — and
+// budget is dropped whole - a trimmed stylesheet or image is corrupt, not partial - and
 // every drop is recorded in the archive itself. The total caps the complete serialized
 // field; before reads it also serves as a conservative raw-byte reservation ceiling.
 const MAX_ARCHIVE_PARTS = captureLimit(process.env.MHTML_MAX_PARTS, 200)
@@ -112,7 +112,7 @@ const snapshot = (entries: CapturedResponseEntry[]): CapturedResponseEntry[] =>
 
 /**
  * Records the bodies of the responses whose URL matches a caller-supplied pattern, and
- * the archivable subresources when an MHTML archive was asked for — both off one response
+ * the archivable subresources when an MHTML archive was asked for - both off one response
  * listener. Attaches nothing at all unless one of them was asked for, detaches on drain
  * and again on page close, and never throws into the caller: a body that cannot be read
  * carries its own `error`, an archive part that cannot be read is recorded as omitted.

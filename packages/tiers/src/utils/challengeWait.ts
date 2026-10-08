@@ -21,7 +21,7 @@ export async function waitForChallengeResolution(
   let challengeSeen = false
   let inactiveSamples = 0
 
-  // Only count cf_clearance for the current domain — warm browser may have cookies from prior domains
+  // Only count cf_clearance for the current domain - warm browser may have cookies from prior domains
   const targetHost = (() => {
     try {
       return new URL(originalUrl ?? page.url()).hostname
@@ -55,7 +55,7 @@ export async function waitForChallengeResolution(
       // Two observations prevent a transient normal title/DOM during navigation from
       // declaring a challenge solved. This also applies before the first active sample.
       if (inactiveSamples >= 2) {
-        // 'load' not 'networkidle' — networkidle stalls indefinitely on JS-heavy pages
+        // 'load' not 'networkidle' - networkidle stalls indefinitely on JS-heavy pages
         await page
           .waitForLoadState("load", { timeout: Math.max(1, Math.min(5000, deadline - Date.now())) })
           .catch(() => {})
@@ -117,7 +117,7 @@ export async function attemptTurnstileClick(page: Page, allowKeyboard = true): P
   for (const frame of frames) {
     if (!isChallengeFrame(frame)) continue
 
-    // A: shadow DOM click via shadowRootUnl patch — real DOM event, resolves faster than coords
+    // A: shadow DOM click via shadowRootUnl patch - real DOM event, resolves faster than coords
     const shadowClicked = await clickShadowCheckbox(page, frame)
     if (shadowClicked) return true
 
@@ -125,7 +125,7 @@ export async function attemptTurnstileClick(page: Page, allowKeyboard = true): P
     const clicked = await clickInFrame(frame)
     if (clicked) return true
 
-    // C: page-coordinate click — bypasses Fission by clicking on page instead of inside frame
+    // C: page-coordinate click - bypasses Fission by clicking on page instead of inside frame
     const frameEl = await frame.frameElement().catch(() => undefined)
     const box = frameEl ? await frameEl.boundingBox().catch(() => undefined) : undefined
     if (box && box.width > 20) {
@@ -141,7 +141,7 @@ export async function attemptTurnstileClick(page: Page, allowKeyboard = true): P
     }
   }
 
-  // D: keyboard Tab → Space — last resort
+  // D: keyboard Tab → Space - last resort
   const html = await page.content().catch(() => "")
   if (allowKeyboard && (hasTurnstile(html) || isCloudflarePage(html, {}))) {
     try {

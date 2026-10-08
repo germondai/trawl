@@ -42,7 +42,7 @@ export function sanitizeHeaders(headers?: Record<string, string>): Record<string
   return Object.keys(out).length ? out : undefined
 }
 
-// Hop-by-hop headers per RFC 7230 §6.1 — connection-scoped, not forwarded end-to-end.
+// Hop-by-hop headers per RFC 7230 §6.1 - connection-scoped, not forwarded end-to-end.
 // These are the only headers a transparent HTTP proxy should strip from a client's
 // request. Everything else (Authorization, Cookie, Range, custom API keys, etc.) is
 // passed through. The key difference from `sanitizeHeaders()`: that function is the
@@ -64,8 +64,8 @@ const HOP_BY_HOP_HEADERS: ReadonlySet<string> = new Set([
  * Permissive header sanitizer for the MITM proxy at :8192.
  *
  * Strips only RFC 7230 hop-by-hop headers (Connection, Transfer-Encoding, Upgrade,
- * Keep-Alive, Proxy-*, TE, Trailer). Everything else — including Authorization,
- * Cookie, Range, User-Agent, Referer, custom API tokens — flows through to the
+ * Keep-Alive, Proxy-*, TE, Trailer). Everything else - including Authorization,
+ * Cookie, Range, User-Agent, Referer, custom API tokens - flows through to the
  * upstream as the client sent it. Header values are still sanitized for control
  * characters (NUL/CR/LF) to prevent request smuggling.
  *
@@ -89,7 +89,7 @@ export function proxySanitizeHeaders(headers?: Record<string, string>): Record<s
   return Object.keys(out).length ? out : undefined
 }
 
-// Hop-by-hop response headers — also per RFC 7230 §6.1. Forwarded response
+// Hop-by-hop response headers - also per RFC 7230 §6.1. Forwarded response
 // headers from upstream should have these stripped before they reach the client.
 export const RESPONSE_HOP_BY_HOP_HEADERS: ReadonlySet<string> = HOP_BY_HOP_HEADERS
 
@@ -108,7 +108,7 @@ export const SUPPORTED_METHODS: readonly SupportedMethod[] = [
   "HEAD",
   "OPTIONS",
   "TRACE",
-  // RFC 9341 — safe verb that carries the query in the request body.
+  // RFC 9341 - safe verb that carries the query in the request body.
   "QUERY",
 ]
 
@@ -145,11 +145,11 @@ export interface RouteLike {
 /**
  * Build the `route.continue(...)` overrides for a tier 2/3/4 navigation,
  * applying caller-supplied headers + a POST rewrite when the upstream loaded
- * with GET. Content-Type is the caller's responsibility — see
+ * with GET. Content-Type is the caller's responsibility - see
  * `requireContentTypeForBody`.
  *
  * The `postData` key in the returned object is Playwright's literal
- * `Route.continue()` API field name — it is NOT TRAWL's `body` field. Playwright
+ * `Route.continue()` API field name - it is NOT TRAWL's `body` field. Playwright
  * has not renamed it; we can't either without breaking the contract.
  */
 export function routeContinueOverrides(

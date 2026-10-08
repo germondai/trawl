@@ -157,7 +157,7 @@ describe("crossed-landing guard", () => {
     const slow = Bun.serve({
       port: 0,
       hostname: "127.0.0.1",
-      fetch: async (request) => {
+      fetch: async (request): Promise<Response> => {
         await Bun.sleep(35)
         const url = new URL(request.url)
         if (url.pathname === "/first") return Response.redirect(`http://127.0.0.1:${slow.port}/second`, 302)
@@ -204,10 +204,15 @@ describe("scrape refuses a crossed landing", () => {
   })
 
   test("the refusal is recorded against the tier that produced it", async () => {
-    const attempts: { status: string; reason?: string }[] = []
+    const attempts: { tier: number; durationMs: number; status: string; reason?: string }[] = []
     await scrape(
       { url: requestedUrl, maxTier: 1, ignoreCertificateErrors: true },
-      { ...deps(async () => "localhost"), onTierAttempt: (result) => attempts.push(result) },
+      {
+        ...deps(async () => "localhost"),
+        onTierAttempt: (result) => {
+          attempts.push(result)
+        },
+      },
     ).catch(() => {})
 
     expect(attempts).toEqual([

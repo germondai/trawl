@@ -20,7 +20,7 @@ import { registerLifecycleHandlers } from "./lifecycle"
 import { type MitmProxyHandle, shutdownMitmProxy, startMitmProxy } from "./proxy/server"
 import { startMemoryMonitor } from "./runtimeMemory"
 
-createApiApp().listen(PORT)
+const app = createApiApp().listen(PORT)
 
 console.log(`[api] TRAWL starting on :${PORT}  (pool: ${POOL_SIZE} browser${POOL_SIZE === 1 ? "" : "s"})`)
 if (SCRAPE_MIN_TIER > 1) console.log(`[api] scraper tier floor: ${SCRAPE_MIN_TIER}`)
@@ -55,6 +55,7 @@ poolReady.catch((err) => {
 registerLifecycleHandlers({
   onShutdown: async () => {
     stopMemoryMonitor()
+    app.server?.stop(true)
     if (state.proxyHandle) await shutdownMitmProxy(state.proxyHandle)
   },
 })

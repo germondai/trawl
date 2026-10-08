@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
-import { Camoufox } from "camoufox-js"
 import type { Browser } from "playwright-core"
 import { scrape } from "../../tiers/src/orchestrator"
 import { followMetaRefresh } from "../../tiers/src/utils/metaRefresh"
 import { installOutboundPolicy } from "../../tiers/src/utils/outboundPolicy"
 import type { BrowserHandle } from "../src/index"
+import { launchAnubisBrowser } from "./helpers/anubisBrowser"
 
 // Run explicitly with TRAWL_BROWSER_TESTS=1 after installing Camoufox. The fixture
 // uses local hosts and a simulated challenge, never an external protected website.
@@ -53,14 +53,15 @@ describe.skipIf(process.env.TRAWL_BROWSER_TESTS !== "1")("Camoufox meta refresh 
         )
       },
     })
-    browser = await Camoufox({ headless: true, geoip: false })
+    browser = await launchAnubisBrowser()
     const context = await browser.newContext({ viewport: null })
     handle = {
       id: 1,
       lease: 1,
+      headful: false,
       browser,
       context,
-      fingerprint: { userAgent: "test-agent", platform: "Linux", locale: "en-US", timezone: "UTC" },
+      fingerprint: { userAgent: "test-agent", platform: "Linux x86_64", locale: "en-US", timezone: "UTC" },
     }
   }, 120_000)
 
@@ -107,14 +108,15 @@ describe.skipIf(process.env.TRAWL_BROWSER_TESTS !== "1")("Camoufox meta refresh 
     try {
       await page.goto(url("/fallback-race"), { waitUntil: "domcontentloaded" })
       const goto = page.goto.bind(page)
-      page.goto = (target, options) => {
+      page.goto = (target: string, options?: Parameters<typeof goto>[1]) => {
         const started = page.waitForEvent("request", {
-          predicate: (request) => request.isNavigationRequest() && request.url() === target,
+          predicate: (request: import("playwright-core").Request) =>
+            request.isNavigationRequest() && request.url() === target,
           timeout: 5000,
         })
         const first = goto(target, options)
         competing = started.then(() => goto(target, options))
-        void competing.catch(() => {})
+        void competing?.catch(() => {})
         return first
       }
       expect(await followMetaRefresh(page as any, 5000)).toEqual({ status: "ok", url: url("/slow-final", "127.0.0.1") })

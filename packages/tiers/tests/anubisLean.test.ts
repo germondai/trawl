@@ -47,13 +47,13 @@ describe("lean Anubis handling", () => {
     ["empty shell", { ready: true, content: false }, "https://example.test/", "timeout"],
     ["loading page", { ready: false, content: true }, "https://example.test/", "timeout"],
     ["closed page", { ready: true, content: true }, "https://example.test/", "browser-closed"],
-  ])("rejects %s", async (name, sample, url, expected) => {
+  ] as const)("rejects %s", async (name, sample, url, expected) => {
     const page = {
       evaluate: async () => sample,
       isClosed: () => name === "closed page",
       url: () => url,
     } as unknown as Page
-    expect(await waitForAnubisResolution(page, 30)).toBe(expected)
+    expect(await waitForAnubisResolution(page, 30)).toEqual(expected)
   })
 
   test("allows a transient verification redirect but rejects a stuck endpoint", async () => {

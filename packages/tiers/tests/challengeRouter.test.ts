@@ -229,7 +229,7 @@ test("a configured WAF profile must clear the challenge after applying its respo
     },
   } as unknown as ExternalCaptchaSession
   const page = { content: async () => (cleared ? "<html><body>Owned content</body></html>" : DATADOME_CAPTCHA) } as Page
-  const waiters = { cloudflare: async () => "ok" as const } as Parameters<typeof routeChallengeWait>[5]
+  const waiters = { cloudflare: async () => "ok" as const } as unknown as Parameters<typeof routeChallengeWait>[5]
   const run = () =>
     routeChallengeWait(page, DATADOME_CAPTCHA, {}, 10000, undefined, waiters, 403, undefined, () => ({}), external)
   expect(await run()).toEqual({ challengeType: "datadome", resolution: "captcha-required" })

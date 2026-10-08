@@ -1,5 +1,5 @@
 import { sleep } from "../utils/deadline"
-// hCaptcha solver — checkbox auto-pass + audio STT fallback.
+// hCaptcha solver - checkbox auto-pass + audio STT fallback.
 //
 // Flow:
 //   1. Click the hCaptcha checkbox. With a good IP and a Camoufox Firefox fingerprint,
@@ -8,7 +8,7 @@ import { sleep } from "../utils/deadline"
 //      speech-to-text (Google's free API or a configured Whisper-compatible endpoint).
 //   3. Submit the transcribed digit string and verify.
 //
-// Site owners can disable the audio option per sitekey — when that happens the solver
+// Site owners can disable the audio option per sitekey - when that happens the solver
 // gives up cleanly and returns false. There is no fully free, reliable way to solve
 // hCaptcha image grids without an AI/ML model or a paid solving service.
 
@@ -65,7 +65,7 @@ export async function solveHcaptcha(page: Page, timeoutMs = 30_000, signal?: Abo
       return true
     }
 
-    // Step 4: image challenge appeared — try audio fallback within remaining budget
+    // Step 4: image challenge appeared - try audio fallback within remaining budget
     const remaining = Math.max(0, deadline - Date.now())
     return await solveHcaptchaAudio(page.frameLocator(CHALLENGE_FRAME).first(), widget, remaining, signal)
   } catch (err) {
@@ -86,7 +86,7 @@ async function solveHcaptchaAudio(
   }
 
   const deadline = Date.now() + remainingMs
-  // Click the audio toggle. Some sitekeys disable audio entirely — fail cleanly.
+  // Click the audio toggle. Some sitekeys disable audio entirely - fail cleanly.
   const hasAudioButton = await widget
     .locator(AUDIO_BUTTON)
     .waitFor({ timeout: Math.max(1, Math.min(3000, deadline - Date.now())), state: "attached" })
@@ -119,7 +119,7 @@ async function solveHcaptchaAudio(
       continue
     }
 
-    // Get the audio URL via the JS property — more reliable than getAttribute("src")
+    // Get the audio URL via the JS property - more reliable than getAttribute("src")
     // because hCaptcha sets src dynamically after the audio challenge loads.
     const audioHref = await widget
       .locator("audio")
@@ -164,7 +164,7 @@ async function solveHcaptchaAudio(
       .catch(() => {})
     await sleep(2000, signal)
 
-    // Verify pass — hCaptcha marks the widget via aria-checked when solved
+    // Verify pass - hCaptcha marks the widget via aria-checked when solved
     if (
       await checkbox
         .locator('[aria-checked="true"]')
@@ -175,7 +175,7 @@ async function solveHcaptchaAudio(
       return true
     }
 
-    // Wrong answer — reload the challenge and try again
+    // Wrong answer - reload the challenge and try again
     console.log(`[hcaptcha] wrong answer, reloading challenge`)
     await widget
       .locator(RELOAD_BUTTON)

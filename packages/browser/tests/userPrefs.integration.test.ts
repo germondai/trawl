@@ -29,7 +29,7 @@ describe.skipIf(process.env.TRAWL_USER_PREFS_TESTS !== "1")("Camoufox user prefe
           })
           try {
             await pool.init()
-            const handle = await pool.acquire(15_000)
+            const handle = await pool.acquire("fixture.example", 15_000)
             const page = await handle.context.newPage()
             await page.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: "domcontentloaded", timeout: 15_000 })
             expect(await page.evaluate(() => document.body.dataset.jsRan === "yes")).toBe(enabled)

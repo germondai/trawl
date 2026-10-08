@@ -71,7 +71,9 @@ describe("ProxyPool", () => {
     const urls = ["http://p1:8080", "http://p2:8080", "http://p3:8080"]
     const pool = new ProxyPool(urls)
     for (let i = 0; i < 20; i++) {
-      expect(urls).toContain(pool.random())
+      const selected = pool.random()
+      expect(selected).toBeDefined()
+      if (selected) expect(urls).toContain(selected)
     }
   })
 

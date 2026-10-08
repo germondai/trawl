@@ -4,33 +4,57 @@ export interface LifecycleOptions {
   onShutdown?: () => Promise<void>
 }
 
+function isMalformedBrowserPageError(error: unknown): boolean {
+  // Camoufox can omit a page-error location expected by Playwright's dispatcher.
+  if (!(error instanceof TypeError)) return false
+  const stack = error.stack ?? ""
+  if (!/playwright-core[\\/].*(?:browserContextDispatcher|coreBundle)\.js/.test(stack)) return false
+  return (
+    /evaluating ['"]pageError\.location\.url['"]/.test(error.message) ||
+    (/Cannot read properties of (?:undefined|null) \(reading ['"]url['"]\)/.test(error.message) &&
+      /browserContextDispatcher/.test(stack))
+  )
+}
+
 export const registerLifecycleHandlers = (opts: LifecycleOptions = {}): void => {
-  // Camoufox (Firefox) emits page-error events in a shape playwright-core's dispatcher
-  // doesn't expect for some target-page JS errors (e.g. missing `error.location`), which
-  // throws inside the library's own internal event handling — outside any try/catch we
-  // control, since it fires from a page-level event listener, not from our request path.
-  // Without this, one target site's malformed error crashes the entire process and drops
-  // every in-flight request across all clients, not just the one that triggered it.
-  process.on("uncaughtException", (err) => {
-    console.error("[api] uncaughtException (continuing):", err instanceof Error ? err.message : err)
-  })
+  let stopping = false
+  let exitCode = 0
 
-  process.on("unhandledRejection", (reason) => {
-    console.error("[api] unhandledRejection (continuing):", reason instanceof Error ? reason.message : reason)
-  })
-
-  const shutdown = async () => {
-    if (opts.onShutdown) {
+  const shutdown = async (code = 0) => {
+    exitCode = Math.max(exitCode, code)
+    if (stopping) return
+    stopping = true
+    const deadline = setTimeout(() => process.exit(exitCode || 1), 30_000)
+    try {
       try {
-        await opts.onShutdown()
-      } catch (err) {
-        console.error("[api] onShutdown error:", err instanceof Error ? err.message : err)
+        await opts.onShutdown?.()
+      } finally {
+        await shutdownPools()
       }
+    } catch (error) {
+      exitCode = 1
+      console.error("[api] shutdown error:", error)
+    } finally {
+      clearTimeout(deadline)
+      process.exit(exitCode)
     }
-    await shutdownPools()
-    process.exit(0)
   }
 
-  process.on("SIGTERM", shutdown)
-  process.on("SIGINT", shutdown)
+  const handleFailure = (event: string, error: unknown) => {
+    if (isMalformedBrowserPageError(error)) {
+      console.error(`[api] ${event} (malformed browser page error):`, error)
+      return
+    }
+    console.error(`[api] ${event}:`, error)
+    void shutdown(1)
+  }
+
+  process.on("uncaughtException", (error) => handleFailure("uncaughtException", error))
+  process.on("unhandledRejection", (error) => handleFailure("unhandledRejection", error))
+  process.on("SIGTERM", () => {
+    void shutdown()
+  })
+  process.on("SIGINT", () => {
+    void shutdown()
+  })
 }

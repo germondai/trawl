@@ -259,7 +259,7 @@ export async function runTier1(
 
     // JS-only challenges: the page's static HTML is just a shell that loads the
     // captcha widget via <script src="...api.js">. Plain fetch sees the shell and
-    // would otherwise report success — but the real content (including the widget)
+    // would otherwise report success - but the real content (including the widget)
     // only renders after JS executes. Escalate so Tier 3 runs the page in a browser,
     // executes JS, and the solver can engage the actual widget.
     if (hasHcaptcha(previewText)) {
@@ -419,10 +419,10 @@ export async function runTier1(
       status: "success",
       durationMs: Date.now() - start,
       effectiveUrl: res.url,
-      // `html` is best-effort text view of the body — only meaningful for text-like
+      // `html` is best-effort text view of the body - only meaningful for text-like
       // content-types. Empty for binary payloads so /scrape consumers see the body
       // is binary via the contentType field. `previewText` is bounded to 64 KiB for
-      // challenge detection and must not be used as the response body — decode the
+      // challenge detection and must not be used as the response body - decode the
       // full buffer, reusing the preview only when it already covers the whole body.
       html: isTextContentType(contentType)
         ? isHtmlContentType(contentType)

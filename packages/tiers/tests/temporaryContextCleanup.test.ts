@@ -18,6 +18,7 @@ const makeHandle = () => {
   const handle = {
     id: 0,
     lease: 1,
+    headful: false,
     context: {},
     browser: { newContext: async () => context },
     fingerprint: { userAgent: "test", platform: "Linux x86_64", locale: "en-US", timezone: "UTC" },

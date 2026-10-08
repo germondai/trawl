@@ -21,7 +21,7 @@ function makeSite(documents: Record<string, string>, automatic = false) {
   const page = {
     url: () => current,
     content: async () => documents[current] ?? CONTENT,
-    evaluate: async (fn: () => unknown) => {
+    evaluate: async (fn: () => unknown): Promise<unknown> => {
       if (!fn.toString().includes("querySelectorAll")) return "test-agent"
       const { document } = parseHTML(documents[current] ?? CONTENT)
       return {
@@ -65,9 +65,10 @@ function makeSite(documents: Record<string, string>, automatic = false) {
   const handle: BrowserHandle = {
     id: 1,
     lease: 1,
+    headful: false,
     context,
     browser: { newContext: async () => context },
-    fingerprint: { userAgent: "test-agent", platform: "Linux", locale: "en-US", timezone: "UTC" },
+    fingerprint: { userAgent: "test-agent", platform: "Linux x86_64" as const, locale: "en-US", timezone: "UTC" },
   }
   return { page, handle, gotos, closed: () => closed }
 }

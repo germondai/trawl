@@ -12,7 +12,7 @@ const WALL_HTML = `<html><head><title>Access denied</title></head><body><h1>403<
 const JPEG = Buffer.from("fake-jpeg-bytes")
 const JPEG_BASE64 = JPEG.toString("base64")
 
-const fingerprint = { userAgent: "test-agent", platform: "Linux x86_64", locale: "en-US", timezone: "UTC" }
+const fingerprint = { userAgent: "test-agent", platform: "Linux x86_64" as const, locale: "en-US", timezone: "UTC" }
 const session: SessionData = { cookies: [], userAgent: "cached-user-agent", savedAt: 1 }
 
 interface PageStub {
@@ -67,6 +67,7 @@ const poolHandle = (page: unknown): BrowserHandle =>
   ({
     id: 1,
     lease: 1,
+    headful: false,
     context: { newPage: async () => page, addCookies: async () => {}, cookies: async () => [] },
     browser: {},
     fingerprint,
@@ -76,6 +77,7 @@ const freshHandle = (page: unknown): BrowserHandle =>
   ({
     id: 2,
     lease: 1,
+    headful: false,
     context: {},
     browser: {
       newContext: async () => ({

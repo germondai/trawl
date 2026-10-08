@@ -1,4 +1,4 @@
-// Tier 0 — direct TCP/TLS forward to upstream.
+// Tier 0 - direct TCP/TLS forward to upstream.
 //
 // Why: the MITM proxy at :8192 used to spin up a browser for every single
 // request, including Netflix/YouTube/banks that don't need CF bypass. Tier 0
@@ -40,7 +40,7 @@ export interface ForwardResultStream {
   // The live upstream socket. The caller must pipe this to the client socket
   // and close it when the upstream ends.
   socket: net.Socket
-  // Body bytes the caller should write to the client BEFORE piping the socket —
+  // Body bytes the caller should write to the client BEFORE piping the socket -
   // these arrived in the same TCP segment as the response headers, so the upstream
   // socket hasn't seen them yet. Writing them first preserves byte ordering.
   prefix?: Buffer
@@ -60,7 +60,7 @@ export interface DirectForwardHttpOpts {
   method: string
   headers: Record<string, string>
   body?: Buffer
-  // If true, do NOT challenge-detect the response — just buffer and return.
+  // If true, do NOT challenge-detect the response - just buffer and return.
   // Used by the caller when challengeCache already says this hostname is "cf".
   skipChallengeDetection?: boolean
   // Socket timeout for the upstream connection. Default 30s.

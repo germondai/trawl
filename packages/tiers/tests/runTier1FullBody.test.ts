@@ -1,13 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { runTier1 } from "../src/tiers/1"
-
-const installFetchMock = (responder: () => Response) => {
-  const originalFetch = globalThis.fetch
-  ;(globalThis as { fetch: typeof fetch }).fetch = (async () => responder()) as typeof fetch
-  return () => {
-    ;(globalThis as { fetch: typeof fetch }).fetch = originalFetch
-  }
-}
+import { installFetchMock } from "./helpers/fetch"
 
 const htmlResponse = (html: string) =>
   new Response(html, {

@@ -1,4 +1,4 @@
-// Shared "hard network failure" check — duplicated verbatim in tier3/tier4's goto-error
+// Shared "hard network failure" check - duplicated verbatim in tier3/tier4's goto-error
 // handling before this extraction. These are Chromium/Playwright ERR_* strings that mean
 // the browser never reached a server, so there's no point running challenge-wait logic.
 const HARD_NETWORK_FAILURE =

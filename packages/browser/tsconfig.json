@@ -5,5 +5,5 @@
       "@trawl/types": ["../types/src/index.ts"]
     }
   },
-  "include": ["src", "../types/src"]
+  "include": ["src", "tests", "../types/src"]
 }

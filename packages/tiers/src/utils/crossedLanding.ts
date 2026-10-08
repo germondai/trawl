@@ -5,26 +5,26 @@ import type { OutboundUrlValidator } from "./outboundPolicy"
 //
 // A verified certificate is what normally proves the bytes came from the host that was
 // asked for. Switch verification off and that proof is gone: a connection that reaches the
-// wrong origin — a poisoned or misconfigured DNS answer, an SNI-blind proxy, a shared-IP
-// virtual host falling back to its default vhost — is accepted in silence, and the whole
+// wrong origin - a poisoned or misconfigured DNS answer, an SNI-blind proxy, a shared-IP
+// virtual host falling back to its default vhost - is accepted in silence, and the whole
 // scrape (html, favicons, logos) comes back for someone else's site under the requested
 // domain's name. Refusing to serve another site's page is the point of this module;
 // failing the fetch is the safer outcome.
 //
 // Landing off the requested host is usually a legitimate redirect, though, so an off-host
 // landing on its own says nothing. It only counts as crossed when a plain HTTP fetch of the
-// same URL, through the same egress, stays on the requested host — i.e. nothing about the
+// same URL, through the same egress, stays on the requested host - i.e. nothing about the
 // requested host leads anywhere near where the scrape ended up. A probe that fails, or that
 // lands somewhere else again (an ordinary redirect, or cloaking), is inconclusive and keeps
 // the scrape.
 //
 // Two deliberate choices:
-//   * hosts are compared by suffix relation rather than by registrable domain — TRAWL
+//   * hosts are compared by suffix relation rather than by registrable domain - TRAWL
 //     carries no public-suffix list, and "same registrable domain" guessed without one
 //     reads `evil.co.uk` and `bank.co.uk` as the same site. Suffix comparison is the
 //     stricter side of that trade-off, and the probe is what keeps it from over-refusing.
 //   * the probe honours the request's own TLS policy: on a host whose certificate is
-//     invalid — the whole reason this code path exists — a verifying probe could only ever
+//     invalid - the whole reason this code path exists - a verifying probe could only ever
 //     fail, which would make the guard silently inert exactly where it is needed.
 
 // How long the probe waits for the requested URL to answer.
@@ -39,7 +39,7 @@ export const CROSSED_LANDING_CONFIRMATIONS = 2
 // policy is installed, so every hop must be validated before it is requested).
 const MAX_PROBE_REDIRECTS = 9
 
-// A document request, not an asset one — a site that serves different content to a
+// A document request, not an asset one - a site that serves different content to a
 // non-browser client would otherwise redirect the probe somewhere the scrape never saw.
 const PROBE_HEADERS = {
   Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -65,7 +65,7 @@ export interface LandingProbeOptions {
 export type LandingProbe = (url: string, options: LandingProbeOptions) => Promise<string | null>
 
 // URLs reach here from the caller and can carry credentials or tokens in userinfo and
-// query string, so logs get the origin and path only — enough to find the scrape again.
+// query string, so logs get the origin and path only - enough to find the scrape again.
 export function forLog(candidate: string): string {
   try {
     const url = new URL(candidate)
@@ -124,7 +124,7 @@ export const probeLandingHost: LandingProbe = async (url, options) => {
     // `response.url` is the same thing when fetch followed the chain itself.
     return hostOf(response.url || url)
   } catch (err) {
-    // Inconclusive, not crossed — the caller keeps the scrape.
+    // Inconclusive, not crossed - the caller keeps the scrape.
     console.log(
       `[crossed-landing] probe failed for ${forLog(url)}: ${err instanceof Error ? err.message : String(err)}`,
     )

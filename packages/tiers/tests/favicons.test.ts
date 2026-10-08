@@ -10,7 +10,7 @@ import { runTier4 } from "../src/tiers/4"
 const PAGE_HTML = `<html><head><title>Ordinary Page</title></head><body>${"content ".repeat(20)}</body></html>`
 const ICO = Buffer.from([0x00, 0x00, 0x01, 0x00, 0x61, 0x70, 0x65, 0x78])
 
-const fingerprint = { userAgent: "test-agent", platform: "Linux x86_64", locale: "en-US", timezone: "UTC" }
+const fingerprint = { userAgent: "test-agent", platform: "Linux x86_64" as const, locale: "en-US", timezone: "UTC" }
 const session: SessionData = { cookies: [], userAgent: "cached-user-agent", savedAt: 1 }
 
 const globals = globalThis as any
@@ -247,7 +247,9 @@ describe("capturePageFavicons", () => {
     const previous = process.env.FAVICON_MAX_BYTES
     process.env.FAVICON_MAX_BYTES = "8"
     try {
-      const { capturePageFavicons: capped } = await import(`../src/favicons?inline-cap`)
+      const { capturePageFavicons: capped } = (await import(
+        `../src/favicons?inline-cap` as string
+      )) as typeof import("../src/favicons")
       const inline = `data:image/png;base64,${"A".repeat(64)}`
       const { page, requested } = makePage({
         links: [{ rel: "icon", href: inline }],
@@ -269,7 +271,9 @@ describe("capturePageFavicons", () => {
     const previous = process.env.FAVICON_MAX_BYTES
     process.env.FAVICON_MAX_BYTES = "4"
     try {
-      const { capturePageFavicons: capped } = await import(`../src/favicons?declared-length`)
+      const { capturePageFavicons: capped } = (await import(
+        `../src/favicons?declared-length` as string
+      )) as typeof import("../src/favicons")
       const { page, bodiesRead } = makePage({
         serve: { "https://example.test/favicon.ico": { contentLength: "9000", bytes: ICO } },
       })
@@ -373,7 +377,9 @@ describe("capturePageFavicons", () => {
     process.env.FAVICON_MAX_BYTES = "4"
     try {
       // The module reads its caps at import time, so the cap is re-read here.
-      const { capturePageFavicons: capped } = await import(`../src/favicons?max-bytes`)
+      const { capturePageFavicons: capped } = (await import(
+        `../src/favicons?max-bytes` as string
+      )) as typeof import("../src/favicons")
       const { page } = makePage({ serve: { "https://example.test/favicon.ico": { bytes: ICO } } })
 
       const icons = await capped(page as any)
@@ -390,7 +396,9 @@ describe("capturePageFavicons", () => {
     const previous = process.env.FAVICON_MAX_BYTES
     process.env.FAVICON_MAX_BYTES = "4"
     try {
-      const { capturePageFavicons: capped } = await import(`../src/favicons?stream-cap`)
+      const { capturePageFavicons: capped } = (await import(
+        `../src/favicons?stream-cap` as string
+      )) as typeof import("../src/favicons")
       const { page, bodiesRead, bodiesCancelled } = makePage({
         serve: {
           "https://example.test/favicon.ico": {
@@ -414,7 +422,9 @@ describe("capturePageFavicons", () => {
     const previous = process.env.FAVICON_MAX_METADATA_CHARS
     process.env.FAVICON_MAX_METADATA_CHARS = "64"
     try {
-      const { capturePageFavicons: capped } = await import(`../src/favicons?metadata-cap`)
+      const { capturePageFavicons: capped } = (await import(
+        `../src/favicons?metadata-cap` as string
+      )) as typeof import("../src/favicons")
       const longUrl = `https://example.test/${"x".repeat(100)}`
       const { page, requested } = makePage({
         links: [{ rel: "icon", href: longUrl }],
@@ -447,7 +457,9 @@ describe("capturePageFavicons", () => {
     const previous = process.env.FAVICON_TIMEOUT_MS
     process.env.FAVICON_TIMEOUT_MS = "20"
     try {
-      const { capturePageFavicons: impatient } = await import(`../src/favicons?timeout`)
+      const { capturePageFavicons: impatient } = (await import(
+        `../src/favicons?timeout` as string
+      )) as typeof import("../src/favicons")
       const { page } = makePage({ hang: true })
 
       expect(await impatient(page as any)).toEqual([])
@@ -499,7 +511,7 @@ describe("tiers", () => {
       "https://example.test/",
       freshHandle(page),
       4_000,
-      undefined,
+      "http://proxy.example:8080",
       undefined,
       undefined,
       undefined,
@@ -516,7 +528,7 @@ describe("tiers", () => {
       "https://example.test/",
       freshHandle(quiet.page),
       4_000,
-      undefined,
+      "http://proxy.example:8080",
       undefined,
       undefined,
       undefined,
@@ -535,7 +547,7 @@ describe("tiers", () => {
       "https://example.test/",
       freshHandle(page),
       4_000,
-      undefined,
+      "http://proxy.example:8080",
       undefined,
       undefined,
       undefined,

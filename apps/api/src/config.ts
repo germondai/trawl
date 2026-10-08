@@ -124,11 +124,11 @@ export const STALL_TIMEOUT_MS = positiveInteger(process.env.BROWSER_STALL_TIMEOU
 // close when a content process is wedged; past this we abandon the close and relaunch.
 export const CLOSE_TIMEOUT_MS = positiveInteger(process.env.BROWSER_CLOSE_TIMEOUT_MS, 10_000)
 // Upper bound on a browser launch. A cold Camoufox start is a few seconds, but launches
-// have been observed to hang indefinitely — without a bound that strands the pool entry.
+// have been observed to hang indefinitely - without a bound that strands the pool entry.
 export const LAUNCH_TIMEOUT_MS = positiveInteger(process.env.BROWSER_LAUNCH_TIMEOUT_MS, 90_000)
 
 // PROXY_URL / RESIDENTIAL_PROXY_URL accept a comma-separated list of proxy URLs (a single
-// URL still works — it's just a 1-element list). *_LIST_FILE is an alternative source
+// URL still works - it's just a 1-element list). *_LIST_FILE is an alternative source
 // (one proxy per line) for lists too large for a single env var.
 export const proxyPool = ProxyPool.fromEnv(process.env.PROXY_URL, process.env.PROXY_LIST_FILE, SCRAPE_PROXY_SELECTION)
 export const residentialProxyPool = ProxyPool.fromEnv(
@@ -138,14 +138,11 @@ export const residentialProxyPool = ProxyPool.fromEnv(
 )
 
 // ── MITM forward-proxy mode ────────────────────────────────────────────────────
-// Optional browser-backed HTTP(S) forward proxy (apps/api/src/proxy). Off by default.
-// When enabled, point a client's HTTP(S) proxy at MITM_PORT and every request is
-// re-issued through the browser pool — for clients that only consume cookies+UA from
-// /v1 and re-fetch themselves, which fails on fingerprint-bound Cloudflare clearances.
-// See proxy/server.ts for the full rationale.
+// Direct HTTP(S) forwarding with browser escalation for supported challenges.
+// Fingerprint-bound clearances must be reused through this proxy, not a separate client.
 export const MITM_ENABLED = /^(1|true|yes)$/i.test(process.env.MITM_ENABLED ?? "")
 export const MITM_PORT = integerInRange(process.env.MITM_PORT, 8_192, 1, 65_535)
-// Default 0.0.0.0 — the dominant deployment is docker-compose (clients reach trawl
+// Default 0.0.0.0 - the dominant deployment is docker-compose (clients reach trawl
 // through the docker bridge, which requires a non-loopback bind). Loopback-only
 // operators can set MITM_HOST=127.0.0.1. The primary safety guard remains
 // MITM_ENABLED=false.
@@ -161,7 +158,7 @@ export const MITM_ALWAYS_SCRAPE = /^(1|true|yes)$/i.test(process.env.MITM_ALWAYS
 // Opt in to scraping fallback for otherwise unrecognized HTTP 429 responses.
 export const MITM_ESCALATE_429 = /^(1|true|yes)$/i.test(process.env.MITM_ESCALATE_429 ?? "")
 // Log one line per proxied request (method, url, status, content-type, bytes). Off by
-// default — proxied clients can be chatty. Errors are always logged.
+// default - proxied clients can be chatty. Errors are always logged.
 export const MITM_DEBUG = /^(1|true|yes)$/i.test(process.env.MITM_DEBUG ?? "")
 
 export const startTime = Date.now()

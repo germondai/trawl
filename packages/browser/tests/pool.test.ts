@@ -22,7 +22,7 @@ const waitFor = async (predicate: () => boolean, budgetMs = 1000) => {
   throw new Error("timed out waiting for condition")
 }
 
-const NEVER = () => new Promise<void>(() => {})
+const NEVER = () => new Promise<never>(() => {})
 
 type MockBrowser = {
   closed: boolean
@@ -140,14 +140,14 @@ describe("BrowserPool recycling", () => {
     await pool.init()
 
     const first = await pool.acquire("example.com")
-    first.noteTemporaryContext?.("tier3 fresh context")
+    first.noteTemporaryContext?.()
     pool.release(first.id)
 
     expect(pool.getStats().restarts).toBe(0)
     expect(pool.getStats().available).toBe(1)
 
     const second = await pool.acquire("example.com")
-    second.noteTemporaryContext?.("tier3 fresh context")
+    second.noteTemporaryContext?.()
     pool.release(second.id)
 
     await waitFor(() => pool.getStats().restarts === 1)
@@ -172,7 +172,7 @@ describe("BrowserPool recycling", () => {
     // Hammer the pool with noteTemporaryContext — should never trigger recycle.
     for (let i = 0; i < 20; i++) {
       const handle = await pool.acquire("example.com")
-      handle.noteTemporaryContext?.("tier3 blocked")
+      handle.noteTemporaryContext?.()
       pool.release(handle.id)
     }
 
@@ -329,7 +329,7 @@ describe("BrowserPool wedge recovery", () => {
     await pool.init()
 
     const handle = await pool.acquire("example.com")
-    handle.noteTemporaryContext?.("tier4 blocked")
+    handle.noteTemporaryContext?.()
     pool.release(handle.id, handle.lease)
 
     // Before the fix this never happened — the pool sat at restarts=0, available=0.
@@ -373,7 +373,7 @@ describe("BrowserPool wedge recovery", () => {
     await pool.init()
 
     const handle = await pool.acquire("example.com")
-    handle.noteTemporaryContext?.("blocked")
+    handle.noteTemporaryContext?.()
     expect(() => pool.release(handle.id, handle.lease)).not.toThrow()
 
     await waitFor(() => pool.getStats().restarts === 1)
@@ -439,7 +439,7 @@ describe("BrowserPool wedge recovery", () => {
     pool.startHealthCheck()
 
     const handle = await pool.acquire("example.com")
-    handle.noteTemporaryContext?.("tier4 blocked")
+    handle.noteTemporaryContext?.()
     pool.release(handle.id, handle.lease)
 
     await new Promise((resolve) => setTimeout(resolve, 80))

@@ -34,7 +34,8 @@ bun run dev:web     # Nuxt 4 landing page
 bun run dev:docs    # VitePress docs site
 ```
 
-The API requires Redis. The fastest way is `docker compose up -d redis`.
+Redis is the default session cache. Start it with `docker compose up -d redis`, or use
+`SESSION_CACHE_DRIVER=memory` for a process-local cache.
 
 ### Linting & formatting
 
@@ -43,7 +44,7 @@ We use [Biome](https://biomejs.dev/) for both:
 ```bash
 bun run check       # read-only format, lint, and import-order check
 bun run fix         # apply safe Biome fixes and formatting
-bun run typecheck   # typecheck all five TypeScript workspaces
+bun run typecheck   # typecheck TypeScript workspaces, including browser/tier tests
 bun run build       # production-build the web and docs apps
 bun run verify      # full release gate: check, types, tests, and builds
 ```
@@ -104,6 +105,25 @@ page callbacks, custom Turnstile response fields, callback-only widgets, task
 limits, CSP failure, structured answers, screenshot tasks, grid/coordinate clicks
 and site-scoped cookie delivery. The target fixture independently checks answers.
 They do not establish live 2Captcha success rates.
+
+### Docker browser smoke tests
+
+CI builds the standard runtime and exercises owned HTTP fixtures with a 1 GiB
+container limit, or 2 GiB for persistent session tests so the memory guard does
+not evict their contexts. These tests cover delayed JavaScript content, readiness
+with ongoing traffic, raw text, redirects, and native/FlareSolverr sessions. They
+do not contact CAPTCHA providers or establish live bypass success rates.
+
+```bash
+docker build -f apps/api/Dockerfile -t trawl-smoke .
+bash scripts/browser-smoke.sh trawl-smoke
+```
+
+Pages that load their desired content asynchronously should set
+`contentWaitForSelector`; response capture has its own settle window. With an
+explicit content selector, ongoing analytics or streaming requests do not need
+to finish before returning content. Without one, browser tiers retain their
+default settling behavior within the request deadline.
 
 ## Project layout
 

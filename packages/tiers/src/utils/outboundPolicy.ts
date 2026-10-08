@@ -7,7 +7,7 @@ interface BrowserRoute {
 }
 
 interface RoutablePage {
-  route(pattern: string, handler: (route: BrowserRoute) => Promise<void>): Promise<void>
+  route(pattern: string, handler: (route: BrowserRoute) => Promise<void>): Promise<unknown>
 }
 
 export async function installOutboundPolicy(page: RoutablePage, validate?: OutboundUrlValidator): Promise<void> {

@@ -58,15 +58,15 @@ export function isCloudflarePage(html: string, headers: Record<string, string>):
   if (/_cf_chl_opt/i.test(html)) return true
   if (/id=["']challenge-form["']/i.test(html)) return true
   if (/orchestrate\/chl_page/i.test(html)) return true
-  // CF firewall/WAF deny page (error 1020 and friends) — static "blocked" page, not a
+  // CF firewall/WAF deny page (error 1020 and friends) - static "blocked" page, not a
   // solvable JS challenge, but still needs to be recognized as CF so the orchestrator
   // reports tier failure and escalates instead of returning the block page as content
   if (/id="cf-error-details"/i.test(html)) return true
   if (/you have been blocked/i.test(html)) return true
-  // Lean CF challenge stub — blank title/body, just the challenge-platform bootstrap
+  // Lean CF challenge stub - blank title/body, just the challenge-platform bootstrap
   // script. No human-readable text at all, so none of the checks above catch it.
   //
-  // CAUTION: __CF$cv$params is NOT exclusive to active challenges — Cloudflare injects
+  // CAUTION: __CF$cv$params is NOT exclusive to active challenges - Cloudflare injects
   // the same bootstrap into countless ordinary, fully-rendered pages as passive
   // bot-management telemetry. Matching on the marker alone flags real pages as blocked.
   // The actual challenge stub is always near-empty (nothing else can render before the
@@ -76,7 +76,7 @@ export function isCloudflarePage(html: string, headers: Record<string, string>):
   return false
 }
 
-// Firefox's own internal about:neterror / about:certerror page — means the browser never
+// Firefox's own internal about:neterror / about:certerror page - means the browser never
 // reached a real server at all (DNS failure, connection refused, TLS error, etc). Distinct
 // from a Cloudflare/WAF block: there's no origin response to retry against, so callers
 // should treat this the same as a hard network failure, not as scraped content.
@@ -192,7 +192,7 @@ export function hasImpervaChallenge(html: string, headers: Record<string, string
 // (the "behavioral-content" widget, often a press-and-hold button) plus an obfuscated
 // sensor script; once the sensor's XHR posts telemetry the page location.reload()s
 // into the real content. trawl solves this by driving human-like interaction and
-// waiting for the reload — see akamaiWait.ts. These DOM markers are challenge-only
+// waiting for the reload - see akamaiWait.ts. These DOM markers are challenge-only
 // (the class/id names don't appear on ordinary Akamai-fronted pages), so no size gate
 // is needed for them; the sensor-bootstrap fallback IS size-gated to avoid flagging
 // full pages that merely carry passive Akamai telemetry.
@@ -230,13 +230,12 @@ export function hasDuckDuckGoChallenge(html: string, _headers: Record<string, st
   return anomalyEndpoint && challengeForm && anomalyModal
 }
 
-// Anubis (TecharoHQ/anubis) serves its proof-of-work/metarefresh wall at HTTP 200, so
-// status alone can't flag it. Its marker <script id="anubis_*"> JSON tags and the
+// Anubis walls can return HTTP 200; inspect their challenge payload rather than status.
 export function hasAnubisChallenge(html: string): boolean {
   return detectAnubisPage(html) !== undefined
 }
 
-// AWS WAF JavaScript challenge — the interstitial page that loads challenge.js to
+// AWS WAF JavaScript challenge - the interstitial page that loads challenge.js to
 // issue an aws-waf-token cookie before redirecting to the protected resource.
 export function hasAwsWafChallenge(html: string, headers: Record<string, string> = {}, status?: number): boolean {
   if (getAwsWafAction(status, headers) === "challenge") return true

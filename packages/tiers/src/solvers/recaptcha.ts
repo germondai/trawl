@@ -2,16 +2,16 @@ import { sleep } from "../utils/deadline"
 // reCAPTCHA v2 solver using the audio challenge channel.
 //
 // Flow:
-//  1. Click the reCaptcha checkbox — with a real Chrome fingerprint and good IP,
+//  1. Click the reCaptcha checkbox - with a real Chrome fingerprint and good IP,
 //     Google's risk scoring often auto-passes at score ≥ 0.5 (green checkmark).
 //  2. If a visual image challenge appears, switch to audio mode.
 //  3. Download the audio MP3 from Google's servers.
 //  4. Transcribe via speech-to-text (Google's free API or configured Whisper endpoint).
 //     Note: Google's own reCaptcha audio is designed to be solvable by accessibility
-//     tools, meaning their own STT model handles it well — we exploit this circularity.
+//     tools, meaning their own STT model handles it well - we exploit this circularity.
 //  5. Submit the digit string.
 //
-// reCaptcha v3: purely passive — no widget, no interaction. Real Chrome browsers
+// reCaptcha v3: purely passive - no widget, no interaction. Real Chrome browsers
 // with good behavioral patterns (no automation signals) score ≥ 0.7 automatically.
 
 import type { Page } from "patchright"
@@ -29,7 +29,7 @@ export async function solveRecaptchaV2(page: Page, timeoutMs = 30_000, signal?: 
 
   try {
     // Step 1: wait for the anchor iframe
-    // Use .first() — sites like nopecha also embed an invisible reCAPTCHA alongside the demo
+    // Use .first() - sites like nopecha also embed an invisible reCAPTCHA alongside the demo
     // widget, so the selector can match 2 elements (strict mode violation without .first())
     const hasAnchor = await page
       .waitForSelector(ANCHOR_IFRAME, { timeout: Math.max(1, Math.min(8000, deadline - Date.now())) })
@@ -38,7 +38,7 @@ export async function solveRecaptchaV2(page: Page, timeoutMs = 30_000, signal?: 
     if (!hasAnchor) return false
     const anchor = page.frameLocator(ANCHOR_IFRAME).first()
 
-    // Step 2: click the checkbox — force:true handles widgets inside hidden tab containers
+    // Step 2: click the checkbox - force:true handles widgets inside hidden tab containers
     await anchor
       .locator("#recaptcha-anchor")
       .click({ timeout: Math.max(1, Math.min(5000, deadline - Date.now())), force: true })
@@ -58,7 +58,7 @@ export async function solveRecaptchaV2(page: Page, timeoutMs = 30_000, signal?: 
       return true
     }
 
-    // Step 3: challenge appeared — switch to audio mode
+    // Step 3: challenge appeared - switch to audio mode
     const hasBframe = await page
       .waitForSelector(BFRAME_IFRAME, { timeout: Math.max(1, Math.min(8000, deadline - Date.now())) })
       .then(() => true)
@@ -81,7 +81,7 @@ export async function solveRecaptchaV2(page: Page, timeoutMs = 30_000, signal?: 
       .isVisible({ timeout: Math.max(1, Math.min(5000, deadline - Date.now())) })
       .catch(() => false)
     if (!isAudioVisible) {
-      // Check if image challenge is showing — means audio tab exists but needs click
+      // Check if image challenge is showing - means audio tab exists but needs click
       const hasImageChallenge = await bframe
         .locator(".rc-imageselect, #rc-imageselect")
         .isVisible({ timeout: Math.max(1, Math.min(2000, deadline - Date.now())) })
@@ -131,7 +131,7 @@ export async function solveRecaptchaV2(page: Page, timeoutMs = 30_000, signal?: 
         }
       }
 
-      // Small wait after audio element appears — src may be set asynchronously
+      // Small wait after audio element appears - src may be set asynchronously
       await sleep(1500, signal)
 
       // Get audio URL via JS property (getAttribute can miss dynamically-set src)
@@ -150,7 +150,7 @@ export async function solveRecaptchaV2(page: Page, timeoutMs = 30_000, signal?: 
           .catch(() => undefined)) ||
         ""
 
-      // Reject blob: URLs — they're browser-internal and can't be fetched from outside
+      // Reject blob: URLs - they're browser-internal and can't be fetched from outside
       const audioHref = rawHref && !rawHref.startsWith("blob:") ? rawHref : undefined
       console.log("[recaptcha] raw audio href:", rawHref?.slice(0, 100) ?? "none")
 
@@ -205,7 +205,7 @@ export async function solveRecaptchaV2(page: Page, timeoutMs = 30_000, signal?: 
         return true
       }
 
-      // Wrong answer — get a new challenge
+      // Wrong answer - get a new challenge
       await bframe
         .locator("#recaptcha-reload-button")
         .click({ timeout: Math.max(1, Math.min(3000, deadline - Date.now())) })
@@ -221,7 +221,7 @@ export async function solveRecaptchaV2(page: Page, timeoutMs = 30_000, signal?: 
 }
 
 export async function hasRecaptchaV2(page: Page, timeout = 2000): Promise<boolean> {
-  // Use state: 'attached' — the iframe may be present but inside a display:none container
+  // Use state: 'attached' - the iframe may be present but inside a display:none container
   // (nopecha shows all difficulty tabs in DOM, hides inactive ones with CSS).
   // The solver uses force:true to interact through hidden containers.
   return page

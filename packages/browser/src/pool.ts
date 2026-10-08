@@ -4,7 +4,7 @@ import { FINGERPRINT_POOL } from "./fingerprint"
 import { toPlaywrightProxy } from "./proxy"
 
 // camoufox-js wraps Playwright but doesn't re-export Browser/BrowserContext types.
-// The pool accepts any structurally-compatible browser (Playwright OR patchright) —
+// The pool accepts any structurally-compatible browser (Playwright OR patchright) -
 // browsers exported from one aren't structurally assignable to the other in their
 // own TypeScript types, so `any` is the pragmatic escape hatch here.
 // biome-ignore lint/suspicious/noExplicitAny: see comment above
@@ -13,7 +13,7 @@ type Browser = any
 type BrowserContext = any
 
 // Closing a Camoufox browser or context can hang indefinitely when a content process is
-// wedged — tier3/tier4 already guard their temporary contexts this way. 10s is far above
+// wedged - tier3/tier4 already guard their temporary contexts this way. 10s is far above
 // the typical sub-second close path.
 const CLOSE_TIMEOUT_MS = 10_000
 // A cold Camoufox start is a few seconds; camoufox-js also does a public-IP lookup for
@@ -184,7 +184,7 @@ export class BrowserPool {
 
   // A checkout past its deadline is not slow, it's wedged. The deadline is the caller's
   // own budget (req.maxTimeout) plus a full stallAfterMs of grace, so a request is never
-  // reclaimed while it is still inside the time it asked for — callers may legitimately
+  // reclaimed while it is still inside the time it asked for - callers may legitimately
   // pass a maxTimeout larger than stallAfterMs. Without a budget we fall back to
   // stallAfterMs alone.
   private isStalled(entry: PoolEntry, now = Date.now()): boolean {
@@ -253,30 +253,30 @@ export class BrowserPool {
     const camoufoxOs =
       fingerprint.platform === "Win32" ? "windows" : fingerprint.platform === "MacIntel" ? "macos" : "linux"
 
-    // Camoufox patches fingerprint data at the C++/Juggler level — not via JS injection.
+    // Camoufox patches fingerprint data at the C++/Juggler level - not via JS injection.
     // CF's JS cannot detect these patches the way it detects overrides of window.chrome,
     // plugins, WebGL etc. Same browser Byparr uses.
     //
     // Anti-detection levers we use (in addition to Camoufox's defaults):
-    //   `os`             — random pick per browser: {windows, macos, linux}. Each browser
+    //   `os`             - random pick per browser: {windows, macos, linux}. Each browser
     //                     in the pool looks like a different OS to fingerprinters, so
     //                     cross-browser session correlation becomes harder.
-    //   `screen`         — randomize resolution per browser within realistic bounds.
-    //   `window`         — randomize window size per browser.
-    //   `humanize`       — randomized mouse movement + timing patterns.
-    //   `geoip`          — auto-derive timezone/locale from the server's IP.
-    //   `block_webrtc`   — no IP leak via WebRTC.
-    //   `disable_coop`   — keep cross-origin iframe interactivity (and avoid
+    //   `screen`         - randomize resolution per browser within realistic bounds.
+    //   `window`         - randomize window size per browser.
+    //   `humanize`       - randomized mouse movement + timing patterns.
+    //   `geoip`          - auto-derive timezone/locale from the server's IP.
+    //   `block_webrtc`   - no IP leak via WebRTC.
+    //   `disable_coop`   - keep cross-origin iframe interactivity (and avoid
     //                     crossOriginIsolated being false-detectable).
-    //   `main_world_eval` — required for Turnstile's shadow-DOM checkbox.
-    //   `forceScopeAccess` — C++-level cross-origin frame scope, COOP-friendly.
+    //   `main_world_eval` - required for Turnstile's shadow-DOM checkbox.
+    //   `forceScopeAccess` - C++-level cross-origin frame scope, COOP-friendly.
     const browser = await Camoufox({
       // `"virtual"` launches headful Camoufox behind Xvfb; camoufox-js tears the display
       // down with the browser. This mode is used by the optional DataDome pool.
       headless: this.virtualDisplay ? "virtual" : true,
       os: [camoufoxOs],
       exclude_addons: this.blockAds ? [] : ["UBO"],
-      // Screen + window randomization — Camoufox picks from the constraints per launch.
+      // Screen + window randomization - Camoufox picks from the constraints per launch.
       // `screen` lets us set min/max bounds; `window` is a single fixed tuple per type
       // so we pick one realistic value here. The fingerprint will still differ across
       // browsers because of `os` + `screen` randomization + Camoufox's per-launch
@@ -322,7 +322,7 @@ export class BrowserPool {
         "breakpad.reportURL": "",
         "breakpad.submitReportURL": "",
 
-        // Disabled Firefox services — not used in headless scraping
+        // Disabled Firefox services - not used in headless scraping
         "browser.safebrowsing.downloads.enabled": false,
         "browser.safebrowsing.malware.enabled": false,
         "extensions.update.enabled": false,
@@ -360,7 +360,7 @@ export class BrowserPool {
   }
 
   private async createContext(browser: Browser): Promise<BrowserContext> {
-    // viewport: null — Camoufox controls viewport via fingerprint config.
+    // viewport: null - Camoufox controls viewport via fingerprint config.
     // Passing Playwright's default viewport causes a Firefox protocol error on 'isMobile'.
     const context = await browser.newContext({ viewport: null })
 
@@ -377,7 +377,7 @@ export class BrowserPool {
       )
 
       // Expose shadow roots via element.shadowRootUnl so we can traverse into Turnstile's
-      // shadow DOM to click the actual checkbox — same technique Byparr uses
+      // shadow DOM to click the actual checkbox - same technique Byparr uses
       const _attachShadow = Element.prototype.attachShadow
       Element.prototype.attachShadow = function (init: ShadowRootInit) {
         const shadowRoot = _attachShadow.call(this, init)
@@ -607,14 +607,14 @@ export class BrowserPool {
     const entry = this.entries.find((e) => e.id === id)
     if (!entry) return
     // A checkout the health check already reclaimed must not free the entry a second
-    // time — by now it may be restarting, or handed to a different request. The lease
+    // time - by now it may be restarting, or handed to a different request. The lease
     // identifies *which* checkout is being released; a mismatch means this one is stale.
     if (lease !== undefined && entry.lease !== lease) return
     if (!entry.busy) return
     entry.busy = false
     entry.busySince = undefined
     entry.stallAt = undefined
-    // Keep the context alive — CF cookies (cf_clearance, __cf_bm) and browser cache
+    // Keep the context alive - CF cookies (cf_clearance, __cf_bm) and browser cache
     // accumulate, making subsequent challenges faster. Cookies are domain-scoped.
     let pages: { close: AsyncAction }[] = []
     try {
@@ -721,7 +721,7 @@ export class BrowserPool {
           await this.restartEntry(entry, "browser disconnected during checkout")
           continue
         }
-        // We can't probe a checked-out browser — closing it would kill a live request.
+        // We can't probe a checked-out browser - closing it would kill a live request.
         // But a checkout past the stall threshold is not a request any more: it never
         // reached the orchestrator's `finally`, so nothing will ever release it. Left
         // alone, the entry is subtracted from the pool for the rest of the process.
@@ -745,14 +745,14 @@ export class BrowserPool {
 
   // Runs `launchBrowser` under a hard deadline. Playwright's own launch timeout does not
   // cover camoufox-js's pre-launch work (the `geoip` public-IP lookup), so a launch can
-  // outlive it; and an unbounded launch here is unrecoverable — see restartEntry.
+  // outlive it; and an unbounded launch here is unrecoverable - see restartEntry.
   private async launchWithin(
     fingerprint: (typeof FINGERPRINT_POOL)[number],
     ms: number,
   ): Promise<{ browser: Browser; context: BrowserContext }> {
     let timedOut = false
     // Playwright exposes no way to cancel an in-flight launch, so a timeout here can only
-    // stop *waiting* — the attempt keeps running. Count the ones we abandon so a browser
+    // stop *waiting* - the attempt keeps running. Count the ones we abandon so a browser
     // that hangs on every launch can't have attempts piled on it forever.
     this.abandonedLaunches++
     const launch = this.launchBrowser(fingerprint).then(
@@ -761,11 +761,11 @@ export class BrowserPool {
           this.abandonedLaunches--
           return result
         }
-        // We already gave up on this launch — don't leak the browser it finally produced.
+        // We already gave up on this launch - don't leak the browser it finally produced.
         // Stay charged until that close *actually* settles, with no timeout: releasing the
         // slot on a bound would let genuinely unkillable Firefox processes accumulate
         // silently, one per retry. Holding it means a doubly-wedged entry (launch hung,
-        // then close hung) stays down and the pool reports reduced `live` — the readiness
+        // then close hung) stays down and the pool reports reduced `live` - the readiness
         // gate surfaces that, which is the outcome we want over a quiet process leak.
         void Promise.resolve(result.browser?.close()).then(
           () => {
@@ -811,7 +811,7 @@ export class BrowserPool {
     entry.cleaning = false
     entry.sleeping = false
     // Drop any checkout this entry was holding. Either release() already cleared it, or
-    // we are reclaiming a stalled one — in both cases the entry is ours now, and the
+    // we are reclaiming a stalled one - in both cases the entry is ours now, and the
     // bumped lease makes a late release() from the abandoned request a no-op.
     entry.busy = false
     entry.busySince = undefined
@@ -852,7 +852,7 @@ export class BrowserPool {
         entry.retirement = undefined
       }
       // Refuse to pile another attempt onto a backlog of launches we already gave up
-      // waiting for — each one may still be holding a real Firefox process we can't
+      // waiting for - each one may still be holding a real Firefox process we can't
       // cancel. The entry stays unhealthy, so `live` drops and the readiness gate takes
       // the pod out of rotation instead of quietly leaking processes.
       if (this.abandonedLaunches >= this.maxAbandonedLaunches) {
@@ -944,7 +944,7 @@ export class BrowserPool {
       delete this.healthInterval
     }
     for (const entry of this.entries) {
-      // Bounded for the same reason as restartEntry — an unbounded close here hangs
+      // Bounded for the same reason as restartEntry - an unbounded close here hangs
       // SIGTERM handling until the supervisor's grace period expires and force-kills us.
       await settleWithin(entry.retirement ? () => entry.retirement : undefined, this.closeTimeoutMs)
       await settleWithin(() => entry.context?.close(), this.closeTimeoutMs)

@@ -37,12 +37,14 @@ function dependencies(
       return session
     },
     saveSession: async () => {},
-    invalidateSession: async () => events.push("invalidate-session"),
+    invalidateSession: async () => {
+      events.push("invalidate-session")
+    },
     residentialProxyPool: withResidentialProxy
       ? ({
           next: () => "http://residential.example:8080",
           markBad: () => {},
-        } as OrchestratorDeps["residentialProxyPool"])
+        } as unknown as OrchestratorDeps["residentialProxyPool"])
       : undefined,
   }
 }
@@ -52,7 +54,7 @@ describe("deployment-wide minimum tier", () => {
     const events: string[] = []
     const challenge = "<html><title>Please verify</title><body>vendor-x browser verification required</body></html>"
     ;(globalThis as { fetch: typeof fetch }).fetch = (async () =>
-      new Response(challenge, { status: 200, headers: { "content-type": "text/html" } })) as typeof fetch
+      new Response(challenge, { status: 200, headers: { "content-type": "text/html" } })) as unknown as typeof fetch
 
     const result = await scrape({ url: "https://example.test" }, dependencies(undefined, events))
 
@@ -66,7 +68,7 @@ describe("deployment-wide minimum tier", () => {
     ;(globalThis as { fetch: typeof fetch }).fetch = (async () => {
       events.push("fetch")
       throw new Error("Tier 1 must be skipped")
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     const result = await scrape({ url: "https://example.test", maxTier: 2 }, dependencies(2, events), {
       tier2: async () => ({ tier: 2, status: "success", durationMs: 1, html: "<html>cached</html>" }),

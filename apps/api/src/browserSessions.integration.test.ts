@@ -20,6 +20,12 @@ describe.skipIf(process.env.TRAWL_BROWSER_SESSION_TESTS !== "1")("persistent bro
     })
     return { status: response.status, body: await response.json() }
   }
+  const expectAvailableBrowser = async () => {
+    const deps = getDeps()
+    const handle = await deps.acquireBrowser("fixture.example", 15_000)
+    deps.releaseBrowser(handle)
+    expect(getPool()?.getStats().available).toBe(1)
+  }
   beforeAll(async () => {
     fixture = Bun.serve({
       port: 0,
@@ -93,7 +99,7 @@ describe.skipIf(process.env.TRAWL_BROWSER_SESSION_TESTS !== "1")("persistent bro
     const ordinary = await send("/scrape", { url: url("/account") })
     expect(ordinary.status).toBe(200)
     expect(ordinary.body.html).toContain('data-login="false"')
-    expect(getPool()?.getStats().available).toBe(1)
+    await expectAvailableBrowser()
 
     const stored = await send("/scrape", { url: url("/storage"), sessionId: "login", maxTimeout: 15000 })
     expect(stored.status).toBe(200)
@@ -117,7 +123,7 @@ describe.skipIf(process.env.TRAWL_BROWSER_SESSION_TESTS !== "1")("persistent bro
     } finally {
       budget.dispose()
     }
-    expect(getPool()?.getStats().available).toBe(1)
+    await expectAvailableBrowser()
 
     const compatLogin = await send("/v1", {
       cmd: "request.post",
@@ -134,7 +140,7 @@ describe.skipIf(process.env.TRAWL_BROWSER_SESSION_TESTS !== "1")("persistent bro
     expect((await send("/scrape", { url: url("/account"), sessionId: "separate" })).status).toBe(404)
     expect((await send("/sessions/login", undefined, "DELETE")).status).toBe(200)
     expect((await send("/sessions")).body.sessions).toEqual([])
-    expect(getPool()?.getStats().available).toBe(1)
+    await expectAvailableBrowser()
   }, 100000)
 
   test("one persistent session survives repeated requests with no idle pages", async () => {
@@ -152,7 +158,7 @@ describe.skipIf(process.env.TRAWL_BROWSER_SESSION_TESTS !== "1")("persistent bro
       expect(result.body.solution.response).toContain('data-storage="retained"')
       expect(result.body.solution.response).toContain('data-tab-storage="retained"')
       expect(result.body.solution.userAgent).toBe(initial.body.userAgent)
-      expect(getPool()?.getStats().available).toBe(1)
+      await expectAvailableBrowser()
     }
     const cleared = await send("/scrape", {
       sessionId: "small",
@@ -275,7 +281,7 @@ describe.skipIf(process.env.TRAWL_BROWSER_SESSION_TESTS !== "1")("persistent bro
     expect((await send("/sessions")).body.sessions).toEqual([])
     expect((await send("/sessions", { id: "recovered" })).status).toBe(201)
     expect((await send("/sessions/recovered", undefined, "DELETE")).status).toBe(200)
-    expect(getPool()?.getStats().available).toBe(1)
+    await expectAvailableBrowser()
   }, 30000)
 
   test("deadline invalidates the context, releases capacity and allows ordinary scraping", async () => {
@@ -285,7 +291,7 @@ describe.skipIf(process.env.TRAWL_BROWSER_SESSION_TESTS !== "1")("persistent bro
     const deadline = Date.now() + 10000
     while (!getPool()?.getStats().available && Date.now() < deadline) await Bun.sleep(20)
     expect((await send("/sessions")).body.sessions).toEqual([])
-    expect(getPool()?.getStats().available).toBe(1)
+    await expectAvailableBrowser()
     expect((await send("/scrape", { url: url("/account") })).status).toBe(200)
   }, 15000)
 })

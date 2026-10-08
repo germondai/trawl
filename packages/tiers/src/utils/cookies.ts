@@ -55,7 +55,7 @@ export function normalizeSameSite(s: string | undefined): "Strict" | "Lax" | "No
   return s === "Strict" || s === "Lax" || s === "None" ? s : "Lax"
 }
 
-// Maps Playwright's raw context.cookies() shape to TRAWL's Cookie type — shared by
+// Maps Playwright's raw context.cookies() shape to TRAWL's Cookie type - shared by
 // tiers 2-4, which each read cookies back off the browser context after a successful load.
 export function toCookies(rawCookies: RawCookie[]): Cookie[] {
   return rawCookies.map((c) => ({
