@@ -15,7 +15,7 @@ import { hasAnubisDestinationContent, isAnubisVerificationUrl } from "../utils/a
 import { reportBlocked } from "../utils/blockedEvidence"
 import { attachPageCapture, type CaptureOptions } from "../utils/capture"
 import { routeChallengeWait } from "../utils/challengeRouter"
-import { snapshotChallengeCookies, toCookies } from "../utils/cookies"
+import { normalizeInputCookies, snapshotChallengeCookies, toCookies } from "../utils/cookies"
 import { DeadlineError, RequestBudget } from "../utils/deadline"
 import {
   hasAkamaiChallenge,
@@ -37,6 +37,7 @@ import { isProxyTransportFailure, normalizeProxyError, proxyResponseFailure } fr
 import { browserDocumentHtml, captureResponse, isHtmlContentType, isNonHtmlTextContentType } from "../utils/response"
 import type { RouteLike } from "../utils/sanitize"
 import { routeContinueOverrides } from "../utils/sanitize"
+import { restoreSessionStorage } from "../utils/sessionStorage"
 import { waitForVisibleSelector } from "../utils/waitForVisibleSelector"
 
 export interface Tier4Result extends TierResult {
@@ -75,7 +76,8 @@ async function runTier4Task(
 ): Promise<Tier4Result> {
   const start = Date.now()
 
-  // Create an isolated context routed through the proxy.
+  // Ordinary requests create an isolated context routed through the proxy.
+  // A named session borrows its existing context with the same fixed proxy.
   // Proxies must be set at context creation time in Playwright — they cannot be
   // applied per-request. We create a fresh context here and close it when done,
   // leaving the pool's shared context untouched.
@@ -87,24 +89,34 @@ async function runTier4Task(
   let cleanup: Promise<void> | undefined
   const close = () =>
     (cleanup ??= closeTemporaryContext(
-      openingContext ?? state.proxyContext,
+      capture.sessionContext ? undefined : (openingContext ?? state.proxyContext),
       handle.requestBrowserReplacement,
       "tier4 context cleanup timed out",
     ))
   let disown = () => {}
   try {
-    openingContext = newFreshContext(handle.browser, {
-      proxy: proxyUrl,
-      onCreated: handle.noteTemporaryContext,
-      requestReplacement: handle.requestBrowserReplacement,
-      ignoreHttpsErrors: ignoreCertificateErrors,
-    })
+    openingContext = capture.sessionContext
+      ? Promise.resolve(capture.sessionContext)
+      : newFreshContext(handle.browser, {
+          proxy: proxyUrl,
+          onCreated: handle.noteTemporaryContext,
+          requestReplacement: handle.requestBrowserReplacement,
+          ignoreHttpsErrors: ignoreCertificateErrors,
+        })
     disown = budget.own(close)
     const proxyContext = await openingContext
     state.proxyContext = proxyContext
     budget.check()
 
+    if (capture.cookies?.length) {
+      await proxyContext.clearCookies()
+      await proxyContext.addCookies(normalizeInputCookies(capture.cookies, url))
+    }
+
     const page = await proxyContext.newPage()
+    const storageRestore = capture.sessionStorage?.size
+      ? await restoreSessionStorage(page, capture.sessionStorage)
+      : undefined
     budget.check()
     page.setDefaultTimeout?.(Math.max(1, budget.remaining()))
     await installOutboundPolicy(page, validateOutboundUrl)
@@ -125,6 +137,7 @@ async function runTier4Task(
         timeout: Math.min(maxTimeout, 30_000),
       })
       .catch((e: Error) => e)
+    await storageRestore?.dispose()
 
     if (isHardNetworkFailure(gotoErr)) {
       return { tier: 4, status: "error", durationMs: Date.now() - start, reason: normalizeProxyError(gotoErr) }

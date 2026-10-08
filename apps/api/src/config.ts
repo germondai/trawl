@@ -46,6 +46,8 @@ export const POOL_SIZE = positiveInteger(process.env.BROWSER_POOL_SIZE, 1)
 // Tune lower for fast-fail feedback; tune higher to let a small pool absorb longer browser queues.
 export const ACQUIRE_TIMEOUT_MS = positiveInteger(process.env.BROWSER_ACQUIRE_TIMEOUT_MS, 15_000)
 export const REDIS_SESSION_TTL_SECONDS = positiveInteger(process.env.REDIS_SESSION_TTL_SECONDS, 3_600)
+export const BROWSER_SESSION_MAX_ENTRIES = positiveInteger(process.env.BROWSER_SESSION_MAX_ENTRIES, 4)
+export const BROWSER_SESSION_TTL_SECONDS = positiveInteger(process.env.BROWSER_SESSION_TTL_SECONDS, 3_600)
 export const MEMORY_SESSION_CACHE_MAX_ENTRIES = positiveInteger(process.env.MEMORY_SESSION_CACHE_MAX_ENTRIES, 1_000)
 // A failed initial Redis connection must not disable Tier 2 for the process lifetime.
 // Each attempt is bounded; failed attempts are retried in the background while the API stays ready.

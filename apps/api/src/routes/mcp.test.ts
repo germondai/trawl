@@ -474,3 +474,41 @@ describe("MCP route", () => {
     }
   })
 })
+
+test("MCP forwards a named session for every page tool and rejects invalid IDs", async () => {
+  const received: string[] = []
+  const app = mcpRoute({
+    poolReady: () => true,
+    runScrape: async (input) => {
+      received.push(input.sessionId ?? "missing")
+      return {
+        ...baseResult,
+        screenshot: Buffer.from("owned-jpeg").toString("base64"),
+        consoleLogs: [],
+        networkLogs: [],
+        redirectChain: [],
+      }
+    },
+  })
+  for (const name of ["scrape", "read", "extract", "screenshot", "inspect"]) {
+    const response = await app.handle(
+      rpc("tools/call", {
+        name,
+        arguments: {
+          url: "https://1.1.1.1",
+          sessionId: "account",
+          ...(name === "extract" ? { itemSelector: "html", fields: { text: { selector: "html" } } } : {}),
+        },
+      }),
+    )
+    const body = await response.json()
+    expect(body, `${name}: ${JSON.stringify(body)}`).toHaveProperty("result")
+    expect(body.result.isError).not.toBe(true)
+  }
+  expect(received).toEqual(["account", "account", "account", "account", "account"])
+  const invalid = await app.handle(
+    rpc("tools/call", { name: "read", arguments: { url: "https://1.1.1.1", sessionId: "../invalid" } }),
+  )
+  expect((await invalid.json()).result.isError).toBe(true)
+  expect(received).toHaveLength(5)
+})

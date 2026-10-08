@@ -21,6 +21,7 @@ export const MCP_READ_MAX_CHARS = 100_000
 
 type McpScrapeInput = Pick<
   ScrapeRequest,
+  | "sessionId"
   | "url"
   | "maxTimeout"
   | "maxTier"
@@ -46,6 +47,11 @@ interface McpRouteOptions {
 const tierSchema = z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)])
 const browserTierSchema = z.union([z.literal(2), z.literal(3), z.literal(4)])
 const baseInputShape = {
+  sessionId: z
+    .string()
+    .regex(/^[a-zA-Z0-9_-]{1,128}$/)
+    .optional()
+    .describe("Existing browser session created through POST /sessions"),
   url: z.string().min(1).describe("Public HTTP(S) URL"),
   maxTimeout: z.number().int().positive().optional().describe("Maximum operation time in milliseconds"),
   maxTier: tierSchema.optional().describe("Highest anti-bot tier TRAWL may use"),

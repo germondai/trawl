@@ -9,6 +9,18 @@ export interface Cookie {
   sameSite?: string
 }
 
+export interface InputCookie {
+  name: string
+  value: string
+  domain?: string
+  path?: string
+  expires?: number
+  expiry?: number
+  httpOnly?: boolean
+  secure?: boolean
+  sameSite?: "Strict" | "Lax" | "None"
+}
+
 // CONNECT is intentionally excluded — it's a tunneling verb, not a normal
 // request body, and would let a caller establish arbitrary TCP tunnels.
 // QUERY (RFC 9341) is included — safe verb, body carries the query params.
@@ -22,6 +34,7 @@ export interface ScrapeRequest {
   skipHttp?: boolean
   maxTier?: 1 | 2 | 3 | 4
   sessionId?: string
+  cookies?: InputCookie[]
   headers?: Record<string, string>
   method?: SupportedMethod
   body?: string
@@ -293,8 +306,27 @@ export interface BrowserHandle {
 // into a single URL string before handing off to the orchestrator.
 export type ProxyEndpointInput = string | { url?: string; server?: string; username?: string; password?: string }
 
-export interface FlareSolverrRequest {
+export interface BrowserSession {
+  id: string
+  createdAt: number
+  expiresAt: number
+  busy: boolean
+}
+
+export interface CreateBrowserSession {
+  id?: string
+  proxy?: string
+  headful?: boolean
+  ignoreCertificateErrors?: boolean
+}
+
+export interface FlareSolverrScrapeRequest {
   cmd?: "request.get" | "request.post"
+  session?: string
+  session_ttl_minutes?: number
+  cookies?: InputCookie[]
+  returnOnlyCookies?: boolean
+  returnScreenshot?: boolean
   url: string
   maxTimeout?: number
   postData?: string
@@ -303,6 +335,14 @@ export interface FlareSolverrRequest {
   // Accepts Prowlarr's {url, username, password} object shape OR a plain URL string.
   proxy?: ProxyEndpointInput
 }
+
+export interface FlareSolverrSessionRequest {
+  cmd: "sessions.create" | "sessions.list" | "sessions.destroy"
+  session?: string
+  proxy?: ProxyEndpointInput
+}
+
+export type FlareSolverrRequest = FlareSolverrScrapeRequest | FlareSolverrSessionRequest
 
 export interface FlareSolverrResponse {
   status: "ok" | "error"
@@ -314,7 +354,8 @@ export interface FlareSolverrResponse {
     url: string
     status: number
     headers: Record<string, string>
-    response: string
+    response?: string
+    screenshot?: string
     cookies: Cookie[]
     userAgent: string
   }

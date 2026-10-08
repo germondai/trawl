@@ -1,3 +1,4 @@
+export { BrowserSessions, validateSessionId } from "./browserSessions"
 export type { AcquireOptions, OrchestratorDeps } from "./orchestrator"
 export { ScrapeError, scrape } from "./orchestrator"
 export { type SolveResult, solvePageCaptchas } from "./solvers"
@@ -10,6 +11,7 @@ export { runTier2, type Tier2Result } from "./tiers/2"
 export { runTier3, type Tier3Result } from "./tiers/3"
 export { runTier4, type Tier4Result } from "./tiers/4"
 export { anubisInspectionText } from "./utils/anubis"
+export { normalizeInputCookies } from "./utils/cookies"
 export type { LandingProbe, LandingProbeOptions } from "./utils/crossedLanding"
 export {
   type ChallengeType,

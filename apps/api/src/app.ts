@@ -6,6 +6,7 @@ import { indexRoute } from "./routes/index"
 import { mcpRoute } from "./routes/mcp"
 import { proxyCaRoute } from "./routes/proxy-ca"
 import { scrapeRoute } from "./routes/scrape"
+import { sessionsRoute } from "./routes/sessions"
 import { statsRoute } from "./routes/stats"
 import { v1Route } from "./routes/v1"
 
@@ -17,6 +18,7 @@ export function createApiApp({ mcpEnabled = MCP_ENABLED }: { mcpEnabled?: boolea
     .use(dashboardRoute())
     .use(v1Route())
     .use(scrapeRoute())
+    .use(sessionsRoute())
     .use(proxyCaRoute())
 
   if (mcpEnabled) app.use(mcpRoute())
