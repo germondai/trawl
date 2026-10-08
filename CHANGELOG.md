@@ -34,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Name the real cause instead of `failed (success)` in Tier 3/4 failure messages.
+
 - Solve visible CAP widgets sequentially within one request budget and require a response for every visible widget before reporting completion.
 
 - Route embedded Turnstile and other CAPTCHA widgets to their token solvers instead of waiting for their iframe to disappear as a Cloudflare interstitial. Reuse the existing shadow-DOM click path without keyboard fallback or token previews.
