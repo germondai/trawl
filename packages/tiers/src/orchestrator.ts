@@ -99,6 +99,15 @@ const extractDomain = (url: string): string => {
 const hasUsablePayload = (result: { status: TierResult["status"]; html?: string; body?: Uint8Array }): boolean =>
   result.status === "success" && (result.body !== undefined || Boolean(result.html))
 
+// Why a tier that did not return a page failed. A refused crossing takes precedence; a
+// "success" status without a usable payload is named as such, so a failure message never
+// reads "failed (success)".
+const failureReason = (result: TierResult, crossedHost?: string): string => {
+  if (crossedHost) return `crossed-landing on ${crossedHost}`
+  if (result.reason) return result.reason
+  return result.status === "success" ? "success-without-payload" : result.status
+}
+
 export async function scrape(
   req: ScrapeRequest,
   deps: OrchestratorDeps,
@@ -654,7 +663,7 @@ async function scrapeWithinBudget(
           mhtml: t3.mhtml,
         }
       }
-      tier3Failure = t3.reason ?? t3.status
+      tier3Failure = failureReason(t3, crossed3)
     }
 
     if (maxTier < 4) {
@@ -757,7 +766,7 @@ async function scrapeWithinBudget(
       }
     }
 
-    throw failure(`All tiers exhausted. Last failure: ${t4.reason ?? t4.status}`)
+    throw failure(`All tiers exhausted. Last failure: ${failureReason(t4, crossed4)}`)
   } finally {
     if (!handleReleased) deps.releaseBrowser(handle)
   }
