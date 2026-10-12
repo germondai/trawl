@@ -1,9 +1,44 @@
 import { describe, expect, test } from "bun:test"
 import { gzipSync } from "node:zlib"
 import { runTier1 } from "../src/tiers/1"
-import { tlsFetch, verifyTlsTransport } from "../src/utils/tlsTransport"
+import {
+  selectLatestFirefoxProfile,
+  TIER1_USER_AGENT,
+  TLS_PROFILE,
+  tlsFetch,
+  verifyTlsTransport,
+} from "../src/utils/tlsTransport"
 
 describe("native TLS transport", () => {
+  test("selects the latest numbered Firefox profile regardless of catalogue order", () => {
+    expect(
+      selectLatestFirefoxProfile([
+        "chrome_999",
+        "firefox_99",
+        "firefox_150",
+        "firefox_148",
+        "firefox_151_beta",
+        "firefox_149_android",
+      ]),
+    ).toBe("firefox_150")
+  })
+
+  test("fails explicitly when no numbered Firefox profile is available", () => {
+    expect(() => selectLatestFirefoxProfile([])).toThrow("No supported Firefox TLS profile")
+    expect(() => selectLatestFirefoxProfile(["chrome_999", "firefox_150_beta"])).toThrow(
+      "No supported Firefox TLS profile",
+    )
+  })
+
+  test("keeps the User-Agent aligned with the selected native profile", async () => {
+    const { getProfiles } = await import("node-wreq")
+    expect(TLS_PROFILE).toBe(selectLatestFirefoxProfile(getProfiles()))
+    const version = TLS_PROFILE.slice("firefox_".length)
+    expect(TIER1_USER_AGENT).toBe(
+      `Mozilla/5.0 (X11; Linux x86_64; rv:${version}.0) Gecko/20100101 Firefox/${version}.0`,
+    )
+  })
+
   test("loads the native transport at startup", async () => {
     await verifyTlsTransport()
   })

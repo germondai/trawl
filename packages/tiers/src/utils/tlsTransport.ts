@@ -1,12 +1,31 @@
-export const TIER1_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:148.0) Gecko/20100101 Firefox/148.0"
-export const TLS_PROFILE = "firefox_148"
+import { BROWSER_PROFILES, createClient, getProfiles } from "node-wreq"
 
-let client: Promise<ReturnType<typeof import("node-wreq").createClient>> | undefined
+export function selectLatestFirefoxProfile<Profile extends string>(profiles: readonly Profile[]): Profile {
+  let latest: Profile | undefined
+  let latestVersion = -1
+  for (const profile of profiles) {
+    const match = /^firefox_(\d+)$/.exec(profile)
+    if (!match) continue
+    const version = Number(match[1])
+    if (version > latestVersion) {
+      latest = profile
+      latestVersion = version
+    }
+  }
+  if (!latest) throw new Error("No supported Firefox TLS profile available")
+  return latest
+}
+
+export const TLS_PROFILE = selectLatestFirefoxProfile(BROWSER_PROFILES)
+const firefoxVersion = TLS_PROFILE.slice("firefox_".length)
+export const TIER1_USER_AGENT = `Mozilla/5.0 (X11; Linux x86_64; rv:${firefoxVersion}.0) Gecko/20100101 Firefox/${firefoxVersion}.0`
+
+let client: ReturnType<typeof createClient> | undefined
 
 function getClient() {
-  client ??= import("node-wreq").then(({ createClient, getProfiles }) => {
+  if (!client) {
     if (!getProfiles().includes(TLS_PROFILE)) throw new Error(`TLS profile unavailable: ${TLS_PROFILE}`)
-    return createClient({
+    client = createClient({
       browser: TLS_PROFILE,
       disableDefaultHeaders: true,
       compress: false,
@@ -14,7 +33,7 @@ function getClient() {
       retry: 0,
       proxy: false,
     })
-  })
+  }
   return client
 }
 

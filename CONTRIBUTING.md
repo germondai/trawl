@@ -50,14 +50,16 @@ bun run verify      # full release gate: check, types, tests, and builds
 
 CI runs `bun run verify` on every PR.
 
-Tier 1 uses the pinned `node-wreq` native addon with the explicit `firefox_148`
-profile. `bun install` installs the platform-specific binary; optional native
-dependencies must not be omitted. No Go toolchain or helper build is needed.
-API startup loads the native binding and checks the profile when Tier 1 is enabled.
-Update the package and browser profile together, retaining matching navigation
-headers and running the transport, proxy, certificate and encoded-body tests.
+Tier 1 uses the pinned `node-wreq` native addon. At module initialization, it
+selects the highest numbered `firefox_<version>` profile in the installed
+package's catalogue and derives the matching User-Agent. This selects Firefox
+148 with `node-wreq` 3.2.1; it does not query Mozilla or download newer profiles.
+`bun install` installs the platform-specific binary; optional native dependencies
+must not be omitted. API startup loads the native binding and checks the selected
+profile when Tier 1 is enabled. Package upgrades can change that selection, so run
+the transport, proxy, certificate and encoded-body tests when updating the pin.
 
-The published images target Linux AMD64 and ARM64 (glibc).
+The native transport is tested in Linux AMD64 and ARM64 (glibc) images.
 
 ### Browser integration tests
 

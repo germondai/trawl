@@ -28,10 +28,14 @@ Tier 4: Residential Proxy ─── success ──→ cache cookies, return (15�
 
 ## Tier 1 — Plain HTTP Fetch
 
-The cheapest tier. Uses the pinned `node-wreq` 3.2.1 native addon
-and its `firefox_148` TLS/HTTP2 profile. Navigation headers use the corresponding
-Firefox user-agent; this is not an exact match to the separately pinned Camoufox
-browser.
+The cheapest tier. Uses the pinned `node-wreq` native addon for Firefox TLS/HTTP2
+impersonation instead of Bun's native `fetch()`. At module initialization, it
+selects the highest numbered `firefox_<version>` profile in the installed
+package's catalogue and derives the corresponding Firefox User-Agent. This is
+not an exact match to the separately pinned Camoufox browser.
+
+With `node-wreq` 3.2.1, the selected profile is `firefox_148` and the navigation
+headers are:
 
 ```
 User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:148.0) Gecko/20100101 Firefox/148.0
@@ -60,14 +64,17 @@ TLS trust settings. There is no shared cookie jar; browser sessions are not
 injected into static requests. MITM direct forwarding preserves caller cookies,
 but escalation into the scraper applies its stricter header sanitizer.
 
-Clawk enforces a deadline across headers and body reads. Cancellation ends the
+TRAWL enforces a deadline across headers and body reads. Cancellation ends the
 caller-facing read immediately; a cancelled native body can retain resources
 until its original request deadline. Concurrent cancellation tests check that
 these requests drain within their deadline and do not block healthy requests.
 
 There is no build-time fingerprint API or generated Camoufox profile. Docker
 images include the platform-specific native addon installed by `bun install`.
-The profile is explicit and updated with the pinned package, not selected at runtime.
+Selection uses only the installed package, with no runtime update checks or
+profile downloads. Upgrading the pinned dependency can advance the selected
+profile and User-Agent together. API startup validates the selected profile
+against the native binding when Tier 1 is enabled.
 The MITM listener's separate Tier 0 forwarder is unchanged. Use the existing
 `MITM_ALWAYS_SCRAPE=true` setting to bypass that forwarder when using the proxy;
 native `/scrape` already starts at Tier 1.
