@@ -7,9 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Replace Tier 1's Bun `fetch()` transport with the pinned `node-wreq` native addon for Firefox TLS/HTTP2 impersonation. Select the newest numbered Firefox profile supported by the installed package and derive its matching User-Agent. Reuse native connections while preserving encoded response bytes, scoped CA trust, proxy and certificate policy, redirect validation, and early challenge detection. Enforce caller deadlines and test timeout-bounded native cleanup under concurrent cancellation. Tier 0 and browser-tier implementations are unchanged.
+
 ## [1.8.0] - 2026-10-08
 
 ### Changed
+
 - Update MCP SDK to 1.32.1, Nuxt to 4.6.0, Biome to 2.5.15, camoufox-js to 0.12.1 and compatible Playwright to 1.62.1. Refresh transitive dependencies and use TypeScript 6.0.3 for Vue typechecking.
 - Build web and docs images from the monorepo lockfile and install only their target workspaces.
 - Share fresh and proxy browser execution, final wall checks, capture handling and browser result types across tiers (#209).

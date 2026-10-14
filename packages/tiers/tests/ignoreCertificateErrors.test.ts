@@ -106,8 +106,9 @@ describe.skipIf(!opensslPath)("ignoreCertificateErrors", () => {
     const result = await runTier1(baseUrl)
 
     expect(result.status).toBe("error")
-    expect(result.reason).toMatch(/self[- ]signed certificate/i)
-    await expect(scrape({ url: baseUrl, maxTier: 1 }, noBrowserDeps)).rejects.toThrow()
+    expect(result.reason).toContain("CERTIFICATE_VERIFY_FAILED")
+    const error = await scrape({ url: baseUrl, maxTier: 1 }, noBrowserDeps).catch((error: unknown) => error)
+    expect(error).toBeInstanceOf(Error)
   })
 
   test("the opted-in request loads the page and reports why the certificate was rejected", async () => {
@@ -115,7 +116,7 @@ describe.skipIf(!opensslPath)("ignoreCertificateErrors", () => {
 
     expect(result.status).toBe("success")
     expect(result.html).toContain("content behind an untrusted certificate")
-    expect(result.certificateError).toContain("DEPTH_ZERO_SELF_SIGNED_CERT")
+    expect(result.certificateError).toContain("CERTIFICATE_VERIFY_FAILED")
   })
 
   test("the orchestrator returns the page with the certificate failure attached", async () => {
@@ -123,7 +124,7 @@ describe.skipIf(!opensslPath)("ignoreCertificateErrors", () => {
 
     expect(result.html).toContain("content behind an untrusted certificate")
     expect(result.statusCode).toBe(200)
-    expect(result.certificateError).toContain("DEPTH_ZERO_SELF_SIGNED_CERT")
+    expect(result.certificateError).toContain("CERTIFICATE_VERIFY_FAILED")
   })
 
   test("the insecure retry preserves encoded representation bytes", async () => {
@@ -140,7 +141,7 @@ describe.skipIf(!opensslPath)("ignoreCertificateErrors", () => {
 
     const strict = await runTier1(baseUrl)
     expect(strict.status).toBe("error")
-    expect(strict.certificateError).toContain("DEPTH_ZERO_SELF_SIGNED_CERT")
+    expect(strict.certificateError).toContain("CERTIFICATE_VERIFY_FAILED")
     const result = await scrape({ url: baseUrl, maxTier: 1 }, noBrowserDeps)
       .then(() => "resolved")
       .catch(() => "rejected")
@@ -196,7 +197,7 @@ describe.skipIf(!opensslPath)("ignoreCertificateErrors", () => {
       )
 
       expect(result.status).toBe("success")
-      expect(result.certificateError).toContain("DEPTH_ZERO_SELF_SIGNED_CERT")
+      expect(result.certificateError).toContain("CERTIFICATE_VERIFY_FAILED")
       expect(originalPosts).toBe(1)
       expect(tlsRequests).toEqual([{ method: "POST", path: "/redirect-target" }])
     } finally {

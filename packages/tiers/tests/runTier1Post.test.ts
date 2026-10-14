@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { scrape } from "../src/orchestrator"
 import { runTier1 } from "../src/tiers/1"
+import { tier1Transport } from "../src/utils/tlsTransport"
 
 interface RecordedCall {
   url: string
@@ -17,15 +18,15 @@ const installFetchMock = (
     })
   },
 ) => {
-  const originalFetch = globalThis.fetch
-  ;(globalThis as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const originalFetch = tier1Transport.fetch
+  tier1Transport.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
     const call: RecordedCall = { url, init }
     recorded.push(call)
     return responder(call)
   }) as typeof fetch
   return () => {
-    ;(globalThis as { fetch: typeof fetch }).fetch = originalFetch
+    tier1Transport.fetch = originalFetch
   }
 }
 
@@ -61,7 +62,7 @@ describe("runTier1 — POST support", () => {
     }
   })
 
-  test("passes an explicit HTTP proxy to Bun fetch", async () => {
+  test("passes an explicit HTTP proxy to the TLS transport", async () => {
     const restore = installFetchMock()
     try {
       const result = await runTier1("https://target.example/x", undefined, undefined, undefined, "http://proxy:8080")

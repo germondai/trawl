@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test"
 import type { BrowserHandle } from "@trawl/browser"
 import type { AcquireOptions, OrchestratorDeps } from "../src/orchestrator"
 import { scrape } from "../src/orchestrator"
+import { tier1Transport } from "../src/utils/tlsTransport"
 import { DATADOME_INTERSTITIAL } from "./fixtures/datadome"
 
 const server = Bun.serve({
@@ -157,10 +158,10 @@ describe("headful pool routing", () => {
   })
 
   test("preserves an explicit HTTPS proxy after Tier 1 detects DataDome", async () => {
-    const originalFetch = globalThis.fetch
+    const originalFetch = tier1Transport.fetch
     const proxies: Array<string | undefined> = []
     const fetchProxies: Array<string | undefined> = []
-    globalThis.fetch = (async (_input, init) => {
+    tier1Transport.fetch = (async (_input, init) => {
       fetchProxies.push((init as (RequestInit & { proxy?: string }) | undefined)?.proxy)
       return new Response(DATADOME_INTERSTITIAL, {
         status: 403,
@@ -185,7 +186,7 @@ describe("headful pool routing", () => {
       expect(fetchProxies).toEqual(["https://proxy.test:8443"])
       expect(proxies).toEqual(["https://proxy.test:8443"])
     } finally {
-      globalThis.fetch = originalFetch
+      tier1Transport.fetch = originalFetch
     }
   })
 

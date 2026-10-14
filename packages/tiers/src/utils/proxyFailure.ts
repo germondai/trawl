@@ -17,7 +17,9 @@ export function proxyResponseFailure(
 
 export function normalizeProxyError(err: unknown): "proxy-authentication-failed" | "proxy-connection-failed" {
   const message = err instanceof Error ? err.message : String(err)
-  return /407|proxy authentication/i.test(message) ? "proxy-authentication-failed" : "proxy-connection-failed"
+  return /407|proxy authentication|proxy authorization required/i.test(message)
+    ? "proxy-authentication-failed"
+    : "proxy-connection-failed"
 }
 
 export function isProxyTransportFailure(err: unknown): boolean {

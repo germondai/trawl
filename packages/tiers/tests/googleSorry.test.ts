@@ -4,6 +4,7 @@ import { runTier1 } from "../src/tiers/1"
 import { runTier2 } from "../src/tiers/2"
 import { runTier3 } from "../src/tiers/3"
 import { runTier4 } from "../src/tiers/4"
+import { tier1Transport } from "../src/utils/tlsTransport"
 
 const html = `<html><body>${"Page content. ".repeat(20)}</body></html>`
 const searchUrl = "https://www.google.com/search?q=trawl"
@@ -11,16 +12,16 @@ const sorryUrl = "https://www.google.com/sorry/index?continue=%2Fsearch"
 
 describe("Google sorry final response", () => {
   test.each([sorryUrl, searchUrl])("Tier 1 classifies the final URL %s", async (finalUrl) => {
-    const originalFetch = globalThis.fetch
+    const originalFetch = tier1Transport.fetch
     const response = new Response(html, { headers: { "content-type": "text/html" } })
     Object.defineProperty(response, "url", { value: finalUrl })
-    globalThis.fetch = (async () => response) as unknown as typeof fetch
+    tier1Transport.fetch = async () => response
     try {
       const result = await runTier1(searchUrl)
       expect(result.status).toBe(finalUrl === sorryUrl ? "needs-js" : "success")
       if (finalUrl === sorryUrl) expect(result.reason).toBe("google-sorry-challenge")
     } finally {
-      globalThis.fetch = originalFetch
+      tier1Transport.fetch = originalFetch
     }
   })
 

@@ -28,10 +28,14 @@ Tier 4: Residential Proxy ─── success ──→ cache cookies, return (15�
 
 ## Tier 1 — Plain HTTP Fetch
 
-The cheapest tier. Uses Bun's native `fetch()` with the same Firefox navigation header set the Camoufox browser tiers send:
+The cheapest tier. Uses the pinned `node-wreq` native addon for Firefox TLS/HTTP2
+impersonation, it
+selects the highest numbered `firefox_<version>` profile in the installed
+package's catalogue and derives the corresponding Firefox User-Agent. This is
+not an exact match to the separately pinned Camoufox browser.
 
-```
-User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0
+```text
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:<version>.0) Gecko/20100101 Firefox/<version>.0
 Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
 Accept-Language: en-US,en;q=0.9
 Accept-Encoding: gzip, deflate, br, zstd
@@ -49,6 +53,28 @@ Priority: u=0, i
 
 **Skip with:** `skipHttp: true` in the request body, or deployment-wide `SCRAPE_MIN_TIER=2`.
 Use `maxTier: 1` to cap execution at Tier 1 instead.
+
+The adapter returns headers before streaming the encoded response bytes. Tier 1
+retains redirect validation, certificate policy and challenge detection. Native
+connection pools are separated by transport configuration, including proxy and
+TLS trust settings. There is no shared cookie jar; browser sessions are not
+injected into static requests. MITM direct forwarding preserves caller cookies,
+but escalation into the scraper applies its stricter header sanitizer.
+
+TRAWL enforces a deadline across headers and body reads. Cancellation ends the
+caller-facing read immediately; a cancelled native body can retain resources
+until its original request deadline. Concurrent cancellation tests check that
+these requests drain within their deadline and do not block healthy requests.
+
+There is no build-time fingerprint API or generated Camoufox profile. Docker
+images include the platform-specific native addon installed by `bun install`.
+Selection uses only the installed package, with no runtime update checks or
+profile downloads. Upgrading the pinned dependency can advance the selected
+profile and User-Agent together. API startup validates the selected profile
+against the native binding when Tier 1 is enabled.
+The MITM listener's separate Tier 0 forwarder is unchanged. Use the existing
+`MITM_ALWAYS_SCRAPE=true` setting to bypass that forwarder when using the proxy;
+native `/scrape` already starts at Tier 1.
 
 ## Tier 2 — Cached Browser Session
 

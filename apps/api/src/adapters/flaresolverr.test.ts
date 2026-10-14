@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { routeContinueOverrides, runTier1 } from "@trawl/tiers"
 import type { FlareSolverrRequest } from "@trawl/types"
+import { tier1Transport } from "../../../../packages/tiers/src/utils/tlsTransport"
 import { buildScrapeRequestFromFlareSolverr } from "./flaresolverr"
 
 const PROWLARR_2_5_2_REQUEST: FlareSolverrRequest = {
@@ -14,10 +15,10 @@ const PROWLARR_2_5_2_REQUEST: FlareSolverrRequest = {
   },
 }
 
-const originalFetch = globalThis.fetch
+const originalFetch = tier1Transport.fetch
 
 afterEach(() => {
-  ;(globalThis as { fetch: typeof fetch }).fetch = originalFetch
+  tier1Transport.fetch = originalFetch
 })
 
 describe("FlareSolverr request adapter", () => {
@@ -65,7 +66,7 @@ describe("FlareSolverr request adapter", () => {
   test("passes the normalized body and header through Tier 1 and browser route overrides", async () => {
     const request = buildScrapeRequestFromFlareSolverr(PROWLARR_2_5_2_REQUEST)
     let tier1Init: RequestInit | undefined
-    ;(globalThis as { fetch: typeof fetch }).fetch = (async (_input, init) => {
+    tier1Transport.fetch = (async (_input, init) => {
       tier1Init = init
       return new Response("<html>ok</html>", { status: 200, headers: { "content-type": "text/html" } })
     }) as typeof fetch

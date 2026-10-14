@@ -1,10 +1,12 @@
-export function installFetchMock(responder: (...args: Parameters<typeof fetch>) => Response | Promise<Response>) {
-  const original = globalThis.fetch
-  globalThis.fetch = Object.assign(async (...args: Parameters<typeof fetch>) => responder(...args), {
-    preconnect: original.preconnect,
-  })
+import { tier1Transport } from "../../src/utils/tlsTransport"
+
+export function installFetchMock(
+  responder: (...args: Parameters<typeof tier1Transport.fetch>) => Response | Promise<Response>,
+) {
+  const original = tier1Transport.fetch
+  tier1Transport.fetch = async (...args) => responder(...args)
   return () => {
-    globalThis.fetch = original
+    tier1Transport.fetch = original
   }
 }
 

@@ -26,6 +26,9 @@ bun install
 cp .env.example .env
 ```
 
+Do not omit optional dependencies when running `bun install`: Tier 1 requires
+the platform-specific `node-wreq` native binary.
+
 ### Running the apps
 
 ```bash

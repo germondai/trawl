@@ -10,6 +10,7 @@
   "dependencies": {
     "@trawl/types": "workspace:*",
     "@trawl/browser": "workspace:*",
+    "node-wreq": "3.2.1",
     "linkedom": "^0.18.13"
   },
   "devDependencies": {

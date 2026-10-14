@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { BrowserHandle } from "@trawl/browser"
 import { type OrchestratorDeps, ScrapeError, scrape } from "../src/orchestrator"
+import { tier1Transport } from "../src/utils/tlsTransport"
 
 function unusedBrowserDeps(overrides: Partial<OrchestratorDeps> = {}): OrchestratorDeps {
   return {
@@ -51,9 +52,9 @@ describe("explicit proxy routing", () => {
   })
 
   test("never invokes direct Tier 1 for an explicit SOCKS proxy", async () => {
-    const originalFetch = globalThis.fetch
+    const originalFetch = tier1Transport.fetch
     let fetchCalls = 0
-    globalThis.fetch = (async () => {
+    tier1Transport.fetch = (async () => {
       fetchCalls++
       throw new Error("direct fetch must not run")
     }) as unknown as typeof fetch
@@ -66,7 +67,7 @@ describe("explicit proxy routing", () => {
       ).rejects.toBeInstanceOf(ScrapeError)
       expect(fetchCalls).toBe(0)
     } finally {
-      globalThis.fetch = originalFetch
+      tier1Transport.fetch = originalFetch
     }
   })
 

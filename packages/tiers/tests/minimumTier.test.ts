@@ -2,11 +2,12 @@ import { afterEach, describe, expect, test } from "bun:test"
 import type { BrowserHandle } from "@trawl/browser"
 import type { SessionData } from "@trawl/types"
 import { type OrchestratorDeps, ScrapeError, scrape } from "../src/orchestrator"
+import { tier1Transport } from "../src/utils/tlsTransport"
 
-const originalFetch = globalThis.fetch
+const originalFetch = tier1Transport.fetch
 
 afterEach(() => {
-  ;(globalThis as { fetch: typeof fetch }).fetch = originalFetch
+  tier1Transport.fetch = originalFetch
 })
 
 const browserHandle = (): BrowserHandle => ({
@@ -53,8 +54,8 @@ describe("deployment-wide minimum tier", () => {
   test("keeps the default Tier 1 fast path for an unrecognized HTTP 200 challenge", async () => {
     const events: string[] = []
     const challenge = "<html><title>Please verify</title><body>vendor-x browser verification required</body></html>"
-    ;(globalThis as { fetch: typeof fetch }).fetch = (async () =>
-      new Response(challenge, { status: 200, headers: { "content-type": "text/html" } })) as unknown as typeof fetch
+    tier1Transport.fetch = async () =>
+      new Response(challenge, { status: 200, headers: { "content-type": "text/html" } })
 
     const result = await scrape({ url: "https://example.test" }, dependencies(undefined, events))
 
@@ -65,7 +66,7 @@ describe("deployment-wide minimum tier", () => {
 
   test("Tier 2 floor skips plain HTTP and starts with a cached browser session", async () => {
     const events: string[] = []
-    ;(globalThis as { fetch: typeof fetch }).fetch = (async () => {
+    tier1Transport.fetch = (async () => {
       events.push("fetch")
       throw new Error("Tier 1 must be skipped")
     }) as unknown as typeof fetch

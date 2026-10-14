@@ -100,6 +100,71 @@ describe("public tier attempt metadata", () => {
   })
 })
 
+describe("static and browser session boundaries", () => {
+  test("does not transfer response cookies into browser requests or cached cookies into Tier 1", async () => {
+    const deps = dependencies(1, [])
+    let saved: Parameters<typeof deps.saveSession>[1] | undefined
+    deps.loadSession = async () => saved
+    deps.saveSession = async (_domain, session) => {
+      saved = session
+    }
+    const staticHeaders: Array<Record<string, string> | undefined> = []
+    const browserCookie = {
+      name: "browser",
+      value: "only",
+      domain: "example.test",
+      path: "/",
+      expires: -1,
+      httpOnly: true,
+      secure: true,
+      sameSite: "Lax" as const,
+    }
+    const overrides = {
+      tier1: async (_url: string, headers?: Record<string, string>) => {
+        staticHeaders.push(headers)
+        return {
+          tier: 1 as const,
+          status: "needs-js" as const,
+          durationMs: 1,
+          responseHeaders: { "set-cookie": "static=only" },
+          effectiveUrl: "https://other.test/",
+        }
+      },
+      tier3: async (
+        url: string,
+        _handle: unknown,
+        _budget: number,
+        _proxy?: string,
+        headers?: Record<string, string>,
+      ) => {
+        expect(url).toBe("https://example.test")
+        expect(headers).toEqual({ "X-Request": "original" })
+        return {
+          tier: 3 as const,
+          status: "success" as const,
+          durationMs: 1,
+          html: "browser",
+          cookies: [browserCookie],
+          userAgent: "browser-agent",
+        }
+      },
+      tier2: async (_url: string, _handle: unknown, session: NonNullable<typeof saved>) => {
+        expect(session.cookies).toEqual([browserCookie])
+        expect(session.userAgent).toBe("browser-agent")
+        return { tier: 2 as const, status: "success" as const, durationMs: 1, html: "cached" }
+      },
+    }
+    const request = { url: "https://example.test", maxTier: 3 as const, headers: { "X-Request": "original" } }
+    expect((await scrape(request, deps, overrides)).tier).toBe(3)
+    expect((await scrape(request, deps, overrides)).tier).toBe(2)
+    expect(staticHeaders).toHaveLength(2)
+    for (const headers of staticHeaders) {
+      expect(Object.keys(headers ?? {}).map((name) => name.toLowerCase())).not.toContain("cookie")
+      expect(headers?.["User-Agent"]).not.toBe("browser-agent")
+    }
+  })
+})
+
 describe("Anubis browser crash recovery", () => {
   for (const tier of [3, 4] as const) {
     test(`Tier ${tier} retries one closed page with the same routing and remaining budget`, async () => {

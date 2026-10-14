@@ -12,6 +12,7 @@ const CERTIFICATE_ERROR_CODES = new Set([
   "CERT_REVOKED",
   "CERT_SIGNATURE_FAILURE",
   "CERT_UNTRUSTED",
+  "CERTIFICATE_VERIFY_FAILED",
   "DEPTH_ZERO_SELF_SIGNED_CERT",
   "ERR_TLS_CERT_ALTNAME_INVALID",
   "HOSTNAME_MISMATCH",
@@ -24,7 +25,7 @@ const CERTIFICATE_ERROR_CODES = new Set([
 // Fallback for runtimes that drop the code but keep OpenSSL's wording. Deliberately
 // narrow: each alternative is a phrase only a certificate failure produces.
 const CERTIFICATE_ERROR_MESSAGES =
-  /self[- ]signed certificate|certificate has expired|certificate is not yet valid|unable to verify the first certificate|unable to get local issuer certificate|does not match certificate|altnames/i
+  /self[- ]signed certificate|certificate has expired|certificate is not yet valid|unable to verify the first certificate|unable to get local issuer certificate|does not match certificate|altnames|\[CERTIFICATE_VERIFY_FAILED\]/i
 
 const MAX_CAUSE_DEPTH = 4
 

@@ -1,5 +1,5 @@
 import type { BrowserHandle } from "@trawl/browser"
-import { FINGERPRINT, FINGERPRINT_POOL, PoolExhaustedError } from "@trawl/browser"
+import { FINGERPRINT, PoolExhaustedError } from "@trawl/browser"
 import type { BlockedEvidence, Cookie, ScrapeRequest, ScrapeResult, SessionData, TierResult } from "@trawl/types"
 import type { BrowserSessions } from "./browserSessions"
 import { type ExternalCaptchaOptions, ExternalCaptchaSession } from "./solvers/externalCaptcha"
@@ -17,6 +17,7 @@ import { metaRefreshTarget } from "./utils/metaRefresh"
 import type { ProxyPool } from "./utils/proxyRotator"
 import { isHtmlContentType } from "./utils/response"
 import { RequestValidationError, requireContentTypeForBody, sanitizeHeaders } from "./utils/sanitize"
+import { TIER1_USER_AGENT } from "./utils/tlsTransport"
 
 // Bounds how many distinct proxies a single request will try per tier before giving up -
 // keeps a long proxy list from blowing the request's maxTimeout budget.
@@ -383,7 +384,7 @@ async function scrapeWithinBudget(
   if (minTier <= 1 && !skipTier1ForProxy && maxTier >= 1) {
     // Tier 1 has no browser handle, so select its identity up front and use the
     // same UA for both the outbound request and the public result.
-    const tier1Fingerprint = FINGERPRINT_POOL[Math.floor(Math.random() * FINGERPRINT_POOL.length)] ?? FINGERPRINT
+    const tier1Fingerprint = { userAgent: TIER1_USER_AGENT }
     const tier1Runner = runners.tier1 ?? runTier1
     const t1 = await tier1Runner(
       req.url,
@@ -395,6 +396,7 @@ async function scrapeWithinBudget(
       ignoreCertificateErrors,
       trustedProxyCa,
       budget.signal,
+      budget.remaining(),
     )
     if (req.followMetaRefresh && t1.status === "success" && t1.html && isHtmlContentType(t1.contentType)) {
       const refresh = await metaRefreshTarget(t1.html, t1.effectiveUrl ?? req.url)
