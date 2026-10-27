@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Add opt-in `BROWSER_COLD_BOOT` to skip browser launches at startup. The first browser-backed request launches the pool on demand through the existing idle-retirement wake path, while `/health` stays ready (#256).
+
 ### Fixed
 - Mark generated MITM proxy failures with `Proxy-Status` so nested `/scrape` and `/v1` requests report a proxy error instead of accepting a timeout response as scraped content. Preserve origin error responses and document the proxy's independent deadline (#254).
 

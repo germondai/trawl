@@ -300,6 +300,16 @@ Retire an unused browser after this many milliseconds. The next browser-backed r
 BROWSER_IDLE_TIMEOUT_MS=300000 # optional: retire after five minutes idle
 ```
 
+### `BROWSER_COLD_BOOT`
+
+**Default:** `false`
+
+Skip browser launches during startup. The first browser-backed request launches the pool on demand; ordinary HTTP scraping and health checks stay available immediately.
+
+```dotenv
+BROWSER_COLD_BOOT=true # launch Firefox only when a browser-backed request arrives
+```
+
 ### `BROWSER_BLOCK_ADS`
 
 **Default:** `true`
@@ -348,7 +358,8 @@ it on would move the memory ceiling of deployments that never meet DataDome. Acc
 in `mem_limit` before enabling.
 
 When enabled, the sub-pool is warmed during API startup. A launch failure therefore fails
-startup instead of delaying an individual scrape.
+startup instead of delaying an individual scrape. With `BROWSER_COLD_BOOT=true`, the sub-pool
+is registered cold and launches on the first DataDome escalation instead.
 Readiness at `/health` reports the main pool only; the sub-pool appears under `headful` at
 `/stats`, and reads `null` while disabled.
 

@@ -79,7 +79,7 @@ Full system health check. Used by Docker Compose health checks and monitoring sy
 | `memory.oomEvents`             | number  | OOM events reported by the cgroup                              |
 | `memory.oomKills`              | number  | OOM kills reported by the cgroup                               |
 
-`/health` returns HTTP 503 while the pool is warming up or has no live browser capacity. A saturated but healthy pool remains ready because active, connected requests still count as live.
+`/health` returns HTTP 503 while the pool is warming up or has no browser capacity. A saturated but healthy pool remains ready because active, connected requests still count as live.
 The optional `memory` object is included when Linux cgroup memory data is available; its presence does not affect readiness.
 
 ### Curl

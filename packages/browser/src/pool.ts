@@ -107,6 +107,7 @@ export class BrowserPool {
   private browserFactory?: BrowserFactory
   private userPrefs: Record<string, string | number | boolean>
   private idleTimeoutMs: number
+  private coldBoot: boolean
   private healthInterval?: ReturnType<typeof setInterval>
   private abandonedLaunches = 0
   private maxAbandonedLaunches: number
@@ -136,6 +137,7 @@ export class BrowserPool {
     launchTimeoutMs = LAUNCH_TIMEOUT_MS,
     healthIntervalMs = 30_000,
     idleTimeoutMs = 0,
+    coldBoot = false,
     maxAbandonedLaunches = 3,
     browserFactory,
     userPrefs = {},
@@ -157,6 +159,7 @@ export class BrowserPool {
     launchTimeoutMs?: number
     healthIntervalMs?: number
     idleTimeoutMs?: number
+    coldBoot?: boolean
     maxAbandonedLaunches?: number
     browserFactory?: BrowserFactory
     userPrefs?: Record<string, string | number | boolean>
@@ -186,6 +189,7 @@ export class BrowserPool {
       throw new Error("idleTimeoutMs must be a non-negative integer")
     this.idleTimeoutMs = idleTimeoutMs
     this.healthIntervalMs = idleTimeoutMs > 0 ? Math.min(healthIntervalMs, idleTimeoutMs) : healthIntervalMs
+    this.coldBoot = coldBoot
     this.maxAbandonedLaunches = maxAbandonedLaunches
     this.browserFactory = browserFactory
     this.userPrefs = userPrefs
@@ -210,6 +214,23 @@ export class BrowserPool {
       // navigator.platform, locale, timezone, and the HTTP UA the orchestrator sends.
       // Shuffled pool (not sequential) so 4 browsers don't all get the same fingerprint.
       const fingerprint = FINGERPRINT_POOL[i % FINGERPRINT_POOL.length]
+      if (this.coldBoot) {
+        // Register sleeping capacity without launching. The first acquire launches
+        // this entry alone so Camoufox's shared addon setup cannot race siblings.
+        this.entries.push({
+          id: i,
+          busy: false,
+          lease: 0,
+          restartCount: 0,
+          healthy: true,
+          sleeping: true,
+          temporaryContextUses: 0,
+          lastUsedAt: Date.now(),
+          fingerprint,
+        })
+        this.wakeAcquires()
+        return
+      }
       // Bounded like every other launch: an unbounded hang here leaves init() pending
       // forever with the HTTP listener already up, so the pod never becomes ready and
       // never fails either. Throwing lets the startup probe restart the container.
@@ -234,7 +255,7 @@ export class BrowserPool {
 
     // Camoufox performs one-time shared addon setup during its first launch; racing
     // that setup can expose a half-extracted addon to sibling launches. Publish the
-    // first browser immediately, then warm the remaining capacity concurrently.
+    // first entry immediately, then warm the remaining capacity concurrently.
     try {
       await launch(0)
     } catch (error) {
@@ -430,7 +451,10 @@ export class BrowserPool {
         }
         // Never hand out a disconnected browser between health checks. Restart an
         // idle dead entry now; busy leases are reclaimed by the health check.
+        // Keep the first cold launch alone so Camoufox's shared addon setup cannot race.
+        const firstColdLaunch = this.coldBoot && !this.entries.some((entry) => entry.restartCount > 0)
         for (const entry of this.entries) {
+          if (firstColdLaunch && entry.id !== 0) continue
           if (!entry.busy && !entry.restarting && !entry.cleaning && !this.isUsable(entry)) {
             void this.restartEntry(entry, "browser unavailable during acquisition")
           }

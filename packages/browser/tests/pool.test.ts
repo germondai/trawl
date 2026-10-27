@@ -961,6 +961,27 @@ describe("optional idle retirement", () => {
   })
 })
 
+describe("cold boot", () => {
+  test("defers all browser launches until the first acquire", async () => {
+    const { factory, browsers } = makeFactory()
+    const pool = createPool({ poolSize: 2, browserFactory: factory, coldBoot: true, healthIntervalMs: 10 })
+    await pool.init()
+    pool.startHealthCheck()
+    await Bun.sleep(50)
+
+    expect(browsers).toHaveLength(0)
+    expect(pool.getStats()).toMatchObject({ total: 2, live: 0, available: 0, sleeping: 2 })
+
+    const first = await pool.acquire()
+    const second = await pool.acquire()
+    expect(browsers).toHaveLength(2)
+    expect(pool.getStats()).toMatchObject({ live: 2, sleeping: 0 })
+
+    pool.release(first.id, first.lease)
+    pool.release(second.id, second.lease)
+  })
+})
+
 test("cancelling an acquire removes its waiter before capacity becomes available", async () => {
   const { factory } = makeFactory()
   const pool = createPool({ poolSize: 1, browserFactory: factory })

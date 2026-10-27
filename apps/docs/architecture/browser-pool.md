@@ -53,6 +53,7 @@ new BrowserPool({
   recycleAfterTemporaryContexts: 8,
   contentProcesses: 2,        // BROWSER_MAX_CONTENT_PROCESSES - Firefox preference
   idleTimeoutMs: 0,           // BROWSER_IDLE_TIMEOUT_MS - disabled by default
+  coldBoot: false,            // BROWSER_COLD_BOOT - launch on first request instead of startup
   stallAfterMs: 180000,       // BROWSER_STALL_TIMEOUT_MS
   closeTimeoutMs: 10000,      // BROWSER_CLOSE_TIMEOUT_MS
   drainTimeoutMs: 0,          // BROWSER_SHUTDOWN_DRAIN_MS - close at once by default
@@ -91,6 +92,11 @@ or intentionally sleeping capacity remains.
 interval and relaunch on the next browser-backed request. Shared clearance cache entries survive;
 HTTP requests can still use them. Active requests, queued acquires and retained named-session
 contexts prevent retirement. See [idle retirement](/getting-started/configuration#browser-idle-timeout-ms).
+
+`BROWSER_COLD_BOOT=true` skips startup launches entirely. Sleeping capacity is registered during
+startup and the first browser-backed request wakes it through the same path as idle retirement, so
+`/health` stays ready and startup does not reserve browser memory. See
+[cold boot](/getting-started/configuration#browser-cold-boot).
 
 ## Shutdown
 

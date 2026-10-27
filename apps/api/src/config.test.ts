@@ -325,3 +325,22 @@ test.each([
   expect(result.exitCode, result.stderr.toString()).toBe(0)
   expect(result.stdout.toString().trim()).toBe(expected)
 })
+
+test.each([
+  ["", "false"],
+  ["true", "true"],
+  ["TRUE", "true"],
+  ["1", "true"],
+  ["yes", "true"],
+  ["false", "false"],
+  ["0", "false"],
+  ["invalid", "false"],
+])("cold boot parses %s as %s", (value, expected) => {
+  const result = Bun.spawnSync({
+    cmd: [process.execPath, "-e", 'console.log((await import("./config.ts")).BROWSER_COLD_BOOT)'],
+    cwd: import.meta.dir,
+    env: { ...process.env, BROWSER_COLD_BOOT: value },
+  })
+  expect(result.exitCode, result.stderr.toString()).toBe(0)
+  expect(result.stdout.toString().trim()).toBe(expected)
+})
