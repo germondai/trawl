@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package.json bun.lock* ./
+COPY packages/client/package.json ./packages/client/
 COPY packages/types/package.json   ./packages/types/
 COPY packages/browser/package.json ./packages/browser/
 COPY packages/tiers/package.json   ./packages/tiers/
@@ -24,7 +25,7 @@ COPY apps/docs/package.json        ./apps/docs/
 # devDeps installed (bun 1.3.x quirk). Prune better-sqlite3 sources + unused impit
 # platform binaries inside this stage so the subsequent COPY --from=deps in stage 3
 # pulls a smaller layer (Docker layers are unions, not diffs - can't shrink post-COPY).
-RUN bun install --frozen-lockfile --production --omit=dev --linker=hoisted \
+RUN bun install --frozen-lockfile --filter '@trawl/api' --production --omit=dev --linker=hoisted \
  && find node_modules -path '*/better-sqlite3*/deps' -prune -exec rm -rf {} + \
  && find node_modules -path '*/better-sqlite3*/src'   -prune -exec rm -rf {} + \
  && find node_modules -path '*/better-sqlite3*' -name '*.md'  -delete \
