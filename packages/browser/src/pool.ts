@@ -88,6 +88,9 @@ interface PoolEntry extends PoolBrowser {
 
 type BrowserFactory = () => Promise<{ browser: Browser; context: BrowserContext }>
 
+let initialBrowserLaunch: Promise<void> | undefined
+let browserSetupComplete = false
+
 export class BrowserPool {
   private entries: PoolEntry[] = []
   private poolSize: number
@@ -278,8 +281,6 @@ export class BrowserPool {
   private async launchBrowser(
     fingerprint: (typeof FINGERPRINT_POOL)[number],
   ): Promise<{ browser: Browser; context: BrowserContext }> {
-    if (this.browserFactory) return this.browserFactory()
-
     // Map our platform token → Camoufox's `os` token.
     const camoufoxOs =
       fingerprint.platform === "Win32" ? "windows" : fingerprint.platform === "MacIntel" ? "macos" : "linux"
@@ -801,7 +802,7 @@ export class BrowserPool {
     // stop *waiting* - the attempt keeps running. Count the ones we abandon so a browser
     // that hangs on every launch can't have attempts piled on it forever.
     this.abandonedLaunches++
-    const launch = this.launchBrowser(fingerprint).then(
+    const launch = this.launchWithSharedSetup(fingerprint).then(
       (result) => {
         if (!timedOut) {
           this.abandonedLaunches--
@@ -845,6 +846,29 @@ export class BrowserPool {
       throw new Error(`browser launch exceeded ${ms}ms; check outbound network and GeoIP access`)
     }
     return result
+  }
+
+  private async launchWithSharedSetup(
+    fingerprint: (typeof FINGERPRINT_POOL)[number],
+  ): Promise<{ browser: Browser; context: BrowserContext }> {
+    if (this.browserFactory) return this.browserFactory()
+    // Addon extraction is shared by the headless and headful pools in this process.
+    while (initialBrowserLaunch) await initialBrowserLaunch
+    if (this.shuttingDown) throw new Error("Browser pool is shutting down")
+    const launch = this.launchBrowser(fingerprint)
+    if (!browserSetupComplete) {
+      initialBrowserLaunch = launch
+        .then(
+          () => {
+            browserSetupComplete = true
+          },
+          () => {},
+        )
+        .finally(() => {
+          initialBrowserLaunch = undefined
+        })
+    }
+    return launch
   }
 
   private async restartEntry(entry: PoolEntry, reason = "manual restart"): Promise<void> {
@@ -924,6 +948,10 @@ export class BrowserPool {
       this.watchEntry(entry)
       console.log(`[${this.label}] browser ${entry.id} restarted (total: ${entry.restartCount})`)
     } catch (err) {
+      if (this.coldBoot && !this.entries.some((candidate) => candidate.restartCount > 0)) {
+        // Sleeping siblings cannot wake until the first cold launch succeeds.
+        for (const candidate of this.entries) if (candidate.sleeping) candidate.healthy = false
+      }
       // Leave the entry unhealthy with no browser attached. `restarting` clears in the
       // finally, so the next health-check tick retries this entry from scratch.
       console.error(`[${this.label}] browser ${entry.id} failed to restart:`, err)

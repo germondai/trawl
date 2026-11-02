@@ -80,6 +80,8 @@ Full system health check. Used by Docker Compose health checks and monitoring sy
 | `memory.oomKills`              | number  | OOM kills reported by the cgroup                               |
 
 `/health` returns HTTP 503 while the pool is warming up or has no browser capacity. A saturated but healthy pool remains ready because active, connected requests still count as live.
+Healthy sleeping capacity, including an unused `BROWSER_COLD_BOOT` pool, returns 200. A first
+launch failure cannot keep readiness healthy through sleeping slots blocked behind that launch.
 The optional `memory` object is included when Linux cgroup memory data is available; its presence does not affect readiness.
 
 ### Curl

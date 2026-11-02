@@ -94,8 +94,9 @@ HTTP requests can still use them. Active requests, queued acquires and retained 
 contexts prevent retirement. See [idle retirement](/getting-started/configuration#browser-idle-timeout-ms).
 
 `BROWSER_COLD_BOOT=true` skips startup launches entirely. Sleeping capacity is registered during
-startup and the first browser-backed request wakes it through the same path as idle retirement, so
-`/health` stays ready and startup does not reserve browser memory. See
+startup and the first browser-backed request wakes it through the same path as idle retirement.
+Health checks return 200 while healthy sleeping capacity exists; they can return 503 during wake-up
+or after a failed launch until capacity recovers. Startup does not reserve browser memory. See
 [cold boot](/getting-started/configuration#browser-cold-boot).
 
 ## Shutdown
