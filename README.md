@@ -78,7 +78,7 @@ Selected same-machine comparisons show faster first and repeat responses than Fl
 
 Measured **2026-10-17** on a development build after v1.8.0. These are verified minima from the recorded sample. First requests used a warm browser with an empty target cache; repeats are fresh fetches with reusable clearance. Results vary by site, IP and session state.
 
-[Full comparison, medians and CPU/RAM](benchmarks/RESULTS.md) · [Method](benchmarks/README.md) · [Performance guide](apps/docs/getting-started/performance.md)
+[Full comparison, medians and CPU/RAM](benchmarks/RESULTS.md) · [Method](benchmarks/README.md) · [Performance guide](apps/docs/getting-started/performance.md) · [Low-resource setup](apps/docs/getting-started/low-resource.md)
 
 ## Quick start
 

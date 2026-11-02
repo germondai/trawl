@@ -9,6 +9,9 @@ TRAWL tries HTTP before opening a browser. Once a browser has cleared a supporte
 eligible repeat requests can send the saved clearance cookies and User-Agent over HTTP.
 If the site still requires a browser, TRAWL falls back through its existing tiers.
 
+For low-traffic instances, see the optional [low-resource setup](/getting-started/low-resource)
+for cold boot, idle retirement, cache choices and session limits.
+
 ## Recorded results
 
 The current comparison was measured on **2026-10-17**, using the development build after v1.8.0.

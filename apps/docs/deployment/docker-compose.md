@@ -7,11 +7,15 @@ description: Run TRAWL with the supplied minimal, cached, or production Docker C
 
 Three Compose files live in the repository root.
 
+For occasional use, the [low-resource setup](/getting-started/low-resource) combines cold boot,
+idle retirement and clearance reuse without changing the shipped defaults.
+
 ## Scraper only
 
 ### Minimal
 
-`docker-compose.minimal.yml` - single service, no Redis. Fastest to get started, no session caching.
+`docker-compose.minimal.yml` - single service, no Redis. Uses a bounded in-memory clearance cache
+by default; set `SESSION_CACHE_DRIVER=memory` if your `.env` currently selects Redis.
 
 ```bash
 docker compose -f docker-compose.minimal.yml up -d
@@ -152,10 +156,10 @@ file. For a single residential endpoint:
 RESIDENTIAL_PROXY_URL=http://user:pass@residential.example.com:8080
 ```
 
-The files explicitly pass every supported TRAWL runtime variable, including browser, screenshot,
-blocked-evidence, diagnostics, redirect, response-capture, STT, and ffmpeg tuning. Docker Compose uses `.env` for
-interpolation but does not otherwise expose arbitrary host variables to the container. Inspect the
-resolved values with `docker compose config` and see the
+Each file explicitly lists the environment variables it forwards. Docker Compose uses `.env` for
+interpolation but does not otherwise expose arbitrary host variables to the container. Add an
+option absent from your chosen file under `services.trawl.environment` in a Compose override.
+Inspect the resolved values with `docker compose config` and see the
 [configuration migration guide](/deployment/configuration-migration) when upgrading.
 
 There are two deliberate routing exceptions. `PORT` changes the published host port while the API
