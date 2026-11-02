@@ -1,12 +1,38 @@
 import { afterAll, describe, expect, test } from "bun:test"
 import { scrape } from "../src/orchestrator"
+import { runTier1 } from "../src/tiers/1"
 import { DeadlineError, RequestBudget } from "../src/utils/deadline"
 import { hasImpervaChallenge } from "../src/utils/detect"
 
 const fixture = Bun.serve({
   port: 0,
   async fetch(request) {
-    if (new URL(request.url).pathname === "/headers") await Bun.sleep(500)
+    const path = new URL(request.url).pathname
+    if (path === "/headers") await Bun.sleep(500)
+    if (path === "/cloudflare")
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("<html><title>Just a moment</title>"))
+          },
+        }),
+        {
+          status: 403,
+          headers: { "cf-mitigated": "challenge", "content-type": "text/html" },
+        },
+      )
+    if (path === "/slow-body")
+      return new Response(
+        new ReadableStream({
+          async start(controller) {
+            controller.enqueue(new TextEncoder().encode("Po"))
+            await Bun.sleep(120)
+            controller.enqueue(new TextEncoder().encode("ng"))
+            controller.close()
+          },
+        }),
+        { headers: { "content-type": "text/plain", server: "cloudflare" } },
+      )
     return new Response(new ReadableStream({ start() {} }), { headers: { "content-type": "text/html" } })
   },
 })
@@ -22,6 +48,57 @@ const deps = {
 }
 
 describe("scrape deadline", () => {
+  test("escalates a Cloudflare challenge before its open body consumes the deadline", async () => {
+    const operation = scrape(
+      { url: `${fixture.url}cloudflare`, maxTimeout: 250, maxTier: 3 },
+      {
+        ...deps,
+        acquireBrowser: async () => {
+          throw new Error("Browser fallback reached")
+        },
+      },
+    )
+    await expect(operation).rejects.toThrow("Browser fallback reached")
+  })
+
+  test.each([undefined, fixture.url.href])("bounds response-header silence with proxy %s", async (proxy) => {
+    const result = await runTier1(
+      `${fixture.url}headers`,
+      undefined,
+      undefined,
+      undefined,
+      proxy,
+      undefined,
+      undefined,
+      undefined,
+      AbortSignal.timeout(250),
+      undefined,
+      1000,
+      40,
+    )
+    expect(result.reason).toBe("tier1-response-timeout")
+    expect(result.durationMs).toBeLessThan(200)
+  })
+
+  test("keeps the full body deadline after ordinary response headers arrive", async () => {
+    const result = await runTier1(
+      `${fixture.url}slow-body`,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      AbortSignal.timeout(500),
+      undefined,
+      500,
+      40,
+    )
+    expect(result.status).toBe("success")
+    expect(result.html).toBe("Pong")
+  })
+
   test("uses the configured default when a request omits maxTimeout", async () => {
     const configuredDeps = { ...deps, defaultMaxTimeout: 60 }
     const result = await Promise.race([
