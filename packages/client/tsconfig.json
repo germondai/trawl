@@ -4,6 +4,9 @@
     "target": "ES2022",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["bun"],
+    "paths": {
+      "@trawl/client": ["./src/index.ts"]
+    },
     "isolatedDeclarations": true,
     "declarationMap": false
   },
