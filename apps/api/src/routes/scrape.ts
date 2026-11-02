@@ -1,11 +1,12 @@
 import { PoolExhaustedError } from "@trawl/browser"
 import type { OrchestratorDeps } from "@trawl/tiers"
 import { RequestValidationError, ScrapeError, sanitizeHeaders, scrape, validateSessionId } from "@trawl/tiers"
-import type { ScrapeRequest } from "@trawl/types"
+import type { ExtractResponse, ReadResponse, ScrapeRequest } from "@trawl/types"
 import { type Context, Elysia } from "elysia"
 import { flareSolverrError } from "../adapters/flaresolverr"
 import { getDeps, getPool } from "../deps"
 import { type MetricsStore, metrics } from "../metrics"
+import { preparePageOperation } from "../pageContent/options"
 import { runLoggedScrape } from "../requestLogging"
 import { requestUrl, validateScrapeRequest } from "../validation"
 
@@ -19,17 +20,18 @@ export function scrapeRoute(
   poolReady: () => unknown = getPool,
   metricsStore: MetricsStore = metrics,
 ) {
-  const handle = async (body: unknown, set: Context["set"], sessionId?: string) => {
+  const handle = async (body: unknown, set: Context["set"], sessionId?: string, operation?: "read" | "extract") => {
     const started = Date.now()
     let scraperStarted = false
     try {
       validateScrapeRequest(body)
+      const page = operation ? preparePageOperation(operation, body) : undefined
       if (sessionId !== undefined) {
         validateSessionId(sessionId)
         if (body.sessionId !== undefined && body.sessionId !== sessionId)
           throw new RequestValidationError("sessionId must match the session ID in the URL", 400)
       }
-      const req: ScrapeRequest = sessionId === undefined ? body : { ...body, sessionId }
+      const req: ScrapeRequest = sessionId === undefined ? (page?.request ?? body) : { ...body, sessionId }
       if (!poolReady()) {
         set.status = 503
         metricsStore.record({ source: "native", url: req.url, durationMs: Date.now() - started, statusCode: 503 })
@@ -38,7 +40,21 @@ export function scrapeRoute(
       const sanitized = { ...req, headers: sanitizeHeaders(req.headers) }
       const orchestratorDeps = deps()
       scraperStarted = true
-      return await runLoggedScrape("native", sanitized, orchestratorDeps, scrape, undefined, metricsStore)
+      let output: ReadResponse | ExtractResponse | undefined
+      const result = await runLoggedScrape(
+        "native",
+        sanitized,
+        orchestratorDeps,
+        scrape,
+        undefined,
+        metricsStore,
+        page
+          ? (result) => {
+              output = page.format(result)
+            }
+          : undefined,
+      )
+      return output ?? result
     } catch (err) {
       if (err instanceof RequestValidationError) {
         set.status = err.statusCode
@@ -86,5 +102,7 @@ export function scrapeRoute(
   }
   return new Elysia()
     .post("/scrape", ({ body, set }) => handle(body, set))
+    .post("/read", ({ body, set }) => handle(body, set, undefined, "read"))
+    .post("/extract", ({ body, set }) => handle(body, set, undefined, "extract"))
     .post("/sessions/:id/scrape", ({ params, body, set }) => handle(body, set, params.id))
 }

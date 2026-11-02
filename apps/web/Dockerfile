@@ -8,6 +8,7 @@ COPY package.json bun.lock ./
 COPY apps/api/package.json ./apps/api/
 COPY apps/web/package.json ./apps/web/
 COPY apps/docs/package.json ./apps/docs/
+COPY packages/client/package.json ./packages/client/
 COPY packages/types/package.json ./packages/types/
 COPY packages/browser/package.json ./packages/browser/
 COPY packages/tiers/package.json ./packages/tiers/
