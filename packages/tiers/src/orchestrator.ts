@@ -440,6 +440,11 @@ async function scrapeWithinBudget(
       httpSession ? AbortSignal.any([budget.signal, AbortSignal.timeout(httpTimeout)]) : budget.signal,
       httpSession,
       httpTimeout,
+      !httpSession &&
+        (!req.method || req.method === "GET" || req.method === "HEAD") &&
+        (maxTier >= 3 || (maxTier >= 2 && Boolean(session) && !ignoreCertificateErrors))
+        ? Math.min(10_000, httpTimeout)
+        : undefined,
     )
     if (
       httpSession &&

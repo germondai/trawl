@@ -16,7 +16,7 @@
     "fix": "biome check . --write",
     "typecheck": "bun --filter '*' typecheck",
     "test": "bun test",
-    "build": "bun --cwd apps/web build && bun --cwd apps/docs build",
+    "build": "bun --cwd packages/client build && bun --cwd apps/web build && bun --cwd apps/docs build",
     "verify": "bun run check && bun run typecheck && bun run test && bun run build"
   },
   "devDependencies": {

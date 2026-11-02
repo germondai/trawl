@@ -1,19 +1,12 @@
 import { readFileSync } from "node:fs"
+import type { RuntimeMemory } from "@trawl/types"
 import { log } from "./logger"
+
+export type { RuntimeMemory } from "@trawl/types"
 
 const MIB = 1024 * 1024
 const V2 = "/sys/fs/cgroup"
 const V1 = "/sys/fs/cgroup/memory"
-
-export interface RuntimeMemory {
-  currentBytes: number | null
-  workingSetBytes?: number
-  limitBytes: number | null
-  recommendedLimitBytes: number
-  underProvisioned: boolean
-  oomEvents: number
-  oomKills: number
-}
 
 type Reader = (path: string) => string
 const systemReader: Reader = (path) => readFileSync(path, "utf8").trim()

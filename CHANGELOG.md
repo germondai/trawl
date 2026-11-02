@@ -9,8 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Add opt-in `BROWSER_COLD_BOOT` to skip browser launches at startup. The first browser-backed request launches the pool on demand through the existing idle-retirement wake path, while `/health` stays ready (#256).
+- Add the independently versioned `@trawl/client` workspace for Node.js, Bun, Deno and browser applications, with typed native scraping, session handles, optional API authorization, explicit cancellation and structured errors.
+- Add native `/read` and `/extract` endpoints sharing content processing and bounds with MCP, plus SDK `read`, `extract`, `screenshot` and `inspect` methods.
+- Let the SDK accept target JSON objects and arrays in request bodies, serializing them and supplying Content-Type when absent while preserving raw strings and explicit headers.
 
 ### Fixed
+- Preserve browser fallback when fresh safe HTTP requests stall before response headers, and escalate Cloudflare challenge headers without waiting for an open body. Keep full body deadlines and HTTP-only or non-safe request budgets (#259).
 - Mark generated MITM proxy failures with `Proxy-Status` so nested `/scrape` and `/v1` requests report a proxy error instead of accepting a timeout response as scraped content. Preserve origin error responses and document the proxy's independent deadline (#254).
 
 ## [1.9.3] - 2026-10-24

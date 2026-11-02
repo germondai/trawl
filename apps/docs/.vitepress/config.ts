@@ -54,6 +54,7 @@ export default defineConfig({
           { text: "Jackett", link: "/integrations/jackett" },
           { text: "*arr Apps", link: "/integrations/arr-apps" },
           { text: "MCP", link: "/integrations/mcp" },
+          { text: "JavaScript Client", link: "/integrations/javascript-client" },
         ],
       },
       {
@@ -72,6 +73,7 @@ export default defineConfig({
           { text: "FlareSolverr Compat", link: "/api-reference/flaresolvr-compat" },
           { text: "Browser Sessions", link: "/api-reference/browser-sessions" },
           { text: "Native API", link: "/api-reference/native-api" },
+          { text: "Read and Extract", link: "/api-reference/page-content" },
           { text: "Custom Headers", link: "/api-reference/custom-headers" },
           { text: "Health & Stats", link: "/api-reference/health-stats" },
         ],

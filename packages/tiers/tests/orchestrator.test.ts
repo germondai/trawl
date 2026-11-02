@@ -45,6 +45,59 @@ function runners(status: TierResult["status"], reason?: string) {
   }
 }
 
+test.each([
+  { method: "GET" as const, maxTier: 3 as const, limited: true },
+  { method: "HEAD" as const, maxTier: 3 as const, limited: true },
+  { method: "POST" as const, maxTier: 3 as const, limited: false },
+  { method: "GET" as const, maxTier: 1 as const, limited: false },
+])("response-header budget respects $method and maxTier $maxTier", async ({ method, maxTier, limited }) => {
+  let headersTimeout: number | undefined
+  await scrape(
+    { url: "https://example.test/", method, maxTier, maxTimeout: 60_000 },
+    { ...dependencies(1, []), loadSession: async () => undefined },
+    {
+      tier1: async (...args) => {
+        headersTimeout = args[11]
+        return { ...payload, tier: 1, status: "success", durationMs: 1 }
+      },
+    },
+  )
+  expect(headersTimeout).toBe(limited ? 10_000 : undefined)
+})
+
+test("keeps the HTTP budget when TLS policy prevents the only cached browser fallback", async () => {
+  let headersTimeout: number | undefined
+  await scrape(
+    { url: "https://example.test/", maxTier: 2, maxTimeout: 60_000, ignoreCertificateErrors: true },
+    dependencies(1, []),
+    {
+      tier1: async (...args) => {
+        headersTimeout = args[11]
+        return { ...payload, tier: 1, status: "success", durationMs: 1 }
+      },
+    },
+  )
+  expect(headersTimeout).toBeUndefined()
+})
+
+test("a response-header timeout keeps browser fallback on the explicit proxy", async () => {
+  const proxy = "http://proxy.test:8080"
+  let browserProxy: string | undefined
+  const result = await scrape(
+    { url: "https://example.test/", proxy, maxTier: 3 },
+    { ...dependencies(1, []), loadSession: async () => undefined },
+    {
+      tier1: async () => ({ tier: 1, status: "error", reason: "tier1-response-timeout", durationMs: 10_000 }),
+      tier3: async (_url, _handle, _timeout, selectedProxy) => {
+        browserProxy = selectedProxy
+        return { ...payload, tier: 3, status: "success", durationMs: 1 }
+      },
+    },
+  )
+  expect(result.tier).toBe(3)
+  expect(browserProxy).toBe(proxy)
+})
+
 describe("public tier attempt metadata", () => {
   for (const tier of [1, 2, 3, 4] as const) {
     for (const reason of [undefined, "completed"]) {

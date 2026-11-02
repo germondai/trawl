@@ -174,9 +174,22 @@ packages/
   browser/  Camoufox Firefox pool
   tiers/    Tier 1-4 execution engine
   types/    Shared TypeScript types
+  client/   Portable npm client for the native HTTP API
 ```
 
 Apps are independently deployable; `packages/*` are imported via the workspace protocol (e.g. `workspace:*`).
+
+The client has its own release version. `packages/types/src/api.ts` holds public HTTP
+contracts; the existing types entry point also exports internal server types. Client
+builds bundle the public declarations, so published consumers do not need a private
+workspace package. Run `bun --cwd packages/client build` and
+`bun --cwd packages/client lint:package` before preparing an npm tarball. Client changes
+do not require changing the scraper service version. npm publication requires a separate
+maintainer-approved release.
+
+`bun scripts/check-client-package.ts` installs the built tarball outside the monorepo
+and checks its declarations, Node/Bun/Deno imports, CommonJS exports and browser bundle.
+It requires Node.js, Bun and Deno on `PATH`; CI runs it after the normal verification gate.
 
 ## Commit conventions
 
