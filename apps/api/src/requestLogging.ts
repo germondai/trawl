@@ -1,5 +1,5 @@
 import { PoolExhaustedError } from "@trawl/browser"
-import { type OrchestratorDeps, ScrapeError, scrape } from "@trawl/tiers"
+import { type OrchestratorDeps, RequestValidationError, ScrapeError, scrape } from "@trawl/tiers"
 import type { ScrapeRequest, ScrapeResult, TierResult } from "@trawl/types"
 import { applyDomainProfile, refreshDomainProfile } from "./domainProfile"
 import { log, requestId, safeMessage, safeUrl } from "./logger"
@@ -14,6 +14,7 @@ export async function runLoggedScrape(
   runScrape: typeof scrape = scrape,
   id = requestId(),
   metricsStore: MetricsStore = metrics,
+  onResult?: (result: ScrapeResult) => void,
 ): Promise<ScrapeResult> {
   const started = Date.now()
   const profiledReq = applyDomainProfile(req)
@@ -45,8 +46,15 @@ export async function runLoggedScrape(
     },
   }
 
+  let scraped = false
   try {
     const result = await runScrape(profiledReq, tracedDeps)
+    scraped = true
+    refreshDomainProfile(req, result.timings, {
+      resultTier: result.tier,
+      sessionCached: result.sessionCached,
+    })
+    onResult?.(result)
     metricsStore.record({
       source,
       url: req.url,
@@ -68,15 +76,17 @@ export async function runLoggedScrape(
       proxyUsed: result.proxyUsed,
       captchas: result.captchasSolved?.join(","),
     })
-    refreshDomainProfile(req, result.timings, {
-      resultTier: result.tier,
-      sessionCached: result.sessionCached,
-    })
     return result
   } catch (error) {
     const last = error instanceof ScrapeError ? error.timings.at(-1) : undefined
-    refreshDomainProfile(req, error instanceof ScrapeError ? error.timings : [], { failure: true })
-    metricsStore.record({ source, url: req.url, durationMs: Date.now() - started, error })
+    if (!scraped) refreshDomainProfile(req, error instanceof ScrapeError ? error.timings : [], { failure: true })
+    metricsStore.record({
+      source,
+      url: req.url,
+      durationMs: Date.now() - started,
+      error,
+      ...(error instanceof RequestValidationError ? { statusCode: error.statusCode } : {}),
+    })
     log(error instanceof PoolExhaustedError ? "warn" : "error", "scrape", {
       event: "request.failure",
       request: id,
