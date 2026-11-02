@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Let the SDK accept target JSON objects and arrays in request bodies, serializing them and supplying Content-Type when absent while preserving raw strings and explicit headers.
 
 ### Fixed
+- Preserve browser fallback when fresh safe HTTP requests stall before response headers, and escalate Cloudflare challenge headers without waiting for an open body. Keep full body deadlines and HTTP-only or non-safe request budgets (#259).
 - Mark generated MITM proxy failures with `Proxy-Status` so nested `/scrape` and `/v1` requests report a proxy error instead of accepting a timeout response as scraped content. Preserve origin error responses and document the proxy's independent deadline (#254).
 
 ## [1.9.3] - 2026-10-24

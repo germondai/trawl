@@ -13,6 +13,7 @@ import {
   hasAltcha,
   hasAwsWafCaptcha,
   hasAwsWafChallenge,
+  hasCloudflareChallengeHeader,
   hasDuckDuckGoChallenge,
   hasFriendlyCaptcha,
   hasHcaptcha,
@@ -87,8 +88,16 @@ export async function runTier1(
   signal?: AbortSignal,
   sessionCookies?: HttpSessionCookies,
   timeoutMs = 60_000,
+  headersTimeoutMs?: number,
 ): Promise<Tier1Result> {
   const start = Date.now()
+  const headersAbort = headersTimeoutMs === undefined ? undefined : new AbortController()
+  const headersTimer = headersAbort ? setTimeout(() => headersAbort.abort(), headersTimeoutMs) : undefined
+  const requestSignal = headersAbort
+    ? signal
+      ? AbortSignal.any([signal, headersAbort.signal])
+      : headersAbort.signal
+    : signal
   let certificateError: string | undefined
   try {
     const m = (method ?? "GET").toUpperCase()
@@ -117,7 +126,7 @@ export async function runTier1(
       const fetchHop = (insecure: boolean) =>
         tier1Transport.fetch(currentUrl, {
           timeoutMs: timeoutMs - (Date.now() - start),
-          signal,
+          signal: requestSignal,
           method: currentMethod,
           body: currentBody,
           headers: sessionCookies ? { ...headers, cookie: sessionCookies.header(currentUrl) } : headers,
@@ -177,6 +186,8 @@ export async function runTier1(
       }
     }
 
+    clearTimeout(headersTimer)
+
     // AWS WAF's action header is authoritative when paired with its documented
     // status. Inspect it before reading the body: challenge responses may keep the
     // body open, and waiting for arrayBuffer() would delay browser escalation.
@@ -212,6 +223,22 @@ export async function runTier1(
         durationMs: Date.now() - start,
         reason: awsAction === "captcha" ? "aws-waf-captcha-required" : "aws-waf-challenge",
         challenge: "aws-waf",
+        responseHeaders,
+        contentType,
+        body: new Uint8Array(),
+        statusCode: res.status,
+      }
+    }
+
+    if (hasCloudflareChallengeHeader(responseHeaders)) {
+      await res.body?.cancel().catch(() => {})
+      return {
+        tier: 1,
+        certificateError,
+        status: "needs-js",
+        durationMs: Date.now() - start,
+        reason: "cloudflare-challenge",
+        challenge: "cloudflare-interstitial",
         responseHeaders,
         contentType,
         body: new Uint8Array(),
@@ -487,8 +514,17 @@ export async function runTier1(
       tier: 1,
       status: "error",
       durationMs: Date.now() - start,
-      reason: proxy ? normalizeProxyError(err) : err instanceof Error ? err.message : String(err),
+      reason:
+        headersAbort?.signal.aborted && !signal?.aborted
+          ? "tier1-response-timeout"
+          : proxy
+            ? normalizeProxyError(err)
+            : err instanceof Error
+              ? err.message
+              : String(err),
       certificateError: certificateError ?? (isCertificateError(err) ? describeCertificateError(err) : undefined),
     }
+  } finally {
+    clearTimeout(headersTimer)
   }
 }
