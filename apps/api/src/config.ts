@@ -62,6 +62,8 @@ export const BROWSER_BLOCK_ADS = !/^(0|false|no)$/i.test(process.env.BROWSER_BLO
 // minimal while still allowing CF/Imperva challenges to resolve. Raise if specific
 // targets fail with empty content (rare).
 export const BROWSER_IDLE_TIMEOUT_MS = nonNegativeInteger(process.env.BROWSER_IDLE_TIMEOUT_MS, 0)
+// Skip startup browser launches; the first browser-backed request warms the pool.
+export const BROWSER_COLD_BOOT = /^(1|true|yes)$/i.test(process.env.BROWSER_COLD_BOOT?.trim() ?? "")
 export const BROWSER_MAX_CONTENT_PROCESSES = positiveInteger(process.env.BROWSER_MAX_CONTENT_PROCESSES, 2)
 // Optional native CPU count for worker-based challenges; unset keeps Camoufox defaults.
 export const BROWSER_HARDWARE_CONCURRENCY = parseBrowserHardwareConcurrency(process.env.BROWSER_HARDWARE_CONCURRENCY)
