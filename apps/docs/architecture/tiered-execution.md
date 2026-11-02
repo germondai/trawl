@@ -62,6 +62,12 @@ a direct GET/HEAD request, verified TLS and matching origin provenance; see
 
 **Escalates for:** recognized Cloudflare, Akamai, or Imperva challenge responses and blocked status codes such as 403 or 429. Detection uses provider-specific headers and HTML markers.
 
+Fresh GET/HEAD attempts with an eligible browser fallback wait at most 10 seconds for response
+headers, within the overall request deadline. After headers arrive, ordinary response bodies keep
+the full remaining deadline. HTTP-only requests and other methods retain their original budgets;
+cached clearance replays keep their existing shorter budget. A Cloudflare `cf-mitigated: challenge`
+header triggers escalation immediately, without waiting for the challenge body to finish.
+
 **Skip with:** `skipHttp: true` in the request body, or deployment-wide `SCRAPE_MIN_TIER=2`.
 Use `maxTier: 1` to cap execution at Tier 1 instead.
 
