@@ -125,6 +125,12 @@ Returns HTML, cookies, the winning tier and timings. Set `solveEmbeddedCaptchas:
 
 [Native API](apps/docs/api-reference/native-api.md) · [Custom headers](apps/docs/api-reference/custom-headers.md)
 
+### JavaScript and TypeScript client
+
+The `packages/client` workspace provides a typed client for Node.js, Bun, Deno and
+browser applications, including scrape options, session handles and structured errors.
+Build it locally before the first npm publication. [Client guide](packages/client/README.md).
+
 ### Prowlarr, Jackett and FlareSolverr clients
 
 ```bash

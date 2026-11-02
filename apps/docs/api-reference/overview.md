@@ -34,6 +34,8 @@ Content-Type: application/json
 | `GET`    | `/metrics`               | Prometheus pool metrics            |
 | `POST`   | `/v1`                    | FlareSolverr v2 compatible         |
 | `POST`   | `/scrape`                | Native TRAWL API                   |
+| `POST`   | `/read`                  | Main content as Markdown or text   |
+| `POST`   | `/extract`               | CSS-selected JSON records          |
 | `POST`   | `/sessions`              | Create an isolated browser session |
 | `GET`    | `/sessions`              | List live browser sessions         |
 | `POST`   | `/sessions/:id/scrape`   | Scrape within an existing session  |
