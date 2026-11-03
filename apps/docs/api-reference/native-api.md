@@ -18,6 +18,7 @@ For an existing session, `POST /sessions/:id/scrape` accepts the same options an
 ```typescript
 interface ScrapeRequest {
   url: string
+  detectWaf?: boolean                    // identify WAF providers offline, default true
   maxTimeout?: number                    // ms, default SCRAPE_MAX_TIMEOUT_MS (60000)
   solveEmbeddedCaptchas?: boolean         // attempt embedded form widgets, default true
   skipHttp?: boolean                     // skip Tier 1 (plain fetch), default false
@@ -108,6 +109,7 @@ Treat these opt-in fields as sensitive and open archives only when you trust the
 ```typescript
 interface ScrapeResult {
   url: string                  // final URL after redirects
+  waf?: WafDetection            // provider metadata, unless WAF detection was disabled
   html: string
   cookies: Cookie[]
   userAgent: string
@@ -170,6 +172,66 @@ interface TierResult {
   reason?: string
 }
 ```
+
+## WAF Identification
+
+Provider identification with [wafmeow](https://github.com/Lu1sDV/wafmeow) is enabled by default
+for the first retained response. It runs alongside the existing escalation ladder without
+sending probes, changing headers, selecting a user-agent, or controlling challenge solving.
+The flag also works with sessions, `/read`, `/extract`, the SDK and MCP tools. The
+FlareSolverr `/v1` response contract is unchanged, while its requests also contribute WAF logs and metrics.
+Set `detectWaf: false` to opt out for one native or MCP request, or set
+`WAF_DETECTION_ENABLED=false` to disable identification for the entire instance, including `/v1`.
+The deployment switch takes precedence over request flags.
+
+```json
+{
+  "url": "https://nopecha.com/demo/cloudflare",
+  "detectWaf": true
+}
+```
+
+Successful responses and native scrape errors can include:
+
+```json
+{
+  "waf": {
+    "engine": "wafmeow",
+    "version": "3.1.0",
+    "state": "incomplete",
+    "products": ["Cloudflare (Cloudflare Inc.)"],
+    "sourceTier": 1
+  }
+}
+```
+
+`sourceTier` identifies the inspected response, which may precede a successful browser
+solve. A match identifies a provider signature; it does not prove an active block or a
+successful bypass. No match does not prove that a WAF is absent. `incomplete` preserves
+positive matches while indicating that some catalogue rules could not be evaluated, for
+example because a body or the original HTTP reason phrase was not captured.
+
+Detection inspects at most 64 KiB of HTML and 16 KiB / 128 headers. Truncated or missing
+channels are marked incomplete or unavailable. Raw evidence is never returned by the worker.
+The separate `blockedEvidence` flag is still required to return wall markup.
+
+The helper starts on the first enabled scrape and retires after 60 seconds idle. Only one
+classification runs at a time; concurrent diagnostic requests receive `state: "unavailable"`
+with `reason: "busy"` instead of queueing. Detection is limited to 250 ms and the remaining
+scrape budget. Missing helpers, crashes and timeouts degrade the diagnostic, not the scrape.
+Other reasons are `not-installed`, `timeout`, `failed` and `no-response`.
+
+`durationMs` measures the diagnostic's elapsed time, including worker startup when needed.
+`totalMs` includes any wait for diagnostics. A cold worker can add tens of milliseconds;
+subsequent detections reuse it. Provider/state/duration summaries appear in request logs,
+Prometheus counters and, when history is enabled, the local dashboard. Provider counts are
+not active-block counts or bypass scores; one request can match several providers.
+
+Official Docker images include the helper and its pinned catalogue. For a source checkout,
+install Go 1.26 or newer, run `sh tools/wafmeow/build.sh`, and set
+`WAFMEOW_PATH` to the absolute path of `tools/wafmeow/dist/trawl-waf` when starting TRAWL.
+Keep the generated catalogue beside the executable. The distribution preserves wafmeow's
+MIT licence and the upstream WAFW00F BSD notices.
 
 ## Blocked-Outcome Evidence
 

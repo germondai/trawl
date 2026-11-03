@@ -103,6 +103,11 @@ from headers used to authenticate the SDK connection.
 
 ## Timeouts
 
+`scrape`, `read`, `extract` and `inspect` receive `waf` provider metadata by default.
+Pass `detectWaf: false` to opt out. It is an offline diagnostic and does not change solver routing.
+On a failed scrape the SDK exposes the same metadata as `TrawlError.waf`.
+See [WAF identification](/api-reference/native-api#waf-identification) for worker setup and limits.
+
 ```ts
 await trawl.scrape(
   { url: "https://example.com", maxTimeout: 60_000 },

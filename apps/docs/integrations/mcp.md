@@ -15,6 +15,10 @@ can then load the selected result URLs.
 
 ## Enable the endpoint
 
+All page tools enable offline provider identification by default; pass `detectWaf: false` to opt out.
+The result's `waf` metadata describes signatures on the first retained response; it is
+independent of challenge solving. See [WAF identification](/api-reference/native-api#waf-identification).
+
 ```ini
 MCP_ENABLED=true
 ```

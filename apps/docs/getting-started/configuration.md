@@ -410,6 +410,17 @@ services:
       BROWSER_SHUTDOWN_DRAIN_MS: "240000"
 ```
 
+## WAF Identification
+
+Offline provider identification is enabled by default with `WAF_DETECTION_ENABLED=true`.
+Set it to `false` to disable the worker for the entire instance, including `/v1` and proxy
+escalations. A native/MCP request can opt out with `detectWaf: false`; request flags cannot
+override a disabled instance. Supplied Compose files forward the deployment setting.
+
+Docker images include wafmeow 3.1.0. `WAFMEOW_PATH` overrides the helper executable for
+source installations. See [WAF identification](/api-reference/native-api#waf-identification)
+for setup, response states and resource bounds. It does not change solver routing or user-agents.
+
 ## Screenshots
 
 Only read when a request sets `screenshot: true` - see [Native API](/api-reference/native-api).
