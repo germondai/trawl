@@ -1,11 +1,20 @@
 import { PoolExhaustedError } from "@trawl/browser"
-import { type OrchestratorDeps, ScrapeError, scrape } from "@trawl/tiers"
-import type { ScrapeRequest, ScrapeResult, TierResult } from "@trawl/types"
+import { type OrchestratorDeps, RequestValidationError, ScrapeError, scrape } from "@trawl/tiers"
+import type { ScrapeRequest, ScrapeResult, TierResult, WafDetection } from "@trawl/types"
 import { applyDomainProfile, refreshDomainProfile } from "./domainProfile"
 import { log, requestId, safeMessage, safeUrl } from "./logger"
 import { type MetricsStore, metrics } from "./metrics"
 
 export type ScrapeSource = "native" | "flaresolverr" | "mcp" | "proxy"
+
+const wafLogFields = (waf?: WafDetection) => ({
+  wafState: waf?.state,
+  wafVersion: waf?.version,
+  wafProducts: waf?.products.join(", "),
+  wafSourceTier: waf?.sourceTier,
+  wafDurationMs: waf?.durationMs,
+  wafReason: waf?.reason,
+})
 
 export async function runLoggedScrape(
   source: ScrapeSource,
@@ -14,6 +23,7 @@ export async function runLoggedScrape(
   runScrape: typeof scrape = scrape,
   id = requestId(),
   metricsStore: MetricsStore = metrics,
+  onResult?: (result: ScrapeResult) => void,
 ): Promise<ScrapeResult> {
   const started = Date.now()
   const profiledReq = applyDomainProfile(req)
@@ -45,8 +55,17 @@ export async function runLoggedScrape(
     },
   }
 
+  let scraped = false
+  let waf: WafDetection | undefined
   try {
     const result = await runScrape(profiledReq, tracedDeps)
+    waf = result.waf
+    scraped = true
+    refreshDomainProfile(req, result.timings, {
+      resultTier: result.tier,
+      sessionCached: result.sessionCached,
+    })
+    onResult?.(result)
     metricsStore.record({
       source,
       url: req.url,
@@ -54,6 +73,7 @@ export async function runLoggedScrape(
       tier: result.tier,
       attempts: result.timings,
       statusCode: result.statusCode,
+      waf,
     })
     log("info", "scrape", {
       event: "request.success",
@@ -67,16 +87,21 @@ export async function runLoggedScrape(
       sessionCached: result.sessionCached,
       proxyUsed: result.proxyUsed,
       captchas: result.captchasSolved?.join(","),
-    })
-    refreshDomainProfile(req, result.timings, {
-      resultTier: result.tier,
-      sessionCached: result.sessionCached,
+      ...wafLogFields(waf),
     })
     return result
   } catch (error) {
+    if (error instanceof ScrapeError) waf = error.waf
     const last = error instanceof ScrapeError ? error.timings.at(-1) : undefined
-    refreshDomainProfile(req, error instanceof ScrapeError ? error.timings : [], { failure: true })
-    metricsStore.record({ source, url: req.url, durationMs: Date.now() - started, error })
+    if (!scraped) refreshDomainProfile(req, error instanceof ScrapeError ? error.timings : [], { failure: true })
+    metricsStore.record({
+      source,
+      url: req.url,
+      durationMs: Date.now() - started,
+      error,
+      waf,
+      ...(error instanceof RequestValidationError ? { statusCode: error.statusCode } : {}),
+    })
     log(error instanceof PoolExhaustedError ? "warn" : "error", "scrape", {
       event: "request.failure",
       request: id,
@@ -85,6 +110,7 @@ export async function runLoggedScrape(
       tier: last?.tier,
       status: last?.status,
       reason: safeMessage(error instanceof Error ? error.message : String(error)),
+      ...wafLogFields(waf),
     })
     throw error
   }

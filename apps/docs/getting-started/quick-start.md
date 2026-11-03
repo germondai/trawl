@@ -21,6 +21,8 @@ cp .env.example .env
 ```
 
 Everything has a working default. See [Configuration](/getting-started/configuration) for the full reference.
+For occasional use, follow the optional [low-resource setup](/getting-started/low-resource)
+to defer Firefox startup and retire it after inactivity.
 
 ## 3. Start everything
 

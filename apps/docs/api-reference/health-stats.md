@@ -18,7 +18,7 @@ FlareSolverr-style readiness message - confirms the API process is up (does not 
 ```json
 {
   "msg": "TRAWL is ready!",
-  "version": "1.9.3",
+  "version": "1.10.0",
   "uptime": 42
 }
 ```
@@ -79,7 +79,9 @@ Full system health check. Used by Docker Compose health checks and monitoring sy
 | `memory.oomEvents`             | number  | OOM events reported by the cgroup                              |
 | `memory.oomKills`              | number  | OOM kills reported by the cgroup                               |
 
-`/health` returns HTTP 503 while the pool is warming up or has no live browser capacity. A saturated but healthy pool remains ready because active, connected requests still count as live.
+`/health` returns HTTP 503 while the pool is warming up or has no browser capacity. A saturated but healthy pool remains ready because active, connected requests still count as live.
+Healthy sleeping capacity, including an unused `BROWSER_COLD_BOOT` pool, returns 200. A first
+launch failure cannot keep readiness healthy through sleeping slots blocked behind that launch.
 The optional `memory` object is included when Linux cgroup memory data is available; its presence does not affect readiness.
 
 ### Curl
@@ -160,6 +162,25 @@ is not included.
 | `trawl_pool_exhausted_total`            | counter | Checkouts that ran out of time waiting and failed as exhausted  |
 | `trawl_pool_acquire_wait_seconds_total` | counter | Cumulative wait seconds for granted browser checkouts           |
 | `trawl_browser_restarts_total`          | counter | Browser restarts since startup                                  |
+
+Offline WAF diagnostics also publish counters, even when dashboard history is disabled:
+
+| Series | Labels | Meaning |
+| --- | --- | --- |
+| `trawl_waf_detections_total` | `state` | Observations classified as complete, incomplete or unavailable |
+| `trawl_waf_unavailable_total` | `reason` | Diagnostic attempts unavailable because of busy capacity, timeout, missing helper or failure |
+| `trawl_waf_provider_requests_total` | `provider`, `outcome` | Requests associated with each provider signature, split by scrape success/failure |
+| `trawl_waf_detection_duration_seconds_total` | none | Accumulated diagnostic wall time, including worker startup and unavailable attempts |
+| `trawl_waf_timed_detections_total` | none | Observations with a measured diagnostic duration |
+
+Counters reset when this API process restarts. Provider labels contain catalogue names, not
+target URLs or hostnames, and are bounded to 256 distinct names. A request can match several
+providers, so provider counts are not mutually exclusive. Provider presence does not prove an
+active block; diagnostic failure does not make a successful scrape fail.
+
+When dashboard history is enabled, the selected time range also shows provider counts,
+request outcomes, diagnostic states and mean diagnostic time. Individual activity/failure rows
+retain provider metadata. Existing databases are migrated without dropping historical events.
 
 `trawl_pool_utilization_ratio` and `trawl_pool_waiting` are the useful autoscaling
 signals: utilization saturates at 1, and the waiting count keeps rising after that.

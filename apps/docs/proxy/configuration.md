@@ -43,6 +43,10 @@ Use `127.0.0.1` for a local installation. Docker clients on a bridge network nor
 `SCRAPE_MAX_TIMEOUT_MS` applies once a proxy request enters the scraper ladder. It does not
 change direct Tier 0 forwarding timeouts. See [scrape timeout configuration](/getting-started/configuration#scrape-max-timeout-ms).
 
+For example, set `SCRAPE_MAX_TIMEOUT_MS=180000` and recreate the service to give proxy
+scraper fallbacks up to three minutes. A JSON API request's `maxTimeout` is not passed
+to a proxy it uses; each proxy operation has its own deadline.
+
 `MITM_MAX_TIER=3` prevents proxy requests from consuming a configured residential Tier 4
 proxy. An empty or invalid value uses the normal maximum of Tier 4.
 
@@ -110,6 +114,16 @@ not turn the entire forward proxy into a chain through another proxy.
 
 The normal sticky-per-domain rotation and failure cooldown rules apply during escalation. Use
 `MITM_MAX_TIER` to cap which tiers the forward proxy may reach.
+
+For `/scrape` or `/v1`, omit `proxy` unless you need an upstream proxy. Pointing it at
+the same TRAWL instance's `:8192` listener creates a nested scrape with a separate
+deadline. Both the API and the forward proxy already use TRAWL's challenge solvers.
+
+When scraper fallback fails without a usable challenge response, the proxy returns
+HTTP 502 with `Proxy-Status: trawl; error=proxy_internal_error`. This lets API callers
+using TRAWL as an upstream proxy recognize the failure instead of returning the proxy's
+error text as scraped content. Origin error responses and available challenge evidence
+retain their existing status and content.
 
 ## Verify the listener
 

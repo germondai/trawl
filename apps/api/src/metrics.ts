@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { PoolExhaustedError } from "@trawl/browser"
 import { ScrapeError } from "@trawl/tiers"
-import type { TierResult } from "@trawl/types"
+import type { TierResult, WafDetection } from "@trawl/types"
 import { METRICS_DASHBOARD_ENABLED, METRICS_DASHBOARD_TOKEN } from "./config"
 import type { ScrapeSource } from "./requestLogging"
 
@@ -23,6 +23,7 @@ export interface MetricEvent {
   attempts?: TierResult[]
   statusCode?: number
   error?: unknown
+  waf?: WafDetection
 }
 
 interface StoredEvent {
@@ -37,6 +38,37 @@ interface StoredEvent {
   status_code: number | null
   category: FailureCategory | null
   severity: Severity | null
+  waf_json: string | null
+}
+
+export interface WafTotals {
+  states: Record<WafDetection["state"], number>
+  unavailable: Partial<Record<NonNullable<WafDetection["reason"]>, number>>
+  durationMs: number
+  timed: number
+  providers: { product: string; requests: number; failures: number }[]
+}
+
+function storedWaf(waf: WafDetection | undefined): WafDetection | undefined {
+  if (!waf) return
+  return {
+    engine: waf.engine,
+    version: waf.version,
+    state: waf.state,
+    products: [...new Set(waf.products)].slice(0, 256),
+    sourceTier: waf.sourceTier,
+    durationMs: Number.isFinite(waf.durationMs) && (waf.durationMs ?? -1) >= 0 ? waf.durationMs : undefined,
+    reason: waf.reason,
+  }
+}
+
+function readWaf(value: string | null): WafDetection | undefined {
+  if (!value) return
+  try {
+    return JSON.parse(value) as WafDetection
+  } catch {
+    return
+  }
 }
 
 const TIERS = [0, 1, 2, 3, 4] as const
@@ -77,6 +109,13 @@ export class MetricsStore {
   private db?: Database
   private listeners = new Set<() => void>()
   private recorded = 0
+  private wafCounts: Omit<WafTotals, "providers"> = {
+    states: { complete: 0, incomplete: 0, unavailable: 0 },
+    unavailable: {},
+    durationMs: 0,
+    timed: 0,
+  }
+  private wafProviders = new Map<string, { requests: number; failures: number }>()
 
   constructor(enabled = true, path = ":memory:") {
     if (!enabled) return
@@ -88,8 +127,15 @@ export class MetricsStore {
     this.db.run(`CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY, at INTEGER NOT NULL, domain TEXT NOT NULL, source TEXT NOT NULL,
       duration_ms INTEGER NOT NULL, success INTEGER NOT NULL, tier INTEGER, tier_status TEXT,
-      status_code INTEGER, category TEXT, severity TEXT
+      status_code INTEGER, category TEXT, severity TEXT, waf_json TEXT
     )`)
+    const db = this.db
+    const hasWafColumn = () =>
+      (db.query("PRAGMA table_info(events)").all() as { name: string }[]).some((column) => column.name === "waf_json")
+    if (!hasWafColumn())
+      db.transaction(() => {
+        if (!hasWafColumn()) db.run("ALTER TABLE events ADD COLUMN waf_json TEXT")
+      }).immediate()
     this.db.run(`CREATE TABLE IF NOT EXISTS tier_attempts (
       id INTEGER PRIMARY KEY, at INTEGER NOT NULL, event_id INTEGER REFERENCES events(id) ON DELETE CASCADE,
       tier INTEGER NOT NULL
@@ -111,6 +157,34 @@ export class MetricsStore {
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
+  }
+
+  wafTotals(): WafTotals {
+    return {
+      ...this.wafCounts,
+      states: { ...this.wafCounts.states },
+      unavailable: { ...this.wafCounts.unavailable },
+      providers: [...this.wafProviders].map(([product, counts]) => ({ product, ...counts })),
+    }
+  }
+
+  private recordWaf(waf: WafDetection, success: boolean): void {
+    this.wafCounts.states[waf.state]++
+    if (waf.state === "unavailable" && waf.reason)
+      this.wafCounts.unavailable[waf.reason] = (this.wafCounts.unavailable[waf.reason] ?? 0) + 1
+    if (waf.durationMs !== undefined) {
+      this.wafCounts.durationMs += waf.durationMs
+      this.wafCounts.timed++
+    }
+    for (const product of waf.products) {
+      const counts = this.wafProviders.get(product)
+      if (counts) {
+        counts.requests++
+        counts.failures += Number(!success)
+      } else if (this.wafProviders.size < 256) {
+        this.wafProviders.set(product, { requests: 1, failures: Number(!success) })
+      }
+    }
   }
 
   private notify(): void {
@@ -141,17 +215,21 @@ export class MetricsStore {
 
   record(event: MetricEvent): void {
     const db = this.db
-    if (!db) return
+    const rawWaf = event.waf ?? (event.error instanceof ScrapeError ? event.error.waf : undefined)
+    if (!db && !rawWaf) return
     const at = Date.now()
     const attempts = event.attempts ?? (event.error instanceof ScrapeError ? event.error.timings : [])
     const success =
       event.error === undefined && event.statusCode !== undefined && event.statusCode >= 200 && event.statusCode < 400
     const failure = success ? null : failureKind(event.error, attempts, event.statusCode)
     try {
+      const waf = storedWaf(rawWaf)
+      if (waf) this.recordWaf(waf, success)
+      if (!db) return
       db.transaction(() => {
         const inserted = db
-          .query(`INSERT INTO events(at, domain, source, duration_ms, success, tier, tier_status, status_code, category, severity)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .query(`INSERT INTO events(at, domain, source, duration_ms, success, tier, tier_status, status_code, category, severity, waf_json)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
           .run(
             at,
             domainOf(event.url),
@@ -163,6 +241,7 @@ export class MetricsStore {
             event.statusCode ?? null,
             failure?.category ?? null,
             failure?.severity ?? null,
+            waf ? JSON.stringify(waf) : null,
           )
         for (const attempt of attempts) {
           if (attempt.status !== "skipped") {
@@ -223,6 +302,39 @@ export class MetricsStore {
           count: number
         }[])
       : []
+    const wafGroups = db
+      ? (db
+          .query(`SELECT json_extract(waf_json, '$.state') AS state,
+          json_extract(waf_json, '$.reason') AS reason, COUNT(*) AS count,
+          SUM(json_extract(waf_json, '$.durationMs')) AS duration,
+          COUNT(json_extract(waf_json, '$.durationMs')) AS timed
+          FROM events WHERE at >= ? AND waf_json IS NOT NULL GROUP BY state, reason`)
+          .all(from) as {
+          state: WafDetection["state"]
+          reason: WafDetection["reason"]
+          count: number
+          duration: number | null
+          timed: number
+        }[])
+      : []
+    const providers = db
+      ? (db
+          .query(`SELECT p.value AS product, COUNT(*) AS requests, SUM(1 - e.success) AS failures
+          FROM events e, json_each(e.waf_json, '$.products') p WHERE e.at >= ?
+          GROUP BY p.value ORDER BY requests DESC, product LIMIT 256`)
+          .all(from) as WafTotals["providers"])
+      : []
+    const wafStates: WafTotals["states"] = { complete: 0, incomplete: 0, unavailable: 0 }
+    const wafUnavailable: WafTotals["unavailable"] = {}
+    let wafDuration = 0
+    let wafTimed = 0
+    for (const row of wafGroups) {
+      wafStates[row.state] += row.count
+      if (row.state === "unavailable" && row.reason)
+        wafUnavailable[row.reason] = (wafUnavailable[row.reason] ?? 0) + row.count
+      wafDuration += row.duration ?? 0
+      wafTimed += row.timed
+    }
     const bySource = Object.fromEntries(SOURCES.map((source) => [source, 0])) as Record<ScrapeSource, number>
     const byTier = Object.fromEntries(TIERS.map((tier) => [tier, { attempts: 0, successes: 0 }])) as Record<
       Tier,
@@ -298,6 +410,13 @@ export class MetricsStore {
       byTier,
       byFailure,
       bySeverity,
+      waf: {
+        observations: wafStates.complete + wafStates.incomplete + wafStates.unavailable,
+        states: wafStates,
+        unavailable: wafUnavailable,
+        averageMs: wafTimed ? Math.round((wafDuration / wafTimed) * 100) / 100 : 0,
+        providers,
+      },
       bucketMs: step,
       timeline,
       lastHour: timeline,
@@ -313,6 +432,7 @@ export class MetricsStore {
         statusCode: row.status_code,
         category: row.category,
         severity: row.severity,
+        ...(row.waf_json ? { waf: readWaf(row.waf_json) } : {}),
       })),
       recentFailures: failures.map((row) => ({
         at: new Date(row.at).toISOString(),
@@ -323,6 +443,7 @@ export class MetricsStore {
         statusCode: row.status_code,
         category: row.category,
         severity: row.severity,
+        ...(row.waf_json ? { waf: readWaf(row.waf_json) } : {}),
       })),
     }
   }

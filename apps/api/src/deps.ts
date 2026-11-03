@@ -1,9 +1,16 @@
 import { BrowserPool, MemorySessionCache, SessionCache, type SessionCacheStore } from "@trawl/browser"
-import { type AcquireOptions, BrowserSessions, type OrchestratorDeps } from "@trawl/tiers"
+import {
+  type AcquireOptions,
+  BrowserSessions,
+  type OrchestratorDeps,
+  RequestValidationError,
+  WafDetector,
+} from "@trawl/tiers"
 import type { SessionData } from "@trawl/types"
 import {
   ACQUIRE_TIMEOUT_MS,
   BROWSER_BLOCK_ADS,
+  BROWSER_COLD_BOOT,
   BROWSER_HARDWARE_CONCURRENCY,
   BROWSER_IDLE_TIMEOUT_MS,
   BROWSER_MAX_CONTENT_PROCESSES,
@@ -29,8 +36,10 @@ import {
   SHUTDOWN_DRAIN_MS,
   STALL_TIMEOUT_MS,
   USER_PREFS,
+  WAF_DETECTION_ENABLED,
 } from "./config"
-import { localProxyCa } from "./proxy/localTrust"
+import { isLocalMitmProxy, localProxyCa } from "./proxy/localTrust"
+import { PublicEgressProxy } from "./public-egress"
 import { readRuntimeMemory } from "./runtimeMemory"
 
 const state: {
@@ -40,6 +49,16 @@ const state: {
 } = {}
 
 const handleOwners = new WeakMap<object, BrowserPool>()
+const wafDetector = new WafDetector()
+export const publicEgress = new PublicEgressProxy({
+  validateUpstream: async (upstream) => {
+    if (await isLocalMitmProxy(upstream))
+      throw new RequestValidationError(
+        "Public-only egress cannot use TRAWL's intercepting MITM proxy; use a forwarding proxy instead",
+        400,
+      )
+  },
+})
 
 type BrowserPoolOptions = ConstructorParameters<typeof BrowserPool>[0]
 
@@ -155,6 +174,7 @@ const sessionCacheRecovery = createSessionCacheRecovery({
 interface InitPoolOptions {
   poolSize?: number
   headfulPoolSize?: number
+  coldBoot?: boolean
   createPool?: (options: BrowserPoolOptions) => BrowserPool
   initCache?: () => Promise<void>
 }
@@ -167,19 +187,24 @@ const initSessionCache = (): Promise<void> => sessionCacheRecovery?.start() ?? P
 export const shutdownPools = async (drainTimeoutMs?: number): Promise<void> => {
   await state.sessions?.shutdown()
   await Promise.all([
+    wafDetector.close(),
     sessionCacheRecovery?.stop(),
     state.pool?.shutdown(drainTimeoutMs),
     state.headfulPool?.shutdown(drainTimeoutMs),
   ])
+  await publicEgress.close()
 }
 
 export const initPool = async ({
   poolSize = POOL_SIZE,
   headfulPoolSize = HEADFUL_POOL_SIZE,
+  coldBoot = BROWSER_COLD_BOOT,
   createPool = (options) => new BrowserPool(options),
   initCache = initSessionCache,
 }: InitPoolOptions = {}): Promise<void> => {
+  const poolState = coldBoot ? "cold" : "warm"
   const pool = createPool({
+    coldBoot,
     poolSize,
     acquireTimeoutMs: ACQUIRE_TIMEOUT_MS,
     recycleAfterTemporaryContexts: RECYCLE_AFTER_TEMPORARY_CONTEXTS,
@@ -198,6 +223,7 @@ export const initPool = async ({
   state.headfulPool = undefined
   if (headfulPoolSize > 0) {
     state.headfulPool = createPool({
+      coldBoot,
       poolSize: headfulPoolSize,
       acquireTimeoutMs: ACQUIRE_TIMEOUT_MS,
       recycleAfterTemporaryContexts: RECYCLE_AFTER_TEMPORARY_CONTEXTS,
@@ -226,6 +252,7 @@ export const initPool = async ({
     requireProxy: SCRAPE_MIN_TIER === 4,
     trustedProxyCa: localProxyCa,
     ttlMs: BROWSER_SESSION_TTL_SECONDS * 1_000,
+    networkProxy: (upstream) => publicEgress.proxyFor(upstream),
   })
 
   try {
@@ -234,7 +261,7 @@ export const initPool = async ({
     if (state.headfulPool) {
       await state.headfulPool.init()
       state.headfulPool.startHealthCheck()
-      console.log(`[api] headful pool warm (${headfulPoolSize} browser${headfulPoolSize === 1 ? "" : "s"})`)
+      console.log(`[api] headful pool ${poolState} (${headfulPoolSize} browser${headfulPoolSize === 1 ? "" : "s"})`)
     }
   } catch (error) {
     await state.sessions?.shutdown()
@@ -242,7 +269,7 @@ export const initPool = async ({
     throw error
   }
 
-  console.log(`[api] ready - all ${poolSize} browser${poolSize === 1 ? "" : "s"} warm`)
+  console.log(`[api] ready - all ${poolSize} browser${poolSize === 1 ? "" : "s"} ${poolState}`)
 }
 
 export const getDeps = (): OrchestratorDeps => {
@@ -287,5 +314,7 @@ export const getDeps = (): OrchestratorDeps => {
     minTier: SCRAPE_MIN_TIER,
     defaultMaxTimeout: SCRAPE_MAX_TIMEOUT_MS,
     externalCaptcha: EXTERNAL_CAPTCHA,
+    detectWaf: (evidence, timeoutMs, signal) => wafDetector.detect(evidence, timeoutMs, signal),
+    wafDetectionEnabled: WAF_DETECTION_ENABLED,
   }
 }

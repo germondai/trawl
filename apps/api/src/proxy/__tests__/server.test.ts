@@ -310,6 +310,7 @@ describe("serveViaScrape error handling", () => {
     const raw = Buffer.concat(chunks).toString("utf8")
     expect(raw).toContain("HTTP/1.1 502 Bad Gateway")
     expect(raw).toContain("TRAWL proxy error: Pool acquisition failed")
+    expect(raw.toLowerCase()).toContain("proxy-status: trawl; error=proxy_internal_error")
   })
 
   test("does not return stale evidence when a later browser tier fails", async () => {

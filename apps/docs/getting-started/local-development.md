@@ -12,7 +12,7 @@ TRAWL is a Bun workspace monorepo. You can run each service locally with hot-rel
 | Tool    | Version | Install                                              |
 | ------- | ------- | ---------------------------------------------------- |
 | Bun     | 1.4.4   | `curl -fsSL https://bun.sh/install \| bash`          |
-| Node.js | 26.12.1 | [nodejs.org](https://nodejs.org/) (web/docs tooling) |
+| Node.js | 26.13.0 | [nodejs.org](https://nodejs.org/) (web/docs tooling) |
 | Redis   | 8.8+    | Docker (see below)                                   |
 
 ## 1. Install dependencies
@@ -37,7 +37,7 @@ This downloads the browser into the local cache. It only needs to run once per m
 ## 3. Start Redis
 
 ```bash
-docker run -d --name trawl-redis -p 6379:6379 redis:8.10.2-alpine
+docker run -d --name trawl-redis -p 6379:6379 redis:8.10.3-alpine
 ```
 
 Or use any Redis-protocol-compatible server you already have.

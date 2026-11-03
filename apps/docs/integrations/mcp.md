@@ -15,6 +15,10 @@ can then load the selected result URLs.
 
 ## Enable the endpoint
 
+All page tools enable offline provider identification by default; pass `detectWaf: false` to opt out.
+The result's `waf` metadata describes signatures on the first retained response; it is
+independent of challenge solving. See [WAF identification](/api-reference/native-api#waf-identification).
+
 ```ini
 MCP_ENABLED=true
 ```
@@ -54,7 +58,7 @@ TRAWL exposes a small set of purpose-specific, read-only tools:
 | `scrape_url` | Backwards-compatible alias for `scrape`                                    |
 
 Every tool requires a public HTTP(S) `url` and optionally accepts `maxTimeout`
-and `maxTier`. Pass `sessionId` to reuse an existing [browser session](/api-reference/browser-sessions)
+and `maxTier`. Pass `sessionId` to reuse a `publicOnly` [browser session](/api-reference/browser-sessions)
 created through the native API. Perform authentication through `/scrape` first; MCP does not
 expose a POST login tool or accept credentials directly.
 `scrape` also accepts `skipHttp` and `solveEmbeddedCaptchas` (default `true`).
@@ -130,3 +134,11 @@ An existing session ID grants access to that session's state; share it only with
 Cookies, request headers, response bodies captured from background APIs, explicit
 proxy details, browser identity and session data are never returned by these MCP
 tools.
+
+### Public destination enforcement
+
+MCP resolves and validates all destination addresses when opening each HTTP or browser connection, then connects to an approved literal IP. Private targets, including IPv4-mapped IPv6, are refused. The same checks cover redirects and page subrequests; HTTPS retains end-to-end certificate checks unless the session operator explicitly opts out. Configured HTTP, HTTPS and SOCKS5 upstream proxies remain in use, with the approved IP as their destination.
+
+MCP clearance caching is separate from unrestricted native scraping. Named sessions must be created through `POST /sessions` with `{"publicOnly":true}`. Ordinary sessions are rejected; recreate them with this option before using them with MCP. Native `/scrape`, `/v1` and the MITM proxy keep their trusted-operator private-network behavior.
+
+Public-only egress requires a trusted forwarding upstream that honors the CONNECT destination IP. HTTP(S) upstreams must allow literal-IP CONNECT to every target port, including port 80 for plain HTTP URLs; ordinary HTTP forwarding alone is insufficient. TRAWL's own intercepting MITM listener is rejected for MCP and `publicOnly` sessions because it routes by the HTTP hostname instead; ordinary native MITM use is unchanged.

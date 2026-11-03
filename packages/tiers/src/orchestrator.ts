@@ -1,6 +1,14 @@
 import type { BrowserHandle } from "@trawl/browser"
 import { FINGERPRINT, FINGERPRINT_POOL, PoolExhaustedError } from "@trawl/browser"
-import type { BlockedEvidence, Cookie, ScrapeRequest, ScrapeResult, SessionData, TierResult } from "@trawl/types"
+import type {
+  BlockedEvidence,
+  Cookie,
+  ScrapeRequest,
+  ScrapeResult,
+  SessionData,
+  TierResult,
+  WafDetection,
+} from "@trawl/types"
 import type { BrowserSessions } from "./browserSessions"
 import { type ExternalCaptchaOptions, ExternalCaptchaSession } from "./solvers/externalCaptcha"
 import { runTier1, type Tier1Result } from "./tiers/1"
@@ -19,6 +27,7 @@ import { type ProxyPool, proxyIdentity } from "./utils/proxyRotator"
 import { isHtmlContentType } from "./utils/response"
 import { RequestValidationError, requireContentTypeForBody, sanitizeHeaders } from "./utils/sanitize"
 import { tier1UserAgent } from "./utils/tier1Transport"
+import { snapshotWafEvidence, type WafEvidence, wafUnavailable } from "./utils/waf"
 
 // Bounds how many distinct proxies a single request will try per tier before giving up -
 // keeps a long proxy list from blowing the request's maxTimeout budget.
@@ -37,6 +46,7 @@ export class ScrapeError extends Error {
   // scrape, and callers keyed on the success shape must never be handed one.
   blockedEvidence?: BlockedEvidence
   captchaDiagnostics?: { kind: string; status: string }[]
+  waf?: WafDetection
   constructor(
     message: string,
     timings: TierResult[],
@@ -76,12 +86,15 @@ export interface OrchestratorDeps {
   externalCaptcha?: ExternalCaptchaOptions
   onTierAttempt?: (result: TierResult) => void
   validateOutboundUrl?: (url: string) => Promise<void>
+  networkProxy?: (upstream?: string) => Promise<string>
   // Resolves the host a plain HTTP fetch of a URL ends on, for the crossed-landing guard.
   // Only consulted for requests that set `ignoreCertificateErrors`; defaults to a real
   // fetch through the same egress the scrape used.
   landingProbe?: LandingProbe
   // Supplies a private CA only for an explicitly recognized, local proxy listener.
   trustedProxyCa?: (proxyUrl: string) => Promise<string | undefined>
+  detectWaf?: (evidence: string, timeoutMs: number, signal: AbortSignal) => Promise<WafDetection>
+  wafDetectionEnabled?: boolean
 }
 
 interface OrchestratorRunners {
@@ -117,6 +130,8 @@ export async function scrape(
   deps: OrchestratorDeps,
   runners: OrchestratorRunners = {},
 ): Promise<ScrapeResult> {
+  const started = Date.now()
+  req = { ...req, detectWaf: deps.wafDetectionEnabled !== false && (req.detectWaf ?? Boolean(deps.detectWaf)) }
   const budget = new RequestBudget(req.maxTimeout ?? deps.defaultMaxTimeout ?? 60_000)
   const attempts: TierResult[] = []
   let ownedHandle: BrowserHandle | undefined
@@ -127,12 +142,14 @@ export async function scrape(
   }
   let acquiring = false
   let capacityExpired = false
+  let wafResult: Promise<WafDetection> | undefined
+  const diagnose = () => wafResult ?? Promise.resolve(wafUnavailable("no-response"))
   const onAbort = () => {
     capacityExpired = acquiring
   }
   budget.signal.addEventListener("abort", onAbort, { once: true })
   try {
-    return await budget.run(() =>
+    const result = await budget.run(() =>
       scrapeWithinBudget(
         req,
         {
@@ -159,15 +176,32 @@ export async function scrape(
         },
         runners,
         budget,
+        req.detectWaf
+          ? (evidence) => {
+              if (wafResult || (!evidence.statusCode && evidence.html === undefined && !evidence.responseHeaders))
+                return
+              // Start alongside escalation so an exhausted solve budget can still report the original wall.
+              wafResult = Promise.resolve()
+                .then(() => deps.detectWaf?.(snapshotWafEvidence(evidence), budget.remaining(), budget.signal))
+                .then((result) => ({ ...(result ?? wafUnavailable("not-installed")), sourceTier: evidence.tier }))
+                .catch(() => wafUnavailable("failed"))
+            }
+          : undefined,
       ),
     )
+    if (req.detectWaf) {
+      result.waf = await diagnose()
+      result.totalMs = Date.now() - started
+    }
+    return result
   } catch (error) {
     if (error instanceof DeadlineError) {
       if (ownedHandle) releaseOwned(ownedHandle)
       if (capacityExpired) throw new PoolExhaustedError()
-      throw new ScrapeError(error.message, attempts)
     }
-    throw error
+    const failure = error instanceof DeadlineError ? new ScrapeError(error.message, attempts) : error
+    if (req.detectWaf && failure instanceof ScrapeError) failure.waf = await diagnose()
+    throw failure
   } finally {
     budget.signal.removeEventListener("abort", onAbort)
     budget.dispose()
@@ -179,11 +213,14 @@ async function scrapeWithinBudget(
   deps: OrchestratorDeps,
   runners: OrchestratorRunners,
   budget: RequestBudget,
+  observeResponse?: (evidence: WafEvidence & { tier: TierResult["tier"] }) => void,
 ): Promise<ScrapeResult> {
   const totalStart = Date.now()
   const namedSession = req.sessionId ? deps.sessions?.options(req.sessionId) : undefined
   if (req.sessionId && !deps.sessions) throw new RequestValidationError("Browser sessions are unavailable", 503)
   if (namedSession) {
+    if (deps.networkProxy && !namedSession.publicOnly)
+      throw new RequestValidationError("MCP requires a publicOnly session; create one through POST /sessions", 400)
     if (req.proxy !== undefined && req.proxy !== namedSession.proxy)
       throw new RequestValidationError("Session proxy is fixed at creation", 400)
     if (
@@ -193,6 +230,8 @@ async function scrapeWithinBudget(
       throw new RequestValidationError("Session TLS policy is fixed at creation", 400)
     req = { ...req, proxy: namedSession.proxy, ignoreCertificateErrors: namedSession.ignoreCertificateErrors }
   }
+  const networkProxy =
+    deps.networkProxy ?? (req.sessionId ? deps.sessions?.publicNetworkProxy(req.sessionId) : undefined)
   const maxTimeout = req.maxTimeout ?? deps.defaultMaxTimeout ?? 60_000
   const maxTier = req.maxTier ?? 4
   if (req.cookies !== undefined) normalizeInputCookies(req.cookies, req.url)
@@ -218,6 +257,7 @@ async function scrapeWithinBudget(
   // only via the thrown ScrapeError.
   let blockedEvidence: BlockedEvidence | undefined
   const capture = {
+    networkProxy,
     anubisDetected: false,
     cookies: req.cookies,
     budget,
@@ -236,14 +276,16 @@ async function scrapeWithinBudget(
     favicons: req.favicons,
     settleTimeout: req.settleTimeout,
     waitForSelector: req.waitForSelector,
-    blockedEvidence: req.blockedEvidence
-      ? {
-          screenshot: req.screenshot,
-          report: (evidence: BlockedEvidence) => {
-            blockedEvidence = evidence
-          },
-        }
-      : undefined,
+    blockedEvidence:
+      req.blockedEvidence || req.detectWaf
+        ? {
+            screenshot: req.blockedEvidence ? req.screenshot : undefined,
+            report: (evidence: BlockedEvidence) => {
+              if (req.blockedEvidence) blockedEvidence = evidence
+              observeResponse?.(evidence)
+            },
+          }
+        : undefined,
     mhtml: req.mhtml,
   }
 
@@ -251,6 +293,7 @@ async function scrapeWithinBudget(
   requireContentTypeForBody(sanitizedHeaders, Boolean(req.body))
 
   const emit = (r: InternalTierResult) => {
+    observeResponse?.(r)
     const publicResult: TierResult = {
       tier: r.tier,
       status: r.status,
@@ -286,6 +329,7 @@ async function scrapeWithinBudget(
         // The probe shares what is left of the request's budget across all of its hops.
         timeoutMs: maxTimeout - (Date.now() - totalStart),
         validateOutboundUrl: deps.validateOutboundUrl,
+        networkProxy,
       })) ?? undefined
     if (host) crossedHost = host
     return host
@@ -316,71 +360,77 @@ async function scrapeWithinBudget(
       throw new RequestValidationError("Minimum tier 4 requires a proxy set on session creation", 400)
     const sessions = deps.sessions
     if (!sessions) throw new RequestValidationError("Browser sessions are unavailable", 503)
-    return sessions.use(req.sessionId, domain, budget, async (handle, context, storage, page) => {
-      const sessionCapture = {
-        ...capture,
-        sessionContext: context,
-        sessionStorage: storage,
-        sessionPage: page,
-      }
-      const result =
-        minTier === 4
-          ? await (runners.tier4 ?? (await import("./tiers/4")).runTier4)(
-              req.url,
-              handle,
-              budget.remaining(),
-              req.proxy as string,
-              sanitizedHeaders,
-              req.method,
-              req.body,
-              deps.validateOutboundUrl,
-              req.screenshot,
-              sessionCapture,
-              ignoreCertificateErrors,
-            )
-          : await (runners.tier3 ?? runTier3)(
-              req.url,
-              handle,
-              budget.remaining(),
-              namedSession?.proxy,
-              sanitizedHeaders,
-              req.method,
-              req.body,
-              deps.validateOutboundUrl,
-              req.screenshot,
-              sessionCapture,
-              ignoreCertificateErrors,
-            )
-      const crossed = hasUsablePayload(result)
-        ? await refuseCrossed(result.effectiveUrl, result.userAgent, namedSession?.proxy)
-        : undefined
-      emit(crossed ? crossedTiming(result, crossed) : result)
-      if (!hasUsablePayload(result) || crossed) throw failure(result.reason ?? "Session scrape failed")
-      return {
-        url: result.effectiveUrl ?? req.url,
-        html: normalizeHtml(result.html ?? ""),
-        cookies: result.cookies ?? [],
-        userAgent: result.userAgent ?? handle.fingerprint.userAgent,
-        statusCode: result.statusCode ?? 200,
-        tier: result.tier,
-        sessionCached: false,
-        timings,
-        totalMs: Date.now() - totalStart,
-        proxyUsed: Boolean(namedSession?.proxy),
-        captchasSolved: result.captchasSolved,
-        captchaDiagnostics: capture.externalCaptcha?.diagnostics(),
-        body: result.body,
-        responseHeaders: result.responseHeaders,
-        contentType: result.contentType,
-        screenshot: result.screenshot,
-        consoleLogs: result.consoleLogs,
-        networkLogs: result.networkLogs,
-        redirectChain: result.redirectChain,
-        capturedResponses: result.capturedResponses,
-        favicons: result.favicons,
-        mhtml: result.mhtml,
-      }
-    })
+    return sessions.use(
+      req.sessionId,
+      domain,
+      budget,
+      async (handle, context, storage, page) => {
+        const sessionCapture = {
+          ...capture,
+          sessionContext: context,
+          sessionStorage: storage,
+          sessionPage: page,
+        }
+        const result =
+          minTier === 4
+            ? await (runners.tier4 ?? (await import("./tiers/4")).runTier4)(
+                req.url,
+                handle,
+                budget.remaining(),
+                req.proxy as string,
+                sanitizedHeaders,
+                req.method,
+                req.body,
+                deps.validateOutboundUrl,
+                req.screenshot,
+                sessionCapture,
+                ignoreCertificateErrors,
+              )
+            : await (runners.tier3 ?? runTier3)(
+                req.url,
+                handle,
+                budget.remaining(),
+                namedSession?.proxy,
+                sanitizedHeaders,
+                req.method,
+                req.body,
+                deps.validateOutboundUrl,
+                req.screenshot,
+                sessionCapture,
+                ignoreCertificateErrors,
+              )
+        const crossed = hasUsablePayload(result)
+          ? await refuseCrossed(result.effectiveUrl, result.userAgent, namedSession?.proxy)
+          : undefined
+        emit(crossed ? crossedTiming(result, crossed) : result)
+        if (!hasUsablePayload(result) || crossed) throw failure(result.reason ?? "Session scrape failed")
+        return {
+          url: result.effectiveUrl ?? req.url,
+          html: normalizeHtml(result.html ?? ""),
+          cookies: result.cookies ?? [],
+          userAgent: result.userAgent ?? handle.fingerprint.userAgent,
+          statusCode: result.statusCode ?? 200,
+          tier: result.tier,
+          sessionCached: false,
+          timings,
+          totalMs: Date.now() - totalStart,
+          proxyUsed: Boolean(namedSession?.proxy),
+          captchasSolved: result.captchasSolved,
+          captchaDiagnostics: capture.externalCaptcha?.diagnostics(),
+          body: result.body,
+          responseHeaders: result.responseHeaders,
+          contentType: result.contentType,
+          screenshot: result.screenshot,
+          consoleLogs: result.consoleLogs,
+          networkLogs: result.networkLogs,
+          redirectChain: result.redirectChain,
+          capturedResponses: result.capturedResponses,
+          favicons: result.favicons,
+          mhtml: result.mhtml,
+        }
+      },
+      Boolean(deps.networkProxy),
+    )
   }
 
   // Tier 1 is the only look at the wall that happens before a browser is checked out, so
@@ -440,6 +490,13 @@ async function scrapeWithinBudget(
       httpSession ? AbortSignal.any([budget.signal, AbortSignal.timeout(httpTimeout)]) : budget.signal,
       httpSession,
       httpTimeout,
+      !httpSession &&
+        (!req.method || req.method === "GET" || req.method === "HEAD") &&
+        (maxTier >= 3 || (maxTier >= 2 && Boolean(session) && !ignoreCertificateErrors))
+        ? Math.min(10_000, httpTimeout)
+        : undefined,
+      observeResponse ? (evidence) => observeResponse({ ...evidence, tier: 1 }) : undefined,
+      deps.networkProxy ? await budget.run(async () => deps.networkProxy?.(tier1Proxy)) : undefined,
     )
     if (
       httpSession &&

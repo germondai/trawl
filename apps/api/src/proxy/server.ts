@@ -539,7 +539,7 @@ export async function serveViaScrape(
     writeResponseFromBuffer(
       stream,
       502,
-      { "Content-Type": "text/plain; charset=utf-8" },
+      { "Content-Type": "text/plain; charset=utf-8", "Proxy-Status": "trawl; error=proxy_internal_error" },
       Buffer.from(`TRAWL proxy error: ${err instanceof Error ? err.message : String(err)}`),
       "text/plain; charset=utf-8",
     )

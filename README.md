@@ -63,6 +63,23 @@ TRAWL starts with HTTP, reuses verified clearance and opens Camoufox when a brow
         • <code>TRAWL40</code> - 40% off to ISP (Static) Proxies
       </td>
     </tr>
+    <tr>
+      <td width="30%" align="center" valign="middle">
+        <a href="https://www.thordata.com/?ls=dtw&lk=dtw" target="_blank">
+          <img width="1254" height="1254" alt="Thordata" src="https://github.com/user-attachments/assets/4804c6c7-510a-4f3f-af47-5d6151bc26f1" />
+        </a>
+      </td>
+      <td valign="middle">
+        <b><a href="https://www.thordata.com/?ls=dtw&lk=dtw" target="_blank">Thordata</a></b> - Residential Proxies & Web Data APIs<br><br>
+        <p>Give <b>TRAWL</b> reliable upstream access with <b>100M+ residential IPs across 190+ countries</b>, including city and ASN targeting.</p>
+        <b>Why <a href="https://www.thordata.com/?ls=dtw&lk=dtw" target="_blank">Thordata</a>?</b><br>
+        • <b>Residential Proxies:</b> rotating and sticky sessions for scraping and browser automation<br>
+        • <b>SERP API:</b> structured Google, Bing, and other search results for research workflows<br>
+        • <b>Web Scraper API:</b> collect public web data through a simple API<br><br>
+        <b><a href="https://trawl.germondai.com" target="_blank">TRAWL</a> users:</b><br>
+        • Start with free trial traffic and get <b>10% off</b> with code <code>TRAWL10</code>
+      </td>
+    </tr>
   </table>
 </details>
 
@@ -78,7 +95,7 @@ Selected same-machine comparisons show faster first and repeat responses than Fl
 
 Measured **2026-10-17** on a development build after v1.8.0. These are verified minima from the recorded sample. First requests used a warm browser with an empty target cache; repeats are fresh fetches with reusable clearance. Results vary by site, IP and session state.
 
-[Full comparison, medians and CPU/RAM](benchmarks/RESULTS.md) · [Method](benchmarks/README.md) · [Performance guide](apps/docs/getting-started/performance.md)
+[Full comparison, medians and CPU/RAM](benchmarks/RESULTS.md) · [Method](benchmarks/README.md) · [Performance guide](apps/docs/getting-started/performance.md) · [Low-resource setup](apps/docs/getting-started/low-resource.md)
 
 ## Quick start
 
@@ -93,14 +110,14 @@ docker run -d --name trawl \
   -e MCP_ENABLED=true \
   -e METRICS_DASHBOARD_ENABLED=true \
   -v trawl_metrics:/data/metrics \
-  ghcr.io/germondai/trawl:1.9.3
+  ghcr.io/germondai/trawl:1.10.0
 
 curl http://localhost:8191/health
 ```
 
 Open [the local dashboard](http://localhost:8191/dashboard). Keep the API and MCP endpoint on a trusted network; dashboard history survives container recreation through the mounted volume.
 
-For Redis and Compose deployments, see the [quick-start guide](apps/docs/getting-started/quick-start.md) and [Compose examples](apps/docs/deployment/docker-compose.md). Use `:1.9.3-baseline` on older CPUs or NAS hardware.
+For Redis and Compose deployments, see the [quick-start guide](apps/docs/getting-started/quick-start.md) and [Compose examples](apps/docs/deployment/docker-compose.md). Use `:1.10.0-baseline` on older CPUs or NAS hardware.
 
 <details>
 <summary>Dashboard preview</summary>
@@ -125,6 +142,12 @@ Returns HTML, cookies, the winning tier and timings. Set `solveEmbeddedCaptchas:
 
 [Native API](apps/docs/api-reference/native-api.md) · [Custom headers](apps/docs/api-reference/custom-headers.md)
 
+### JavaScript and TypeScript client
+
+The `packages/client` workspace provides a typed client for Node.js, Bun, Deno and
+browser applications, including scrape options, session handles and structured errors.
+Build it locally before the first npm publication. [Client guide](packages/client/README.md).
+
 ### Prowlarr, Jackett and FlareSolverr clients
 
 ```bash
@@ -141,7 +164,7 @@ Set your client's FlareSolverr URL to `http://trawl:8191` on a shared Docker net
 
 With `MCP_ENABLED=true`, connect your client using **Streamable HTTP** at `http://localhost:8191/mcp` or the TRAWL host address. Tools: `read`, `scrape`, `extract`, `screenshot` and `inspect`, plus the `scrape_url` compatibility alias.
 
-TRAWL loads known public URLs; it does not provide web search. Existing browser sessions can be reused with `sessionId`. [MCP guide](apps/docs/integrations/mcp.md).
+TRAWL loads known public URLs; it does not provide web search. Reuse browser sessions with `sessionId`; create sessions used by MCP with `publicOnly: true`. [MCP guide](apps/docs/integrations/mcp.md).
 
 ### Browser sessions
 
@@ -183,9 +206,9 @@ Enable `MITM_ENABLED=true` and point your HTTP-compatible client at port `8192`.
 
 | Tags                             | Use case                             |
 | -------------------------------- | ------------------------------------ |
-| `:latest`, `:1.9.3`              | Standard release for modern hardware |
-| `:baseline`, `:1.9.3-baseline`   | Older x86 CPUs and NAS kernels       |
-| `:nightly`, `:nightly-<dev-sha>` | Development builds from `dev`        |
+| `:latest`, `:1.10.0`             | Standard release for modern hardware |
+| `:baseline`, `:1.10.0-baseline`   | Older x86 CPUs and NAS kernels       |
+| `:nightly`, `:nightly-<dev-sha>`  | Development builds from `dev`        |
 
 All tags use `ghcr.io/germondai/trawl`. Both release variants are published for Linux AMD64 and ARM64. [Standalone containers and source builds](apps/docs/deployment/standalone.md).
 

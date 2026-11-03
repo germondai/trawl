@@ -81,7 +81,7 @@ async function runBrowserTierTask<T extends 3 | 4>(
     openingContext = capture.sessionContext
       ? Promise.resolve(capture.sessionContext)
       : newFreshContext(handle.browser, {
-          proxy: proxyUrl,
+          proxy: capture.networkProxy ? await budget.run(async () => capture.networkProxy?.(proxyUrl)) : proxyUrl,
           onCreated: handle.noteTemporaryContext,
           requestReplacement: handle.requestBrowserReplacement,
           ignoreHttpsErrors: ignoreCertificateErrors,

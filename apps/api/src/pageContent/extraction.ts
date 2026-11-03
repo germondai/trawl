@@ -1,14 +1,10 @@
 import { RequestValidationError } from "@trawl/tiers"
+import type { ExtractionField } from "@trawl/types"
 import { parseHTML } from "linkedom"
 
 const MAX_HTML_CHARS = 2_000_000
 const MAX_OUTPUT_CHARS = 100_000
 const MAX_VALUE_CHARS = 2_000
-
-export interface ExtractionField {
-  selector: string
-  attribute?: string
-}
 
 export function extractFields(
   html: string,

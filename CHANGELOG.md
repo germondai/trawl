@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-11-03
+
+### Security
+- Pin MCP HTTP and browser connections to validated public IPs, including through upstream proxies. Isolate MCP clearance caching and require `publicOnly` named sessions; native operator access to local targets remains available.
+- Apply numeric subnet checks to the MCP outbound URL policy, including IPv4-mapped IPv6 addresses and equivalent IPv6 spellings.
+- Load the pinned Camoufox browser's bundled OneCRL certificate revocations at startup in standard and baseline API images. Add the six eMudhra intermediate revocations and check effective revocation state in a fresh profile during image builds. Thanks to [@Project516](https://github.com/Project516) for the report and backport (#263).
+- Upgrade node-forge to 1.4.2 and Nuxt to 4.6.4, including the matching Nuxt build packages, for upstream security fixes.
+
+### Added
+- Add offline WAF identification through wafmeow by default, with per-request and deployment opt-outs. Include provider metadata in native/SDK/MCP results, request logs, Prometheus counters and local dashboard history without changing solver routing (#258).
+- Document an optional low-resource setup with cold boot, idle retirement, clearance reuse and session limits; forward its lifecycle settings in all Compose variants.
+- Add opt-in `BROWSER_COLD_BOOT` to defer browser launches until needed, reuse idle retirement, and coordinate initial setup across headless and headful pools (#256, #257).
+- Add the independently versioned `@trawl/client` workspace for Node.js, Bun, Deno and browser applications, with typed native scraping, session handles, optional API authorization, explicit cancellation and structured errors.
+- Add native `/read` and `/extract` endpoints sharing content processing and bounds with MCP, plus SDK `read`, `extract`, `screenshot` and `inspect` methods.
+- Let the SDK accept target JSON objects and arrays in request bodies, serializing them and supplying Content-Type when absent while preserving raw strings and explicit headers.
+
+### Fixed
+- Preserve browser fallback when fresh safe HTTP requests stall before response headers, and escalate Cloudflare challenge headers without waiting for an open body. Keep full body deadlines and HTTP-only or non-safe request budgets (#259).
+- Mark generated MITM proxy failures with `Proxy-Status` so nested `/scrape` and `/v1` requests report a proxy error instead of accepting a timeout response as scraped content. Preserve origin error responses and document the proxy's independent deadline (#254).
+
+### Changed
+- Refresh compatible workspace dependencies, including LinkeDOM, Biome, Nuxt Fonts, Color Mode, Vue typechecking and client build tooling. Retain the Camoufox/Playwright pairing and TypeScript 6 for Vue.
+- Align web/docs builds and CI on Node.js 26.13.0, compile the offline WAF worker with Go 1.27.3, update its compatible dependencies, and refresh Redis to 8.10.3. Keep Bun 1.4.4, Nginx 1.31.8 and the compatible bundled uBlock Origin 1.75.0.
+
+### Upgrade notes
+- Recreate named sessions used by MCP with `publicOnly: true`. MCP no longer accepts unrestricted sessions and uses a separate clearance cache; native API, `/v1` and ordinary MITM access retain their trusted-operator behavior. See the [migration guide](apps/docs/deployment/configuration-migration.md#upgrading-from-v193-to-v1100) for upstream proxy requirements and optional settings.
+- The client workspace remains at 0.1.0; this release does not publish it to npm.
+
 ## [1.9.3] - 2026-10-24
 
 ### Security

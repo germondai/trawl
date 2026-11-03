@@ -1,3 +1,11 @@
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS wafmeow
+WORKDIR /build
+COPY tools/wafmeow/ ./
+ARG TARGETARCH
+RUN go mod download
+RUN --network=none go test ./...
+RUN --network=none GOOS=linux GOARCH=$TARGETARCH sh build.sh
+
 # Stage 1: install workspace deps (runs natively on build host)
 FROM oven/bun:1.4.4 AS deps
 WORKDIR /app
@@ -8,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package.json bun.lock* ./
+COPY packages/client/package.json ./packages/client/
 COPY packages/types/package.json   ./packages/types/
 COPY packages/browser/package.json ./packages/browser/
 COPY packages/tiers/package.json   ./packages/tiers/
@@ -24,7 +33,7 @@ COPY apps/docs/package.json        ./apps/docs/
 # devDeps installed (bun 1.3.x quirk). Prune better-sqlite3 sources + unused impit
 # platform binaries inside this stage so the subsequent COPY --from=deps in stage 3
 # pulls a smaller layer (Docker layers are unions, not diffs - can't shrink post-COPY).
-RUN bun install --frozen-lockfile --production --omit=dev --linker=hoisted \
+RUN bun install --frozen-lockfile --filter '@trawl/api' --production --omit=dev --linker=hoisted \
  && find node_modules -path '*/better-sqlite3*/deps' -prune -exec rm -rf {} + \
  && find node_modules -path '*/better-sqlite3*/src'   -prune -exec rm -rf {} + \
  && find node_modules -path '*/better-sqlite3*' -name '*.md'  -delete \
@@ -48,7 +57,7 @@ ARG UBO_AMO_FILE_ID=5034826
 ARG UBO_SHA256=5b74415860456370644bd80f16125e865b0e6c356bb5dfcfb84069967eaa5287
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl unzip ca-certificates binutils && rm -rf /var/lib/apt/lists/*
+    curl unzip ca-certificates binutils python3 && rm -rf /var/lib/apt/lists/*
 
 # camoufox-js 0.13 requires beta.30 <= browser < beta.32 with Playwright 1.62.
 # Pin its tested browser and verify the architecture-specific asset before extracting it.
@@ -74,6 +83,10 @@ RUN --mount=type=secret,id=GITHUB_TOKEN,env=GITHUB_TOKEN \
     if [ "$CAMOUFOX_KEEP_SPOOFED_OS_FONTS" != "1" ]; then \
       rm -rf /opt/camoufox/fonts/macos /opt/camoufox/fonts/windows; \
     fi
+
+# Keep the compatible browser while backporting bundled certificate revocations.
+COPY packages/browser/security/ /tmp/camoufox-security/
+RUN --network=none python3 /tmp/camoufox-security/backport-onecrl.py /opt/camoufox
 
 # Strip in the producing stage, before COPY creates a runtime layer.
 RUN strip --strip-unneeded /opt/camoufox/camoufox /opt/camoufox/camoufox-bin \
@@ -170,6 +183,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /usr/share/locale /usr/share/doc /usr/share/man
 
 COPY --from=bun-runtime /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=wafmeow /build/dist/ /opt/trawl-waf/
 
 COPY --link --from=camoufox   /opt/camoufox      /opt/camoufox
 COPY --from=deps              /app/node_modules  /app/node_modules
@@ -198,6 +212,8 @@ WORKDIR /app
 RUN --network=none bun -e 'import { launchOptions } from "camoufox-js"; const options = await launchOptions({headless:true,geoip:false,exclude_addons:["UBO"],i_know_what_im_doing:true}); if (!options.executablePath.startsWith("/opt/camoufox/")) throw new Error("Expected the bundled Camoufox executable")'
 # Validate the optional binding against this image's architecture and libc offline.
 RUN --network=none TIER1_TRANSPORT=wreq bun -e 'import { verifyTier1Transport } from "./packages/tiers/src/utils/tier1Transport"; await verifyTier1Transport()'
+# Check effective revocation state with no update service or existing profile.
+RUN --network=none bun packages/browser/security/check-onecrl.ts
 EXPOSE 8191
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["bun", "run", "apps/api/src/index.ts"]

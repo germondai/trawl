@@ -620,7 +620,10 @@ describe("Firefox launch preferences", () => {
       const pool = new BrowserPool({ poolSize: 1, virtualDisplay: ${virtualDisplay}, userPrefs: {
         "network.dns.blockDotOnion": false,
         "network.proxy.failover_direct": true,
+        "network.proxy.no_proxies_on": "*",
         "network.proxy.socks_remote_dns": false,
+        "network.proxy.allow_hijacking_localhost": false,
+        "media.peerconnection.ice.proxy_only_if_behind_proxy": false,
         "test.string": "value",
         "test.integer": 7,
       }})
@@ -636,7 +639,10 @@ describe("Firefox launch preferences", () => {
     expect(options.prefs).toMatchObject({
       "network.dns.blockDotOnion": false,
       "network.proxy.failover_direct": false,
+      "network.proxy.no_proxies_on": "",
       "network.proxy.socks_remote_dns": true,
+      "network.proxy.allow_hijacking_localhost": true,
+      "media.peerconnection.ice.proxy_only_if_behind_proxy": true,
       "test.string": "value",
       "test.integer": 7,
       "dom.ipc.processCount": 2,
@@ -958,6 +964,103 @@ describe("optional idle retirement", () => {
     await Bun.sleep(50)
     expect(pool.getStats().sleeping).toBe(0)
     expect(browsers[0].closed).toBeFalse()
+  })
+})
+
+describe("cold boot", () => {
+  test("defers all browser launches until the first acquire", async () => {
+    const { factory, browsers } = makeFactory()
+    const pool = createPool({ poolSize: 2, browserFactory: factory, coldBoot: true, healthIntervalMs: 10 })
+    await pool.init()
+    pool.startHealthCheck()
+    await Bun.sleep(50)
+
+    expect(browsers).toHaveLength(0)
+    expect(pool.getStats()).toMatchObject({ total: 2, live: 0, available: 0, sleeping: 2 })
+
+    const first = await pool.acquire()
+    const second = await pool.acquire()
+    expect(browsers).toHaveLength(2)
+    expect(pool.getStats()).toMatchObject({ live: 2, sleeping: 0 })
+
+    pool.release(first.id, first.lease)
+    pool.release(second.id, second.lease)
+  })
+
+  test("does not report sleeping capacity blocked behind a failed first launch", async () => {
+    const pool = createPool({
+      poolSize: 2,
+      browserFactory: NEVER,
+      coldBoot: true,
+      acquireTimeoutMs: 50,
+      launchTimeoutMs: 10,
+      healthIntervalMs: 10,
+      maxAbandonedLaunches: 1,
+    })
+    await pool.init()
+    pool.startHealthCheck()
+    await expect(pool.acquire()).rejects.toThrow("Browser pool exhausted")
+    expect(pool.getStats()).toMatchObject({ live: 0, sleeping: 0, queueDepth: 0 })
+  })
+
+  test("retries a failed cold launch and makes the remaining capacity available", async () => {
+    const { factory } = makeFactory()
+    let attempts = 0
+    const pool = createPool({
+      poolSize: 2,
+      coldBoot: true,
+      healthIntervalMs: 10,
+      browserFactory: async () => {
+        if (++attempts === 1) throw new Error("First launch failed")
+        return factory()
+      },
+    })
+    await pool.init()
+    pool.startHealthCheck()
+    const handle = await pool.acquire()
+    pool.release(handle.id, handle.lease)
+    await waitFor(() => pool.getStats().live === 2)
+    expect(attempts).toBe(3)
+  })
+
+  test("coordinates initial Camoufox setup across cold headless and headful pools", () => {
+    // A child process isolates the Camoufox mock and its one-time shared setup.
+    const result = Bun.spawnSync({
+      cmd: [
+        process.execPath,
+        "-e",
+        `import { mock } from "bun:test";
+        let launches = 0, active = 0, peak = 0;
+        let release;
+        const gate = new Promise(resolve => { release = resolve });
+        mock.module("camoufox-js", () => ({ Camoufox: async () => {
+          launches++; active++; peak = Math.max(peak, active);
+          await gate; active--;
+          return {
+            isConnected: () => true, close: async () => {},
+            newContext: async () => ({ addInitScript: async () => {}, pages: () => [], close: async () => {} }),
+          };
+        }}));
+        const { BrowserPool } = await import("../src/pool.ts");
+        const pools = [false, true].map(virtualDisplay => new BrowserPool({
+          poolSize: 1, coldBoot: true, virtualDisplay, acquireTimeoutMs: 1000,
+        }));
+        await Promise.all(pools.map(pool => pool.init()));
+        const requests = pools.map(pool => pool.acquire());
+        const deadline = Date.now() + 500;
+        while (!launches && Date.now() < deadline) await Bun.sleep(5);
+        await Bun.sleep(30);
+        const initialPeak = peak;
+        release();
+        const handles = await Promise.all(requests);
+        handles.forEach((handle, index) => pools[index].release(handle.id, handle.lease));
+        await Promise.all(pools.map(pool => pool.shutdown()));
+        console.log(JSON.stringify({ initialPeak, launches }));
+        if (initialPeak !== 1 || launches !== 2) throw new Error("Concurrent initial Camoufox setup");`,
+      ],
+      cwd: import.meta.dir,
+    })
+    expect(result.exitCode, result.stderr.toString() + result.stdout.toString()).toBe(0)
   })
 })
 

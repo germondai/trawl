@@ -294,10 +294,25 @@ BROWSER_RECYCLE_AFTER_CONTEXTS=0   # disable count-based recycling; memory-press
 
 Default: `0` (disabled).
 
-Retire an unused browser after this many milliseconds. The next browser-backed request launches it again; ordinary HTTP scraping stays available. Session cookies stored in the configured cache survive idle retirement. The first browser request after retirement pays a cold start, and Firefox's in-memory cache is lost. Active requests, cleanup and queued acquires prevent retirement. The health endpoint counts intentionally sleeping capacity separately from live browsers.
+Retire an unused browser after this many milliseconds. The next browser-backed request launches it again; ordinary HTTP scraping stays available. Session cookies stored in the configured cache survive idle retirement. The first browser request after retirement pays a cold start, and Firefox's in-memory cache is lost. Active requests, cleanup, queued acquires and retained named sessions prevent retirement. The health endpoint counts intentionally sleeping capacity separately from live browsers.
 
 ```dotenv
 BROWSER_IDLE_TIMEOUT_MS=300000 # optional: retire after five minutes idle
+```
+
+### `BROWSER_COLD_BOOT`
+
+**Default:** `false`
+
+Skip browser launches during startup. The first browser-backed request launches the pool on demand; ordinary HTTP scraping and health checks stay available immediately.
+
+The first browser-backed request includes launch time within its request and acquisition timeouts.
+Combine with `BROWSER_IDLE_TIMEOUT_MS` to retire browsers again after inactivity. Readiness may
+temporarily return 503 while waking, as with idle retirement; failed launches use the existing retry
+and resource limits.
+
+```dotenv
+BROWSER_COLD_BOOT=true # launch Firefox only when a browser-backed request arrives
 ```
 
 ### `BROWSER_BLOCK_ADS`
@@ -306,22 +321,19 @@ BROWSER_IDLE_TIMEOUT_MS=300000 # optional: retire after five minutes idle
 
 Load Camoufox's bundled uBlock Origin extension. Set `false` to omit it and reduce extension memory and CPU overhead. Both headless and optional headful pools use this setting. Ads, trackers and other resources normally blocked by uBlock can then load; resource use may increase on ad-heavy pages. Scripts, images, proxy routing and TLS verification otherwise retain their existing behavior.
 
-For a small single-browser container, start with:
-
-```ini
-BROWSER_POOL_SIZE=1
-BROWSER_MAX_CONTENT_PROCESSES=2
-BROWSER_HARDWARE_CONCURRENCY=4
-BROWSER_BLOCK_ADS=false
-```
-
-This is a resource tuning option, not a guarantee that every browser workload fits in 1 GiB. Use a larger limit for heavy pages, difficult CAPTCHAs or the additional headful pool.
+For occasional use, start with the [low-resource setup](/getting-started/low-resource), which
+keeps ad blocking enabled and uses cold boot and idle retirement. Compare your actual targets
+before disabling the extension. No setting guarantees that every browser workload fits in 1 GiB;
+heavy pages, difficult CAPTCHAs and the additional headful pool need memory headroom.
 
 ### `BROWSER_HARDWARE_CONCURRENCY`
 
 Optional browser-reported logical CPU count, from 1 to 64. Unset preserves Camoufox's generated fingerprint. This changes the native browser configuration, rather than injecting JavaScript into target pages.
 
-PoW implementations such as Anubis size their worker pool from this value. For a small container, try `BROWSER_HARDWARE_CONCURRENCY=4` with `BROWSER_POOL_SIZE=1`. Fewer workers can reduce CPU and RAM usage, but may take longer to solve difficult challenges. This is not a hard CPU or memory limit; configure those in Docker.
+PoW implementations such as Anubis size their worker pool from this value. Fewer workers can
+reduce peak CPU and RAM usage, but may increase solving time or total CPU work. Leave it unset
+initially and measure the same targets before keeping a custom value. This is not a hard CPU or
+memory limit; configure those in Docker.
 
 ### `BROWSER_MAX_CONTENT_PROCESSES`
 
@@ -348,7 +360,8 @@ it on would move the memory ceiling of deployments that never meet DataDome. Acc
 in `mem_limit` before enabling.
 
 When enabled, the sub-pool is warmed during API startup. A launch failure therefore fails
-startup instead of delaying an individual scrape.
+startup instead of delaying an individual scrape. With `BROWSER_COLD_BOOT=true`, the sub-pool
+is registered cold and launches on the first DataDome escalation instead.
 Readiness at `/health` reports the main pool only; the sub-pool appears under `headful` at
 `/stats`, and reads `null` while disabled.
 
@@ -396,6 +409,17 @@ services:
     environment:
       BROWSER_SHUTDOWN_DRAIN_MS: "240000"
 ```
+
+## WAF Identification
+
+Offline provider identification is enabled by default with `WAF_DETECTION_ENABLED=true`.
+Set it to `false` to disable the worker for the entire instance, including `/v1` and proxy
+escalations. A native/MCP request can opt out with `detectWaf: false`; request flags cannot
+override a disabled instance. Supplied Compose files forward the deployment setting.
+
+Docker images include wafmeow 3.1.0. `WAFMEOW_PATH` overrides the helper executable for
+source installations. See [WAF identification](/api-reference/native-api#waf-identification)
+for setup, response states and resource bounds. It does not change solver routing or user-agents.
 
 ## Screenshots
 

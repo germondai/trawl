@@ -1,7 +1,7 @@
 {
   "private": true,
   "name": "trawl",
-  "version": "1.9.3",
+  "version": "1.10.0",
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -16,10 +16,10 @@
     "fix": "biome check . --write",
     "typecheck": "bun --filter '*' typecheck",
     "test": "bun test",
-    "build": "bun --cwd apps/web build && bun --cwd apps/docs build",
+    "build": "bun --cwd packages/client build && bun --cwd apps/web build && bun --cwd apps/docs build",
     "verify": "bun run check && bun run typecheck && bun run test && bun run build"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.6.3"
+    "@biomejs/biome": "2.6.4"
   }
 }

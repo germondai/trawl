@@ -30,6 +30,7 @@ interface Options {
   defaultProxy?: (id: string) => string | undefined
   requireProxy?: boolean
   trustedProxyCa?: (proxy: string) => Promise<string | undefined>
+  networkProxy?: (upstream?: string) => Promise<string>
 }
 
 export function validateSessionId(id: unknown): asserts id is string {
@@ -64,6 +65,8 @@ export class BrowserSessions {
 
   async create(options: CreateBrowserSession = {}, reuseExisting = false): Promise<BrowserSession> {
     if (this.stopped) throw new RequestValidationError("Session manager is shutting down", 503)
+    if (options.publicOnly && !this.deps.networkProxy)
+      throw new RequestValidationError("Public-only sessions are unavailable", 503)
     const id = options.id ?? crypto.randomUUID()
     validateSessionId(id)
     if (reuseExisting) {
@@ -95,7 +98,14 @@ export class BrowserSessions {
       throw new RequestValidationError("Browser session limit reached", 429)
     const now = this.now()
     const entry: Entry = {
-      info: { id, createdAt: now, expiresAt: now + this.ttlMs, busy: false, keepPage: Boolean(options.keepPage) },
+      info: {
+        id,
+        createdAt: now,
+        expiresAt: now + this.ttlMs,
+        busy: false,
+        keepPage: Boolean(options.keepPage),
+        ...(options.publicOnly ? { publicOnly: true } : {}),
+      },
       options: { ...options, proxy },
       busy: false,
       sessionStorage: new Map(),
@@ -151,6 +161,10 @@ export class BrowserSessions {
     await this.remove(entry)
   }
 
+  publicNetworkProxy(id: string): Options["networkProxy"] {
+    return this.require(id).options.publicOnly ? this.deps.networkProxy : undefined
+  }
+
   async evaluate(id: string, expression: string, budget: RequestBudget): Promise<unknown> {
     if (!this.require(id).options.keepPage)
       throw new RequestValidationError("Session does not retain a page; create it with keepPage", 400)
@@ -177,8 +191,11 @@ export class BrowserSessions {
       storage: Map<string, [string, string][]>,
       page?: Page,
     ) => Promise<T>,
+    requirePublicOnly = false,
   ): Promise<T> {
     const entry = this.require(id)
+    if (requirePublicOnly && !entry.options.publicOnly)
+      throw new RequestValidationError("MCP requires a publicOnly session; create one through POST /sessions", 400)
     if (entry.busy) throw new RequestValidationError("Session is busy; retry after its request completes", 409)
     entry.busy = true
     let handle: BrowserHandle | undefined
@@ -212,7 +229,7 @@ export class BrowserSessions {
         const proxy = entry.options.proxy
         const trustedCa = proxy ? await budget.run(async () => this.deps.trustedProxyCa?.(proxy)) : undefined
         const pendingContext = newFreshContext(handle.browser, {
-          proxy: entry.options.proxy,
+          proxy: entry.options.publicOnly ? await budget.run(async () => this.deps.networkProxy?.(proxy)) : proxy,
           ignoreHttpsErrors: entry.options.ignoreCertificateErrors || Boolean(trustedCa),
           requestReplacement: handle.requestBrowserReplacement,
         })

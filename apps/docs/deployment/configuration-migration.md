@@ -5,6 +5,37 @@ description: Upgrade notes and environment-variable changes across TRAWL release
 
 # Configuration migration
 
+## Upgrading from v1.9.3 to v1.10.0
+
+MCP now validates and pins public destination IPs when opening HTTP and browser
+connections. If you pass a named session to MCP, recreate it through
+`POST /sessions` with `publicOnly: true`; this restriction cannot be added to an
+existing context. Background requests and retained-page eval keep the same
+public-only policy, including when that session is used through the native API.
+See [MCP sessions](/api-reference/browser-sessions#mcp).
+
+MCP uses a separate clearance cache, so its first requests may need to solve a
+challenge again. Keep existing Redis data: native clearance reuse is unchanged.
+Ordinary native API, `/v1` and MITM requests retain private-network access for
+trusted operators. These endpoints still require a private network or an
+authenticated gateway; the dashboard token does not authenticate the scraping API.
+
+For MCP or `publicOnly` sessions behind an upstream proxy, use a trusted forwarding
+proxy that honors the approved destination IP. HTTP(S) upstreams must allow
+literal-IP CONNECT to every target port, including port 80 for plain HTTP URLs.
+TRAWL's own intercepting MITM listener cannot be used as their upstream; ordinary
+native MITM use is unchanged.
+
+Offline WAF identification is enabled by default. It adds diagnostic metadata,
+logs and metrics without changing solver routing. Disable it per request with
+`detectWaf: false` or per deployment with `WAF_DETECTION_ENABLED=false`.
+
+Browser startup remains warm by default. `BROWSER_COLD_BOOT=true` is opt-in and
+can be combined with idle retirement; see the [low-resource setup](/getting-started/low-resource).
+The new native `/read` and `/extract` endpoints need no additional configuration.
+The `@trawl/client` workspace remains at 0.1.0 and is not published to npm as part
+of this release.
+
 ## Upgrading from v1.9.2 to v1.9.3
 
 No configuration changes are required. This patch preserves charset-less UTF-8

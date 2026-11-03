@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import type { BrowserPool } from "@trawl/browser"
+import { BrowserPool } from "@trawl/browser"
 import type { BrowserHandle } from "@trawl/types"
 import { SCRAPE_MAX_TIMEOUT_MS, SCRAPE_MIN_TIER } from "./config"
 import {
   createSessionCacheRecovery,
   getDeps,
   getHeadfulPool,
+  getPool,
   initPool,
   SessionCacheRecovery,
   shutdownPools,
@@ -50,6 +51,44 @@ function poolFactory(options: { failHeadful?: boolean } = {}) {
 }
 
 describe("browser pool dependencies", () => {
+  test("cold boot defers both pools and routes first requests to their owner", async () => {
+    let launches = 0
+    await initPool({
+      poolSize: 1,
+      headfulPoolSize: 1,
+      coldBoot: true,
+      initCache: async () => {},
+      createPool: (options) =>
+        new BrowserPool({
+          ...options,
+          browserFactory: async () => {
+            launches++
+            return {
+              browser: { isConnected: () => true, close: async () => {} },
+              context: { pages: () => [], close: async () => {} },
+            }
+          },
+        }),
+    })
+    try {
+      expect(launches).toBe(0)
+      expect(getPool()?.getStats()).toMatchObject({ live: 0, sleeping: 1 })
+      expect(getHeadfulPool()?.getStats()).toMatchObject({ live: 0, sleeping: 1 })
+      const deps = getDeps()
+      const handles = await Promise.all([
+        deps.acquireBrowser("example.test", 500),
+        deps.acquireBrowser("example.test", 500, { headful: true }),
+      ])
+      expect(launches).toBe(2)
+      expect(handles.map((handle) => handle.headful)).toEqual([false, true])
+      for (const handle of handles) deps.releaseBrowser(handle)
+      expect(getPool()?.getStats().available).toBe(1)
+      expect(getHeadfulPool()?.getStats().available).toBe(1)
+    } finally {
+      await shutdownPools()
+    }
+  })
+
   test("disabled headful configuration starts only the main pool and fails headful acquisition clearly", async () => {
     const factory = poolFactory()
     await initPool({ poolSize: 1, headfulPoolSize: 0, createPool: factory.createPool, initCache: async () => {} })

@@ -1,0 +1,45 @@
+export type {
+  BlockedEvidence,
+  BrowserSession,
+  CapturedResponseEntry,
+  ConsoleLogEntry,
+  Cookie,
+  CreateBrowserSession,
+  ExtractionField,
+  ExtractionOptions,
+  ExtractResponse,
+  FaviconEntry,
+  HealthResponse,
+  InputCookie,
+  NetworkLogEntry,
+  PageMetadata,
+  PoolStats,
+  PoolSummary,
+  ReadOptions,
+  ReadResponse,
+  RuntimeMemory,
+  ScrapeResponse,
+  ServerInfoResponse,
+  StatsResponse,
+  SupportedMethod,
+  TierResult,
+  WafDetection,
+} from "../../types/src/api"
+export { Trawl } from "./client"
+export type { TrawlErrorDetails } from "./errors"
+export { TrawlError } from "./errors"
+export { TrawlSession } from "./sessions"
+export type {
+  EvalOptions,
+  ExtractRequest,
+  Fetch,
+  InspectRequest,
+  InspectResponse,
+  ReadRequest,
+  RequestOptions,
+  ScrapeRequest,
+  ScreenshotRequest,
+  ScreenshotResponse,
+  TrawlErrorKind,
+  TrawlOptions,
+} from "./types"

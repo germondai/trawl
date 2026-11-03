@@ -24,9 +24,18 @@ jobs:
           bun-version: 1.4.4
       - uses: actions/setup-node@v7
         with:
-          node-version: 26.12.1
+          node-version: 26.13.0
       - run: bun install --frozen-lockfile
+      - run: python3 -m unittest discover -s packages/browser/security -p 'test_*.py'
       - run: bun run verify
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Check the packed client in Node, Bun and Deno
+        run: bun scripts/check-client-package.ts
 
   browser-smoke:
     runs-on: ubuntu-latest
@@ -37,6 +46,27 @@ jobs:
           ref: ${{ inputs.ref }}
       - name: Build standard runtime
         run: docker build -f apps/api/Dockerfile -t trawl-smoke .
+      - name: Test offline WAF worker integration
+        run: >-
+          docker run --rm --network none --read-only --tmpfs /tmp:rw,size=64m
+          --memory=512m --cpus=2 --pids-limit=128
+          -v "$PWD/packages/tiers/tests:/app/packages/tiers/tests:ro"
+          --entrypoint bun trawl-smoke test packages/tiers/tests/waf.test.ts
+      - name: Test MCP egress with owned offline fixtures
+        run: |
+          for transport in bun wreq; do
+            docker run --rm --network none --read-only --tmpfs /tmp:rw,size=256m \
+              --memory=2g --memory-swap=2g --shm-size=256m --cpus=2 --pids-limit=512 \
+              --ulimit nofile=1024:1024 --ulimit fsize=16777216:16777216 \
+              --cap-drop ALL --security-opt no-new-privileges \
+              -v "$PWD/packages/browser/tests/helpers/publicEgressBrowser.ts:/app/packages/browser/tests/helpers/publicEgressBrowser.ts:ro" \
+              -v "$PWD/apps/api/src/mcpEgress.integration.test.ts:/app/apps/api/src/mcpEgress.integration.test.ts:ro" \
+              --entrypoint /usr/bin/timeout trawl-smoke 100s \
+              /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/tmp TMPDIR=/tmp \
+              CAMOUFOX_INSTALL_DIR=/opt/camoufox METRICS_DB_PATH=:memory: \
+              TRAWL_MCP_EGRESS_TESTS=1 TIER1_TRANSPORT="$transport" \
+              bun test apps/api/src/mcpEgress.integration.test.ts
+          done
       - name: Test owned browser fixtures
         run: bash scripts/browser-smoke.sh trawl-smoke
       - name: Test native TLS transport with owned browser fixtures

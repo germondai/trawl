@@ -35,13 +35,22 @@ interface SessionTestContext extends EventEmitter {
   addInitScript(): Promise<void>
   close(): Promise<void>
 }
-function fixture(options: { maxSessions?: number; ttlMs?: number; now?: () => number } = {}) {
+function fixture(
+  options: {
+    maxSessions?: number
+    ttlMs?: number
+    now?: () => number
+    networkProxy?: (upstream?: string) => Promise<string>
+  } = {},
+) {
   const contexts: SessionTestContext[] = []
   const acquires: { browserId?: number; headful?: boolean }[] = []
   const releases: BrowserHandle[] = []
+  const contextOptions: unknown[] = []
   let retained = 0
   const browser = {
-    async newContext() {
+    async newContext(options?: unknown) {
+      contextOptions.push(options)
       const context = Object.assign(new EventEmitter(), {
         closed: false,
         jar: [] as unknown[],
@@ -115,10 +124,47 @@ function fixture(options: { maxSessions?: number; ttlMs?: number; now?: () => nu
   }
   const sessions = new BrowserSessions({ ...deps, ...options })
   managers.push(sessions)
-  return { sessions, contexts, acquires, releases, handle, deps, retained: () => retained }
+  return { sessions, contexts, contextOptions, acquires, releases, handle, deps, retained: () => retained }
 }
 
 describe("browser sessions", () => {
+  test("public-only sessions require guarded contexts while ordinary routing is preserved", async () => {
+    await expect(fixture().sessions.create({ publicOnly: true })).rejects.toThrow("unavailable")
+    const upstreams: (string | undefined)[] = []
+    const f = fixture({
+      networkProxy: async (upstream) => {
+        upstreams.push(upstream)
+        return "http://127.0.0.1:12345"
+      },
+    })
+    const guarded = await f.sessions.create({
+      id: "mcp",
+      publicOnly: true,
+      proxy: "http://operator-proxy.example:8080",
+      keepPage: true,
+    })
+    expect(guarded.publicOnly).toBe(true)
+    expect(f.contextOptions[0]).toMatchObject({ proxy: { server: "http://127.0.0.1:12345" } })
+    expect(f.sessions.options("mcp").proxy).toBe("http://operator-proxy.example:8080")
+    expect(upstreams).toEqual(["http://operator-proxy.example:8080"])
+    const ordinary = await f.sessions.create({ id: "native", proxy: "http://native-proxy.example:8080" })
+    expect(ordinary.publicOnly).toBeUndefined()
+    expect(f.contextOptions[1]).toMatchObject({ proxy: { server: "http://native-proxy.example:8080" } })
+    expect(upstreams).toHaveLength(1)
+  })
+  test("public-only admission checks the actual session entry before acquiring a browser", async () => {
+    const f = fixture({ networkProxy: async () => "http://127.0.0.1:12345" })
+    await f.sessions.create({ id: "replace", publicOnly: true })
+    await f.sessions.destroy("replace")
+    await f.sessions.create({ id: "replace" })
+    const acquires = f.acquires.length
+    await expect(f.sessions.use("replace", "a.example", budget(), async () => {}, true)).rejects.toMatchObject({
+      statusCode: 400,
+    })
+    expect(f.acquires).toHaveLength(acquires)
+    await f.sessions.use("replace", "a.example", budget(), async () => {})
+    expect(f.acquires).toHaveLength(acquires + 1)
+  })
   test("compatibility creation is idempotent and age rotation preserves fixed routing", async () => {
     let now = 1
     const f = fixture({ now: () => now })

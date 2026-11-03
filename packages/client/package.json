@@ -1,0 +1,55 @@
+{
+  "name": "@trawl/client",
+  "version": "0.1.0",
+  "description": "Typed HTTP client for the TRAWL scraping API",
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/germondai/trawl.git",
+    "directory": "packages/client"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test tests",
+    "lint:package": "publint",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "ofetch": "^1.5.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "@types/node": "^26.6.6",
+    "publint": "^0.3.25",
+    "tsdown": "^0.23.5",
+    "typescript": "^7.0.2"
+  }
+}

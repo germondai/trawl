@@ -1,4 +1,4 @@
-import type { PoolStats } from "@trawl/types"
+import type { PoolStats, StatsResponse } from "@trawl/types"
 import { Elysia } from "elysia"
 import { getHeadfulPool, getPool } from "../deps"
 
@@ -41,6 +41,6 @@ export function statsRoute(
             draining: headful.draining ?? false,
           }
         : null,
-    }
+    } satisfies StatsResponse
   })
 }

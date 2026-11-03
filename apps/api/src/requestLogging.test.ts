@@ -1,5 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test"
-import type { OrchestratorDeps } from "@trawl/tiers"
+import { type OrchestratorDeps, ScrapeError } from "@trawl/tiers"
 import type { ScrapeRequest, ScrapeResult, TierResult } from "@trawl/types"
 import { applyDomainProfile, refreshDomainProfile } from "./domainProfile"
 import { MetricsStore } from "./metrics"
@@ -16,6 +16,67 @@ const deps = (): OrchestratorDeps => ({
 })
 
 describe("request logging", () => {
+  test("logs WAF metadata and records provider metrics on success and failure", async () => {
+    const store = new MetricsStore()
+    const lines: string[] = []
+    const info = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)))
+    const errors = spyOn(console, "error").mockImplementation((line) => lines.push(String(line)))
+    const waf = {
+      engine: "wafmeow" as const,
+      version: "3.1.0",
+      state: "incomplete" as const,
+      products: ["Cloudflare"],
+      sourceTier: 1 as const,
+      durationMs: 1.25,
+    }
+    try {
+      await runLoggedScrape(
+        "native",
+        { url: "https://user:private@example.com/path?secret=1" },
+        deps(),
+        async () => ({
+          url: "https://example.com",
+          html: "private-html",
+          cookies: [],
+          userAgent: "private-agent",
+          statusCode: 200,
+          tier: 1,
+          sessionCached: false,
+          timings: [],
+          totalMs: 2,
+          waf,
+        }),
+        "owned",
+        store,
+      )
+      const error = new ScrapeError("blocked", [{ tier: 1, status: "blocked", durationMs: 2 }])
+      error.waf = waf
+      await expect(
+        runLoggedScrape(
+          "flaresolverr",
+          { url: "https://example.com" },
+          deps(),
+          async () => {
+            throw error
+          },
+          "owned-error",
+          store,
+        ),
+      ).rejects.toBe(error)
+    } finally {
+      info.mockRestore()
+      errors.mockRestore()
+    }
+    expect(
+      lines.some((line) => line.includes("event=request.success") && line.includes("wafProducts=Cloudflare")),
+    ).toBe(true)
+    expect(lines.some((line) => line.includes("event=request.failure") && line.includes("wafDurationMs=1.25"))).toBe(
+      true,
+    )
+    expect(lines.join("\n")).not.toMatch(/private|secret/)
+    expect(store.snapshot().waf.providers).toEqual([{ product: "Cloudflare", requests: 2, failures: 1 }])
+    store.close()
+  })
   test("records scraper results without changing their response", async () => {
     const store = new MetricsStore()
     const result: ScrapeResult = {

@@ -1,4 +1,4 @@
-import type { PoolStats } from "@trawl/types"
+import type { HealthResponse, PoolStats } from "@trawl/types"
 import { Elysia } from "elysia"
 import { HEADFUL_POOL_SIZE, POOL_SIZE, startTime } from "../config"
 import { getPool } from "../deps"
@@ -40,6 +40,6 @@ export function healthRoute(
           stalled: 0,
           live: 0,
         } satisfies PoolStats),
-    }
+    } satisfies HealthResponse
   })
 }
