@@ -63,6 +63,23 @@ TRAWL starts with HTTP, reuses verified clearance and opens Camoufox when a brow
         • <code>TRAWL40</code> - 40% off to ISP (Static) Proxies
       </td>
     </tr>
+    <tr>
+      <td width="30%" align="center" valign="middle">
+        <a href="https://www.thordata.com/?ls=dtw&lk=dtw" target="_blank">
+          <img width="1254" height="1254" alt="Thordata" src="https://github.com/user-attachments/assets/4804c6c7-510a-4f3f-af47-5d6151bc26f1" />
+        </a>
+      </td>
+      <td valign="middle">
+        <b><a href="https://www.thordata.com/?ls=dtw&lk=dtw" target="_blank">Thordata</a></b> - Residential Proxies & Web Data APIs<br><br>
+        <p>Give <b>TRAWL</b> reliable upstream access with <b>100M+ residential IPs across 190+ countries</b>, including city and ASN targeting.</p>
+        <b>Why <a href="https://www.thordata.com/?ls=dtw&lk=dtw" target="_blank">Thordata</a>?</b><br>
+        • <b>Residential Proxies:</b> rotating and sticky sessions for scraping and browser automation<br>
+        • <b>SERP API:</b> structured Google, Bing, and other search results for research workflows<br>
+        • <b>Web Scraper API:</b> collect public web data through a simple API<br><br>
+        <b><a href="https://trawl.germondai.com" target="_blank">TRAWL</a> users:</b><br>
+        • Start with free trial traffic and get <b>10% off</b> with code <code>TRAWL10</code>
+      </td>
+    </tr>
   </table>
 </details>
 
