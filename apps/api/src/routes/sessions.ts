@@ -25,7 +25,7 @@ export function sessionsRoute(deps = getDeps, poolReady: () => unknown = getPool
         throw new RequestValidationError("Request body must be a JSON object", 400)
       const input = body as CreateBrowserSession
       if (input.id !== undefined) validateSessionId(input.id)
-      for (const field of ["headful", "ignoreCertificateErrors", "keepPage"] as const) {
+      for (const field of ["headful", "ignoreCertificateErrors", "keepPage", "publicOnly"] as const) {
         if (input[field] !== undefined && typeof input[field] !== "boolean")
           throw new RequestValidationError(`${field} must be a boolean`, 400)
       }
@@ -39,6 +39,7 @@ export function sessionsRoute(deps = getDeps, poolReady: () => unknown = getPool
         headful: input.headful,
         ignoreCertificateErrors: input.ignoreCertificateErrors,
         keepPage: input.keepPage,
+        publicOnly: input.publicOnly,
       })
       set.status = 201
       return result

@@ -26,8 +26,10 @@ Requirements depend on the workspace:
 The scraper service runs on Bun. Its Docker runtime does not require Node.js.
 
 Camoufox stays at 152.0.4-beta.30, the newest browser supported by camoufox-js
-0.13.0. Playwright Core stays at 1.62.1 to satisfy its peer constraint. The web
-workspace uses TypeScript 6.0.3 because vue-tsc needs its JavaScript compiler API;
+0.13.0. The API images backport the eMudhra OneCRL revocations and their startup
+import until a compatible upstream browser includes both fixes. Playwright Core
+stays at 1.62.1 to satisfy its peer constraint. The web workspace uses
+TypeScript 6.0.3 because vue-tsc needs its JavaScript compiler API;
 the API and shared packages use TypeScript 7.
 
 ```bash
@@ -77,6 +79,18 @@ TRAWL_BROWSER_TESTS=1 CAMOUFOX_INSTALL_DIR=/path/to/camoufox bun test packages/b
 ```
 
 `CAMOUFOX_INSTALL_DIR` must contain the extracted browser bundle and its `version.json`.
+Apply the same security backport used by the images to a fresh extracted bundle:
+
+```bash
+python3 packages/browser/security/backport-onecrl.py "$CAMOUFOX_INSTALL_DIR"
+bun packages/browser/security/check-onecrl.ts
+```
+
+The patch checks the pinned resource hashes and rejects an unexpected or already
+patched bundle. Unlike upstream, it schedules the import before the first window
+opens, because pooled browsers have no page until a request arrives. The check requires a real Linux browser and verifies the six
+eMudhra revocations in a fresh profile with external connections blocked. Both
+API Dockerfiles run this check without network access before completing the image.
 
 Cached proxy-session integration tests cover `/scrape` and `/v1`, original proxy/cookie identity,
 external solver proxy propagation, context cleanup on deadline and the direct-session fast path.

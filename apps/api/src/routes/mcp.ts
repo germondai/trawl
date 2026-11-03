@@ -1,15 +1,15 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"
 import { PoolExhaustedError } from "@trawl/browser"
-import { RequestValidationError, ScrapeError, scrape } from "@trawl/tiers"
+import { type OrchestratorDeps, RequestValidationError, ScrapeError, scrape } from "@trawl/tiers"
 import type { ScrapeRequest, ScrapeResult } from "@trawl/types"
 import { Elysia } from "elysia"
 import * as z from "zod/v4"
 import pkg from "../../package.json"
 import { MCP_ALLOWED_ORIGINS } from "../config"
-import { getDeps, getPool } from "../deps"
+import { getDeps, getPool, publicEgress } from "../deps"
 import { type MetricsStore, metrics } from "../metrics"
-import { assertPublicHttpUrl, createPublicUrlValidator } from "../outbound-policy"
+import { assertPublicHttpUrl, parsePublicHttpUrl } from "../outbound-policy"
 import { extractPage, pageMetadata as metadata, READ_MAX_CHARACTERS, readPage } from "../pageContent"
 import { extractionOptionsShape, prepareExtractionRequest, readOptionsShape } from "../pageContent/options"
 import { runLoggedScrape } from "../requestLogging"
@@ -52,7 +52,7 @@ const baseInputShape = {
     .string()
     .regex(/^[a-zA-Z0-9_-]{1,128}$/)
     .optional()
-    .describe("Existing browser session created through POST /sessions"),
+    .describe("Existing publicOnly browser session created through POST /sessions"),
   url: z.string().min(1).describe("Public HTTP(S) URL"),
   maxTimeout: z.number().int().positive().optional().describe("Maximum operation time in milliseconds"),
   maxTier: tierSchema.optional().describe("Highest anti-bot tier TRAWL may use"),
@@ -387,18 +387,28 @@ function createServer(poolReady: () => boolean, runScrape: RunScrape, metricsSto
   return server
 }
 
+export function runMcpScrape(input: McpScrapeInput, deps: OrchestratorDeps = getDeps()): Promise<ScrapeResult> {
+  return runLoggedScrape(
+    "mcp",
+    input,
+    {
+      ...deps,
+      loadSession: (domain) => deps.loadSession(`mcp:${domain}`),
+      saveSession: (domain, data) => deps.saveSession(`mcp:${domain}`, data),
+      invalidateSession: (domain) => deps.invalidateSession(`mcp:${domain}`),
+      // URL syntax is checked here; the egress proxy resolves and pins every actual connection.
+      validateOutboundUrl: async (url: string) => void parsePublicHttpUrl(url),
+      networkProxy: deps.networkProxy ?? ((upstream?: string) => publicEgress.proxyFor(upstream)),
+    },
+    scrape,
+  )
+}
+
 export function mcpRoute({
   allowedOrigins = MCP_ALLOWED_ORIGINS,
   poolReady = () => Boolean(getPool()),
   metricsStore = metrics,
-  runScrape = (input) => {
-    const validateOutboundUrl = createPublicUrlValidator()
-    const deps = {
-      ...getDeps(),
-      validateOutboundUrl: async (url: string) => void (await validateOutboundUrl(url)),
-    }
-    return runLoggedScrape("mcp", input, deps, scrape)
-  },
+  runScrape = runMcpScrape,
 }: McpRouteOptions = {}) {
   const origins = new Set(allowedOrigins)
   const handle = async (request: Request): Promise<Response> => {

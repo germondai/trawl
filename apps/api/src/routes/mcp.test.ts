@@ -29,6 +29,31 @@ function rpc(method: string, params?: unknown, id = 1): Request {
 }
 
 describe("MCP route", () => {
+  test("rejects mapped private addresses before invoking any scraper tool", async () => {
+    let calls = 0
+    const app = mcpRoute({
+      poolReady: () => true,
+      runScrape: async () => {
+        calls++
+        return baseResult
+      },
+    })
+    for (const name of ["scrape", "scrape_url", "read", "extract", "screenshot", "inspect"]) {
+      const response = await app.handle(
+        rpc("tools/call", {
+          name,
+          arguments: {
+            url: "http://[::ffff:127.0.0.1]/",
+            ...(name === "extract" ? { fields: { text: { selector: "body" } } } : {}),
+          },
+        }),
+      )
+      const result = (await response.json()).result
+      expect(result.isError).toBe(true)
+      expect(result.content[0].text).toContain("private or local network")
+    }
+    expect(calls).toBe(0)
+  })
   test("passes opt-in WAF detection and returns its provider metadata", async () => {
     const waf = {
       engine: "wafmeow" as const,

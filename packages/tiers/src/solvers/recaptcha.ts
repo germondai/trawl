@@ -167,7 +167,7 @@ export async function solveRecaptchaV2(page: Page, timeoutMs = 30_000, signal?: 
       console.log("[recaptcha] transcribing audio (attempt", attempt, ")")
 
       const audioSignal = AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, deadline - Date.now()))])
-      const answer = await transcribeAudio(absUrl, audioSignal)
+      const answer = await transcribeAudio(absUrl, audioSignal, page, Math.max(1, deadline - Date.now()))
 
       if (!answer) {
         console.log("[recaptcha] transcription empty, refreshing audio")

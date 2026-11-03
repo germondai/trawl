@@ -328,6 +328,7 @@ export interface BrowserSession {
   expiresAt: number
   busy: boolean
   keepPage: boolean
+  publicOnly?: boolean
 }
 
 export interface CreateBrowserSession {
@@ -338,6 +339,8 @@ export interface CreateBrowserSession {
   // Opt-in page retention: one main page stays open in the session context across
   // operations, so /scrape navigates it and session eval observes its live state.
   keepPage?: boolean
+  // Isolate agent-facing sessions behind the public-destination egress policy.
+  publicOnly?: boolean
 }
 
 export interface SessionEvalRequest {

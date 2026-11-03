@@ -1,5 +1,11 @@
 import { BrowserPool, MemorySessionCache, SessionCache, type SessionCacheStore } from "@trawl/browser"
-import { type AcquireOptions, BrowserSessions, type OrchestratorDeps, WafDetector } from "@trawl/tiers"
+import {
+  type AcquireOptions,
+  BrowserSessions,
+  type OrchestratorDeps,
+  RequestValidationError,
+  WafDetector,
+} from "@trawl/tiers"
 import type { SessionData } from "@trawl/types"
 import {
   ACQUIRE_TIMEOUT_MS,
@@ -32,7 +38,8 @@ import {
   USER_PREFS,
   WAF_DETECTION_ENABLED,
 } from "./config"
-import { localProxyCa } from "./proxy/localTrust"
+import { isLocalMitmProxy, localProxyCa } from "./proxy/localTrust"
+import { PublicEgressProxy } from "./public-egress"
 import { readRuntimeMemory } from "./runtimeMemory"
 
 const state: {
@@ -43,6 +50,15 @@ const state: {
 
 const handleOwners = new WeakMap<object, BrowserPool>()
 const wafDetector = new WafDetector()
+export const publicEgress = new PublicEgressProxy({
+  validateUpstream: async (upstream) => {
+    if (await isLocalMitmProxy(upstream))
+      throw new RequestValidationError(
+        "Public-only egress cannot use TRAWL's intercepting MITM proxy; use a forwarding proxy instead",
+        400,
+      )
+  },
+})
 
 type BrowserPoolOptions = ConstructorParameters<typeof BrowserPool>[0]
 
@@ -176,6 +192,7 @@ export const shutdownPools = async (drainTimeoutMs?: number): Promise<void> => {
     state.pool?.shutdown(drainTimeoutMs),
     state.headfulPool?.shutdown(drainTimeoutMs),
   ])
+  await publicEgress.close()
 }
 
 export const initPool = async ({
@@ -235,6 +252,7 @@ export const initPool = async ({
     requireProxy: SCRAPE_MIN_TIER === 4,
     trustedProxyCa: localProxyCa,
     ttlMs: BROWSER_SESSION_TTL_SECONDS * 1_000,
+    networkProxy: (upstream) => publicEgress.proxyFor(upstream),
   })
 
   try {

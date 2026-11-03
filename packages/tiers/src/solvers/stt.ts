@@ -13,6 +13,7 @@
 
 import { randomUUID } from "node:crypto"
 import { unlink } from "node:fs/promises"
+import type { Page } from "patchright"
 import { runFfmpeg } from "./subprocess"
 
 const STT_URL = process.env.STT_URL?.trim() ?? ""
@@ -26,16 +27,34 @@ const STT_KEY = process.env.STT_API_KEY ?? ""
 const GOOGLE_STT =
   "https://www.google.com/speech-api/v2/recognize?output=json&lang=en-US&key=AIzaSyBOti4mM-6x9WDnZIjIeyEU21OpBXqWBgw"
 
-export async function transcribeAudio(audioUrl: string, signal?: AbortSignal): Promise<string | undefined> {
-  return STT_URL ? transcribeWhisper(audioUrl, signal) : transcribeGoogle(audioUrl, signal)
+export async function transcribeAudio(
+  audioUrl: string,
+  signal: AbortSignal | undefined,
+  page: Page,
+  timeoutMs: number,
+): Promise<string | undefined> {
+  // Audio URLs come from page markup; use the context's egress instead of a server-side fetch.
+  const download = async (headers: Record<string, string>) => {
+    signal?.throwIfAborted()
+    const response = await page.request.get(audioUrl, { headers, timeout: Math.max(1, timeoutMs) })
+    try {
+      signal?.throwIfAborted()
+      return new Response(new Uint8Array(await response.body()), {
+        status: response.status(),
+        headers: response.headers(),
+      })
+    } finally {
+      await response.dispose()
+    }
+  }
+  return STT_URL ? transcribeWhisper(download, signal) : transcribeGoogle(download, signal)
 }
 
-async function transcribeWhisper(audioUrl: string, signal?: AbortSignal): Promise<string | undefined> {
+type AudioDownload = (headers: Record<string, string>) => Promise<Response>
+
+async function transcribeWhisper(download: AudioDownload, signal?: AbortSignal): Promise<string | undefined> {
   try {
-    const res = await fetch(audioUrl, {
-      signal,
-      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/149" },
-    })
+    const res = await download({ "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/149" })
     if (!res.ok) return
 
     const form = new FormData()
@@ -57,21 +76,18 @@ async function transcribeWhisper(audioUrl: string, signal?: AbortSignal): Promis
 
 // Converts MP3 → FLAC via ffmpeg, sends to Google's free Speech API.
 // Tries 8000 Hz first (reCAPTCHA audio is typically low-bitrate), then 16000 Hz.
-async function transcribeGoogle(audioUrl: string, signal?: AbortSignal): Promise<string | undefined> {
+async function transcribeGoogle(download: AudioDownload, signal?: AbortSignal): Promise<string | undefined> {
   const id = randomUUID().slice(0, 8)
   const mp3 = `/tmp/trawl-${id}.mp3`
   const flac8 = `/tmp/trawl-${id}-8k.flac`
   const flac16 = `/tmp/trawl-${id}-16k.flac`
   try {
-    const res = await fetch(audioUrl, {
-      signal,
-      headers: {
-        // Use Firefox UA to match Camoufox - Google may serve different content by browser
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0",
-        Referer: "https://www.google.com/recaptcha/api2/bframe",
-        Accept: "audio/webm,audio/ogg,audio/wav,audio/*;q=0.9,application/ogg;q=0.7,video/*;q=0.6,*/*;q=0.5",
-        "Accept-Language": "en-US,en;q=0.5",
-      },
+    const res = await download({
+      // Use Firefox UA to match Camoufox - Google may serve different content by browser
+      "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0",
+      Referer: "https://www.google.com/recaptcha/api2/bframe",
+      Accept: "audio/webm,audio/ogg,audio/wav,audio/*;q=0.9,application/ogg;q=0.7,video/*;q=0.6,*/*;q=0.5",
+      "Accept-Language": "en-US,en;q=0.5",
     })
     if (!res.ok) {
       console.log("[stt] audio download failed:", res.status)

@@ -59,6 +59,7 @@ export interface LandingProbeOptions {
   // itself and validates every hop, so the guard cannot become a way to reach a host the
   // policy forbids.
   validateOutboundUrl?: OutboundUrlValidator
+  networkProxy?: (upstream?: string) => Promise<string>
 }
 
 // Resolves the host a plain HTTP fetch of `url` ends on, or null when it cannot say.
@@ -98,6 +99,7 @@ export const probeLandingHost: LandingProbe = async (url, options) => {
   const validate = options.validateOutboundUrl
   let response: Response | undefined
   try {
+    const proxy = options.networkProxy ? await options.networkProxy(options.proxy) : options.proxy
     let currentUrl = url
     for (let redirects = 0; ; redirects++) {
       await validate?.(currentUrl)
@@ -110,7 +112,7 @@ export const probeLandingHost: LandingProbe = async (url, options) => {
         // Every redirect shares one deadline. Resetting the full timeout per hop could
         // let a long chain exceed the scrape's remaining maxTimeout budget many times.
         signal: AbortSignal.timeout(remaining),
-        ...(options.proxy ? { proxy: options.proxy } : {}),
+        ...(proxy ? { proxy } : {}),
         ...(options.ignoreCertificateErrors ? { tls: { rejectUnauthorized: false } } : {}),
       })
       if (!validate || ![301, 302, 303, 307, 308].includes(response.status)) break
