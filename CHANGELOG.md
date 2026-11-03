@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Load the pinned Camoufox browser's bundled OneCRL certificate revocations at startup in standard and baseline API images. Add the six eMudhra intermediate revocations and check effective revocation state in a fresh profile during image builds.
+
 ### Added
 - Add offline WAF identification through wafmeow by default, with per-request and deployment opt-outs. Include provider metadata in native/SDK/MCP results, request logs, Prometheus counters and local dashboard history without changing solver routing (#258).
 - Document an optional low-resource setup with cold boot, idle retirement, clearance reuse and session limits; forward its lifecycle settings in all Compose variants.
