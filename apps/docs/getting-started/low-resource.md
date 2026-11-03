@@ -18,6 +18,7 @@ does not add the feature to an older image.
 Add these values to your `.env` file alongside your existing configuration:
 
 ```dotenv
+WAF_DETECTION_ENABLED=false
 BROWSER_COLD_BOOT=true
 BROWSER_IDLE_TIMEOUT_MS=1800000
 BROWSER_POOL_SIZE=1
@@ -30,6 +31,7 @@ Firefox's process preference below the tested default or changing its CPU finger
 
 | Setting | Effect | Tradeoff |
 | --- | --- | --- |
+| `WAF_DETECTION_ENABLED=false` | Disables the offline provider-identification worker | Provider diagnostics, logs and WAF counters are omitted; challenge solving is unchanged |
 | `BROWSER_COLD_BOOT=true` | Registers sleeping capacity without launching Firefox at startup | The first browser-backed request waits for startup |
 | `BROWSER_IDLE_TIMEOUT_MS=1800000` | Retires an unused browser after 30 minutes | The next browser request starts it again; its in-memory cache is lost |
 | `BROWSER_POOL_SIZE=1` | Keeps one browser slot | Browser-backed requests queue while that slot is busy; HTTP requests can still run concurrently |

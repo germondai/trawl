@@ -32,6 +32,7 @@ type McpScrapeInput = Pick<
   | "contentWaitForSelector"
   | "consoleLogs"
   | "networkLogs"
+  | "detectWaf"
   | "redirectChain"
 >
 type RunScrape = (input: McpScrapeInput) => Promise<ScrapeResult>
@@ -46,6 +47,7 @@ interface McpRouteOptions {
 const tierSchema = z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)])
 const browserTierSchema = z.union([z.literal(2), z.literal(3), z.literal(4)])
 const baseInputShape = {
+  detectWaf: z.boolean().optional().describe("Identify WAF providers offline; enabled by default, false opts out"),
   sessionId: z
     .string()
     .regex(/^[a-zA-Z0-9_-]{1,128}$/)
@@ -61,12 +63,24 @@ const metadataSchema = {
   tier: tierSchema,
   contentType: z.string(),
   totalMs: z.number(),
+  waf: z
+    .object({
+      engine: z.literal("wafmeow"),
+      version: z.string(),
+      state: z.enum(["complete", "incomplete", "unavailable"]),
+      products: z.array(z.string()),
+      sourceTier: tierSchema.optional(),
+      durationMs: z.number().nonnegative().optional(),
+      reason: z.enum(["not-installed", "timeout", "busy", "failed", "no-response"]).optional(),
+    })
+    .optional(),
 }
 const toolAnnotations = { readOnlyHint: true, openWorldHint: true } as const
 function errorResult(error: unknown) {
   let message = error instanceof Error ? error.message : String(error)
   if (error instanceof PoolExhaustedError) message = "Browser pool saturated, retry shortly"
   else if (!(error instanceof RequestValidationError || error instanceof ScrapeError)) message = "Scrape failed"
+  if (error instanceof ScrapeError && error.waf) message += `\nWAF detection: ${JSON.stringify(error.waf)}`
   return { content: [{ type: "text" as const, text: message }], isError: true }
 }
 

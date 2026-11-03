@@ -94,6 +94,7 @@ export function scrapeRoute(
           error: err.message,
           timings: err.timings,
           ...(err.blockedEvidence ? { blockedEvidence: err.blockedEvidence } : {}),
+          ...(err.waf ? { waf: err.waf } : {}),
           ...(err.captchaDiagnostics?.length ? { captchaDiagnostics: err.captchaDiagnostics } : {}),
         }
       }

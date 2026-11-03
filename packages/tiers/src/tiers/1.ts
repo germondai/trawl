@@ -29,6 +29,7 @@ import type { OutboundUrlValidator } from "../utils/outboundPolicy"
 import { normalizeProxyError, proxyResponseFailure } from "../utils/proxyFailure"
 import { decodeTextBody, isHtmlContentType, isTextContentType } from "../utils/response"
 import { tier1Transport, tier1UserAgent } from "../utils/tier1Transport"
+import type { WafEvidence } from "../utils/waf"
 
 export interface Tier1Result extends TierResult {
   tier: 1
@@ -89,6 +90,7 @@ export async function runTier1(
   sessionCookies?: HttpSessionCookies,
   timeoutMs = 60_000,
   headersTimeoutMs?: number,
+  observeResponse?: (evidence: WafEvidence) => void,
 ): Promise<Tier1Result> {
   const start = Date.now()
   const headersAbort = headersTimeoutMs === undefined ? undefined : new AbortController()
@@ -200,6 +202,7 @@ export async function runTier1(
     const contentType = responseHeaders["content-type"] ?? "application/octet-stream"
     const proxyFailure = proxy ? proxyResponseFailure(res.status, responseHeaders) : undefined
     if (proxyFailure) {
+      observeResponse?.({ statusCode: res.status, reasonPhrase: res.statusText, responseHeaders })
       await res.body?.cancel().catch(() => {})
       return {
         tier: 1,
@@ -215,6 +218,7 @@ export async function runTier1(
     }
     const awsAction = getAwsWafAction(res.status, responseHeaders)
     if (awsAction) {
+      observeResponse?.({ statusCode: res.status, reasonPhrase: res.statusText, responseHeaders })
       await res.body?.cancel().catch(() => {})
       return {
         tier: 1,
@@ -231,6 +235,7 @@ export async function runTier1(
     }
 
     if (hasCloudflareChallengeHeader(responseHeaders)) {
+      observeResponse?.({ statusCode: res.status, reasonPhrase: res.statusText, responseHeaders })
       await res.body?.cancel().catch(() => {})
       return {
         tier: 1,
@@ -256,6 +261,13 @@ export async function runTier1(
     // sequences with U+FFFD so detection helpers don't throw on non-UTF8 data.
     const previewLen = Math.min(decodedBytes.length, 65536)
     const previewText = new TextDecoder("utf-8", { fatal: false }).decode(decodedBytes.subarray(0, previewLen))
+    observeResponse?.({
+      statusCode: res.status,
+      reasonPhrase: res.statusText,
+      responseHeaders,
+      html: m === "HEAD" ? undefined : previewText,
+      htmlTruncated: previewLen < decodedBytes.length,
+    })
 
     const anubis = detectAnubisPage(anubisInspectionText(decodedBytes, previewText))
     if (anubis) {

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Add offline WAF identification through wafmeow by default, with per-request and deployment opt-outs. Include provider metadata in native/SDK/MCP results, request logs, Prometheus counters and local dashboard history without changing solver routing (#258).
 - Document an optional low-resource setup with cold boot, idle retirement, clearance reuse and session limits; forward its lifecycle settings in all Compose variants.
 - Add opt-in `BROWSER_COLD_BOOT` to defer browser launches until needed, reuse idle retirement, and coordinate initial setup across headless and headful pools (#256, #257).
 - Add the independently versioned `@trawl/client` workspace for Node.js, Bun, Deno and browser applications, with typed native scraping, session handles, optional API authorization, explicit cancellation and structured errors.

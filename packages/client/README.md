@@ -38,6 +38,12 @@ screenshots, response capture, MHTML, favicons and blocked evidence. Requests re
 `ScrapeResponse`, the JSON API representation. Its optional `body` is a numeric-keyed
 object, not a `Uint8Array`; use `html` for the decoded text.
 
+Offline WAF provider metadata appears in `page.waf` by default on supported servers.
+Set `detectWaf: false` to opt out, or disable it instance-wide with `WAF_DETECTION_ENABLED=false`.
+It identifies signatures without changing challenge solving. Failures retain the
+metadata in `TrawlError.waf`. This feature requires the server changes
+under Unreleased and its local wafmeow helper; older servers may omit the field.
+
 ### Send JSON to the target
 
 ```ts

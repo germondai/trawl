@@ -66,6 +66,24 @@ const post = (body: unknown) =>
 const blockedRequest = { url: "https://example.com", skipHttp: true, maxTier: 2, maxTimeout: 4_000 }
 
 describe("POST /scrape on a blocked outcome", () => {
+  test("returns requested WAF attribution without exposing wall evidence", async () => {
+    const waf = { engine: "wafmeow" as const, version: "3.1.0", state: "complete" as const, products: ["Example WAF"] }
+    const app = scrapeRoute(
+      () => ({ ...blockedDeps(), detectWaf: async () => waf }),
+      () => ({}),
+    )
+    const response = await app.handle(
+      new Request("http://localhost/scrape", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...blockedRequest, detectWaf: true }),
+      }),
+    )
+    expect(response.status).toBe(500)
+    const body = await response.json()
+    expect(body.waf).toEqual({ ...waf, sourceTier: 2 })
+    expect(body.blockedEvidence).toBeUndefined()
+  })
   test("records requests rejected before the scraper starts", async () => {
     const store = new MetricsStore()
     const app = scrapeRoute(blockedDeps, () => null, store)

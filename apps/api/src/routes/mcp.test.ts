@@ -29,6 +29,26 @@ function rpc(method: string, params?: unknown, id = 1): Request {
 }
 
 describe("MCP route", () => {
+  test("passes opt-in WAF detection and returns its provider metadata", async () => {
+    const waf = {
+      engine: "wafmeow" as const,
+      version: "3.1.0",
+      state: "complete" as const,
+      products: ["Cloudflare"],
+      sourceTier: 1 as const,
+    }
+    const app = mcpRoute({
+      poolReady: () => true,
+      runScrape: async (input) => {
+        expect(input.detectWaf).toBe(true)
+        return { ...baseResult, waf }
+      },
+    })
+    const response = await app.handle(
+      rpc("tools/call", { name: "scrape", arguments: { url: "https://1.1.1.1", detectWaf: true } }),
+    )
+    expect((await response.json()).result.structuredContent.waf).toEqual(waf)
+  })
   test("records scrape calls rejected before the browser pool is ready", async () => {
     const metricsStore = new MetricsStore()
     const app = mcpRoute({ poolReady: () => false, metricsStore })

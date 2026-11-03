@@ -37,8 +37,9 @@ button,input{font:inherit}button{cursor:pointer;border:1px solid #3a3a42;backgro
 <section class="panel"><h2>Failure causes</h2><p>Best-effort classification in the selected period</p><div id="categories" class="meter-list"></div></section>
 <section class="panel"><h2>Domains with failures</h2><p>Highest failure counts in the selected period</p><div class="table-scroll"><table><thead><tr><th>Domain</th><th class="number">Requests</th><th class="number">Failed</th><th class="number">Rate</th></tr></thead><tbody id="domains"></tbody></table></div></section>
 <section class="panel"><h2>Request sources</h2><p>Completed operations by entry point</p><div id="sources" class="meter-list"></div></section>
-<section class="panel wide"><div class="panel-head"><div><h2>Recent failures</h2><p>Last 50 failures in the selected period, newest first</p></div><input id="failure-search" class="failure-search" type="search" placeholder="Filter domain, cause or source" aria-label="Filter recent failures"></div><div class="table-scroll"><table><thead><tr><th>Time</th><th>Domain</th><th>Source</th><th>Tier</th><th>Status</th><th>HTTP</th><th>Cause</th><th>Severity</th></tr></thead><tbody id="recent"></tbody></table></div></section>
-<section class="panel wide"><div class="panel-head"><div><h2>Recent activity</h2><p>Last 100 completed requests in the selected period</p></div></div><div class="table-scroll"><table><thead><tr><th>Time</th><th>Domain</th><th>Source</th><th>Tier</th><th>HTTP</th><th>Duration</th><th>Outcome</th></tr></thead><tbody id="events"></tbody></table></div></section>
+<section class="panel wide"><h2>WAF providers</h2><p id="waf-summary">Provider signatures in observed responses, independent of active challenges</p><div class="table-scroll"><table><thead><tr><th>Provider</th><th class="number">Requests</th><th class="number">Failed</th><th class="number">Rate</th></tr></thead><tbody id="waf-providers"></tbody></table></div></section>
+<section class="panel wide"><div class="panel-head"><div><h2>Recent failures</h2><p>Last 50 failures in the selected period, newest first</p></div><input id="failure-search" class="failure-search" type="search" placeholder="Filter domain, cause, provider or source" aria-label="Filter recent failures"></div><div class="table-scroll"><table><thead><tr><th>Time</th><th>Domain</th><th>Source</th><th>Tier</th><th>Status</th><th>HTTP</th><th>Cause</th><th>WAF</th><th>Severity</th></tr></thead><tbody id="recent"></tbody></table></div></section>
+<section class="panel wide"><div class="panel-head"><div><h2>Recent activity</h2><p>Last 100 completed requests in the selected period</p></div></div><div class="table-scroll"><table><thead><tr><th>Time</th><th>Domain</th><th>Source</th><th>Tier</th><th>HTTP</th><th>Duration</th><th>WAF</th><th>Outcome</th></tr></thead><tbody id="events"></tbody></table></div></section>
 </div><p class="footnote" id="history-note">Hostnames only · local history · no remote telemetry</p><p class="footnote">Only scrape calls that reach TRAWL appear here. Requests sent directly to a target by another application are outside this history.</p>
 </main>
 <script>
@@ -68,7 +69,7 @@ function drawRows(id, items, emptyMessage) {
   if (!items.length) {
     const row = element('tr');
     const cell = element('td', 'muted', emptyMessage);
-    cell.colSpan = id === 'recent' ? 8 : id === 'events' ? 7 : 4;
+    cell.colSpan = body.closest('table').querySelectorAll('thead th').length;
     row.append(cell);
     body.append(row);
     return;
@@ -76,7 +77,7 @@ function drawRows(id, items, emptyMessage) {
   for (const item of items) {
     const row = element('tr');
     for (let i = 0; i < item.length; i++) {
-      const cell = element('td', i > 0 && id === 'domains' ? 'number' : '', item[i]);
+      const cell = element('td', i > 0 && (id === 'domains' || id === 'waf-providers') ? 'number' : '', item[i]);
       row.append(cell);
     }
     body.append(row);
@@ -217,15 +218,20 @@ function drawMeters(data) {
   for (const [source, count] of sources) sourceRoot.append(meter(sourceNames[source] ?? source, count, maxSource, number(count), 'source'));
 }
 
+function wafLabel(waf) {
+  if (!waf) return '-';
+  return waf.products.length ? waf.products.join(', ') : waf.state === 'unavailable' ? 'Unavailable: ' + (waf.reason ?? 'unknown') : 'No match';
+}
+
 function drawFailures() {
   if (!currentData) return;
   const query = byId('failure-search').value.trim().toLowerCase();
   const entries = currentData.recentFailures.filter(item =>
-    !query || [item.domain, item.source, item.category, item.severity].some(value => value.includes(query))
+    !query || [item.domain, item.source, item.category, item.severity, wafLabel(item.waf)].some(value => String(value ?? '').toLowerCase().includes(query))
   );
   drawRows('recent', entries.map(item => [
     new Date(item.at).toLocaleString(), item.domain, item.source,
-    item.tier ?? '-', item.tierStatus ?? '-', item.statusCode ?? '-', item.category, item.severity
+    item.tier ?? '-', item.tierStatus ?? '-', item.statusCode ?? '-', item.category, wafLabel(item.waf), item.severity
   ]), query ? 'No matching failures' : 'No failures recorded');
 }
 
@@ -241,9 +247,14 @@ function render(data) {
     item.domain, number(item.requests), number(item.failures), Math.round(item.failures / item.requests * 100) + '%'
   ]), 'No failing domains');
   drawFailures();
+  const waf = data.waf;
+  drawRows('waf-providers', (waf?.providers ?? []).map(item => [
+    item.product, number(item.requests), number(item.failures), Math.round(item.failures / item.requests * 100) + '%'
+  ]), 'No provider signatures recorded');
+  byId('waf-summary').textContent = waf ? number(waf.observations) + ' observations · ' + number(waf.states.incomplete) + ' incomplete · ' + number(waf.states.unavailable) + ' unavailable · ' + waf.averageMs + ' ms mean detection time. Provider signatures do not prove an active block.' : 'No WAF observations in this period';
   drawRows('events', data.recentEvents.map(item => [
     new Date(item.at).toLocaleString(), item.domain, item.source, item.tier ?? '-',
-    item.statusCode ?? '-', number(item.durationMs) + ' ms', item.success ? 'Success' : (item.category ?? 'Failure')
+    item.statusCode ?? '-', number(item.durationMs) + ' ms', wafLabel(item.waf), item.success ? 'Success' : (item.category ?? 'Failure')
   ]), 'No requests recorded in this period');
   byId('history-note').textContent = 'Hostnames only · local history' + (data.startedAt ? ' since ' + new Date(data.startedAt).toLocaleString() : ' starts with the first request') + ' · ' + number(data.retainedEvents) + ' retained events · no remote telemetry';
   byId('updated').textContent = 'Updated ' + new Date().toLocaleTimeString();

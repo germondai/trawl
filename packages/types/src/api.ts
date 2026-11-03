@@ -30,6 +30,8 @@ export type SupportedMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEA
 
 export interface ScrapeRequest {
   url: string
+  // Offline provider identification from the first retained response; never controls solving.
+  detectWaf?: boolean
   maxTimeout?: number
   skipHttp?: boolean
   // Solve embedded form widgets after clearing access challenges. Defaults to true.
@@ -181,7 +183,18 @@ export interface TierResult {
   reason?: string
 }
 
+export interface WafDetection {
+  engine: "wafmeow"
+  version: string
+  state: "complete" | "incomplete" | "unavailable"
+  products: string[]
+  sourceTier?: 1 | 2 | 3 | 4
+  durationMs?: number
+  reason?: "not-installed" | "timeout" | "busy" | "failed" | "no-response"
+}
+
 export interface ScrapeResponse {
+  waf?: WafDetection
   url: string
   html: string
   cookies: Cookie[]
@@ -235,6 +248,7 @@ export interface ScrapeResponse {
 }
 
 export interface PageMetadata {
+  waf?: WafDetection
   url: string
   statusCode: number
   tier: 1 | 2 | 3 | 4

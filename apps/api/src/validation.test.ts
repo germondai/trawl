@@ -68,6 +68,7 @@ describe("API request validation", () => {
   })
 
   for (const field of [
+    "detectWaf",
     "solveEmbeddedCaptchas",
     "consoleLogs",
     "networkLogs",

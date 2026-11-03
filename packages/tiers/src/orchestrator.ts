@@ -1,6 +1,14 @@
 import type { BrowserHandle } from "@trawl/browser"
 import { FINGERPRINT, FINGERPRINT_POOL, PoolExhaustedError } from "@trawl/browser"
-import type { BlockedEvidence, Cookie, ScrapeRequest, ScrapeResult, SessionData, TierResult } from "@trawl/types"
+import type {
+  BlockedEvidence,
+  Cookie,
+  ScrapeRequest,
+  ScrapeResult,
+  SessionData,
+  TierResult,
+  WafDetection,
+} from "@trawl/types"
 import type { BrowserSessions } from "./browserSessions"
 import { type ExternalCaptchaOptions, ExternalCaptchaSession } from "./solvers/externalCaptcha"
 import { runTier1, type Tier1Result } from "./tiers/1"
@@ -19,6 +27,7 @@ import { type ProxyPool, proxyIdentity } from "./utils/proxyRotator"
 import { isHtmlContentType } from "./utils/response"
 import { RequestValidationError, requireContentTypeForBody, sanitizeHeaders } from "./utils/sanitize"
 import { tier1UserAgent } from "./utils/tier1Transport"
+import { snapshotWafEvidence, type WafEvidence, wafUnavailable } from "./utils/waf"
 
 // Bounds how many distinct proxies a single request will try per tier before giving up -
 // keeps a long proxy list from blowing the request's maxTimeout budget.
@@ -37,6 +46,7 @@ export class ScrapeError extends Error {
   // scrape, and callers keyed on the success shape must never be handed one.
   blockedEvidence?: BlockedEvidence
   captchaDiagnostics?: { kind: string; status: string }[]
+  waf?: WafDetection
   constructor(
     message: string,
     timings: TierResult[],
@@ -82,6 +92,8 @@ export interface OrchestratorDeps {
   landingProbe?: LandingProbe
   // Supplies a private CA only for an explicitly recognized, local proxy listener.
   trustedProxyCa?: (proxyUrl: string) => Promise<string | undefined>
+  detectWaf?: (evidence: string, timeoutMs: number, signal: AbortSignal) => Promise<WafDetection>
+  wafDetectionEnabled?: boolean
 }
 
 interface OrchestratorRunners {
@@ -117,6 +129,8 @@ export async function scrape(
   deps: OrchestratorDeps,
   runners: OrchestratorRunners = {},
 ): Promise<ScrapeResult> {
+  const started = Date.now()
+  req = { ...req, detectWaf: deps.wafDetectionEnabled !== false && (req.detectWaf ?? Boolean(deps.detectWaf)) }
   const budget = new RequestBudget(req.maxTimeout ?? deps.defaultMaxTimeout ?? 60_000)
   const attempts: TierResult[] = []
   let ownedHandle: BrowserHandle | undefined
@@ -127,12 +141,14 @@ export async function scrape(
   }
   let acquiring = false
   let capacityExpired = false
+  let wafResult: Promise<WafDetection> | undefined
+  const diagnose = () => wafResult ?? Promise.resolve(wafUnavailable("no-response"))
   const onAbort = () => {
     capacityExpired = acquiring
   }
   budget.signal.addEventListener("abort", onAbort, { once: true })
   try {
-    return await budget.run(() =>
+    const result = await budget.run(() =>
       scrapeWithinBudget(
         req,
         {
@@ -159,15 +175,32 @@ export async function scrape(
         },
         runners,
         budget,
+        req.detectWaf
+          ? (evidence) => {
+              if (wafResult || (!evidence.statusCode && evidence.html === undefined && !evidence.responseHeaders))
+                return
+              // Start alongside escalation so an exhausted solve budget can still report the original wall.
+              wafResult = Promise.resolve()
+                .then(() => deps.detectWaf?.(snapshotWafEvidence(evidence), budget.remaining(), budget.signal))
+                .then((result) => ({ ...(result ?? wafUnavailable("not-installed")), sourceTier: evidence.tier }))
+                .catch(() => wafUnavailable("failed"))
+            }
+          : undefined,
       ),
     )
+    if (req.detectWaf) {
+      result.waf = await diagnose()
+      result.totalMs = Date.now() - started
+    }
+    return result
   } catch (error) {
     if (error instanceof DeadlineError) {
       if (ownedHandle) releaseOwned(ownedHandle)
       if (capacityExpired) throw new PoolExhaustedError()
-      throw new ScrapeError(error.message, attempts)
     }
-    throw error
+    const failure = error instanceof DeadlineError ? new ScrapeError(error.message, attempts) : error
+    if (req.detectWaf && failure instanceof ScrapeError) failure.waf = await diagnose()
+    throw failure
   } finally {
     budget.signal.removeEventListener("abort", onAbort)
     budget.dispose()
@@ -179,6 +212,7 @@ async function scrapeWithinBudget(
   deps: OrchestratorDeps,
   runners: OrchestratorRunners,
   budget: RequestBudget,
+  observeResponse?: (evidence: WafEvidence & { tier: TierResult["tier"] }) => void,
 ): Promise<ScrapeResult> {
   const totalStart = Date.now()
   const namedSession = req.sessionId ? deps.sessions?.options(req.sessionId) : undefined
@@ -236,14 +270,16 @@ async function scrapeWithinBudget(
     favicons: req.favicons,
     settleTimeout: req.settleTimeout,
     waitForSelector: req.waitForSelector,
-    blockedEvidence: req.blockedEvidence
-      ? {
-          screenshot: req.screenshot,
-          report: (evidence: BlockedEvidence) => {
-            blockedEvidence = evidence
-          },
-        }
-      : undefined,
+    blockedEvidence:
+      req.blockedEvidence || req.detectWaf
+        ? {
+            screenshot: req.blockedEvidence ? req.screenshot : undefined,
+            report: (evidence: BlockedEvidence) => {
+              if (req.blockedEvidence) blockedEvidence = evidence
+              observeResponse?.(evidence)
+            },
+          }
+        : undefined,
     mhtml: req.mhtml,
   }
 
@@ -251,6 +287,7 @@ async function scrapeWithinBudget(
   requireContentTypeForBody(sanitizedHeaders, Boolean(req.body))
 
   const emit = (r: InternalTierResult) => {
+    observeResponse?.(r)
     const publicResult: TierResult = {
       tier: r.tier,
       status: r.status,
@@ -445,6 +482,7 @@ async function scrapeWithinBudget(
         (maxTier >= 3 || (maxTier >= 2 && Boolean(session) && !ignoreCertificateErrors))
         ? Math.min(10_000, httpTimeout)
         : undefined,
+      observeResponse ? (evidence) => observeResponse({ ...evidence, tier: 1 }) : undefined,
     )
     if (
       httpSession &&

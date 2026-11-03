@@ -27,6 +27,26 @@ function fixture(handler: (request: Request) => Response | Promise<Response>) {
 }
 
 describe("TRAWL client", () => {
+  test("forwards opt-in WAF detection and preserves metadata on success and failure", async () => {
+    const waf = {
+      engine: "wafmeow" as const,
+      version: "3.1.0",
+      state: "incomplete" as const,
+      products: ["Cloudflare"],
+      sourceTier: 1 as const,
+    }
+    const { client, requests } = fixture(() => Response.json({ ...page, waf }))
+    expect((await client.scrape({ url: page.url, detectWaf: true })).waf).toEqual(waf)
+    expect(await requests[0]?.json()).toMatchObject({ detectWaf: true })
+    const failed = fixture(() => Response.json({ error: "blocked", waf }, { status: 500 })).client
+    try {
+      await failed.scrape({ url: page.url, detectWaf: true })
+      throw new Error("Expected API failure")
+    } catch (error) {
+      expect(error).toBeInstanceOf(TrawlError)
+      expect((error as TrawlError).waf).toEqual(waf)
+    }
+  })
   test.each([{ body: { query: "žluťoučký 🚀", nested: { active: true } } }, { body: ["one", { value: 2 }] }])(
     "serializes target JSON bodies without changing caller options",
     async ({ body }) => {

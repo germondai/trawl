@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { PoolStats } from "@trawl/types"
+import { MetricsStore } from "../metrics"
 import { metricsRoute, renderMetrics } from "./metrics"
 
 const stats = (over: Partial<PoolStats> = {}): PoolStats => ({
@@ -24,6 +25,30 @@ const value = (body: string, name: string): number => {
 }
 
 describe("GET /metrics", () => {
+  test("exports WAF counters without dashboard storage or target labels", async () => {
+    const store = new MetricsStore(false)
+    store.record({
+      source: "native",
+      url: "https://private.example/secret",
+      statusCode: 200,
+      durationMs: 10,
+      waf: {
+        engine: "wafmeow",
+        version: "3.1.0",
+        state: "complete",
+        products: ['Provider "quoted"\nname'],
+        durationMs: 2,
+      },
+    })
+    const response = await metricsRoute(() => stats(), store).handle(new Request("http://localhost/metrics"))
+    const body = await response.text()
+    expect(body).toContain('trawl_waf_detections_total{state="complete"} 1')
+    expect(body).toContain(
+      'trawl_waf_provider_requests_total{provider="Provider \\"quoted\\"\\nname",outcome="success"} 1',
+    )
+    expect(body).toContain("trawl_waf_detection_duration_seconds_total 0.002")
+    expect(body).not.toMatch(/private|secret|domain=/)
+  })
   test("serves the Prometheus text exposition content type", async () => {
     const response = await metricsRoute(() => stats()).handle(new Request("http://localhost/metrics"))
 
