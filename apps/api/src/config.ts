@@ -41,6 +41,7 @@ export const parseBrowserHardwareConcurrency = (value: string | undefined): numb
 }
 
 export const PORT = integerInRange(process.env.PORT, 8_191, 1, 65_535)
+export const WAF_DETECTION_ENABLED = !/^(0|false|no)$/i.test(process.env.WAF_DETECTION_ENABLED?.trim() ?? "")
 export const POOL_SIZE = positiveInteger(process.env.BROWSER_POOL_SIZE, 1)
 // How long acquire() will poll for a free browser before rejecting with PoolExhaustedError.
 // Tune lower for fast-fail feedback; tune higher to let a small pool absorb longer browser queues.

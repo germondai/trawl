@@ -57,3 +57,4 @@ export {
   sanitizeHeaders,
 } from "./utils/sanitize"
 export { TIER1_TRANSPORT, verifyTier1Transport } from "./utils/tier1Transport"
+export { WafDetector } from "./utils/waf"

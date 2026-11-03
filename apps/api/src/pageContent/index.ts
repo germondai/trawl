@@ -26,6 +26,7 @@ export function pageMetadata(result: ScrapeResult): PageMetadata {
     tier: result.tier,
     contentType: pageContentType(result),
     totalMs: result.totalMs,
+    ...(result.waf ? { waf: result.waf } : {}),
   }
 }
 

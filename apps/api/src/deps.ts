@@ -1,5 +1,5 @@
 import { BrowserPool, MemorySessionCache, SessionCache, type SessionCacheStore } from "@trawl/browser"
-import { type AcquireOptions, BrowserSessions, type OrchestratorDeps } from "@trawl/tiers"
+import { type AcquireOptions, BrowserSessions, type OrchestratorDeps, WafDetector } from "@trawl/tiers"
 import type { SessionData } from "@trawl/types"
 import {
   ACQUIRE_TIMEOUT_MS,
@@ -30,6 +30,7 @@ import {
   SHUTDOWN_DRAIN_MS,
   STALL_TIMEOUT_MS,
   USER_PREFS,
+  WAF_DETECTION_ENABLED,
 } from "./config"
 import { localProxyCa } from "./proxy/localTrust"
 import { readRuntimeMemory } from "./runtimeMemory"
@@ -41,6 +42,7 @@ const state: {
 } = {}
 
 const handleOwners = new WeakMap<object, BrowserPool>()
+const wafDetector = new WafDetector()
 
 type BrowserPoolOptions = ConstructorParameters<typeof BrowserPool>[0]
 
@@ -169,6 +171,7 @@ const initSessionCache = (): Promise<void> => sessionCacheRecovery?.start() ?? P
 export const shutdownPools = async (drainTimeoutMs?: number): Promise<void> => {
   await state.sessions?.shutdown()
   await Promise.all([
+    wafDetector.close(),
     sessionCacheRecovery?.stop(),
     state.pool?.shutdown(drainTimeoutMs),
     state.headfulPool?.shutdown(drainTimeoutMs),
@@ -293,5 +296,7 @@ export const getDeps = (): OrchestratorDeps => {
     minTier: SCRAPE_MIN_TIER,
     defaultMaxTimeout: SCRAPE_MAX_TIMEOUT_MS,
     externalCaptcha: EXTERNAL_CAPTCHA,
+    detectWaf: (evidence, timeoutMs, signal) => wafDetector.detect(evidence, timeoutMs, signal),
+    wafDetectionEnabled: WAF_DETECTION_ENABLED,
   }
 }

@@ -23,6 +23,7 @@ export type {
   StatsResponse,
   SupportedMethod,
   TierResult,
+  WafDetection,
 } from "../../types/src/api"
 export { Trawl } from "./client"
 export type { TrawlErrorDetails } from "./errors"

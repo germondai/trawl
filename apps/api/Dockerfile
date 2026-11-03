@@ -1,3 +1,11 @@
+FROM --platform=$BUILDPLATFORM golang:1.26.5-alpine AS wafmeow
+WORKDIR /build
+COPY tools/wafmeow/ ./
+ARG TARGETARCH
+RUN go mod download
+RUN --network=none go test ./...
+RUN --network=none GOOS=linux GOARCH=$TARGETARCH sh build.sh
+
 # Stage 1: install workspace deps (runs natively on build host)
 FROM oven/bun:1.4.4 AS deps
 WORKDIR /app
@@ -152,6 +160,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /usr/share/locale /usr/share/doc /usr/share/man
 
 COPY --from=bun-runtime     /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=wafmeow /build/dist/ /opt/trawl-waf/
 COPY --link --from=camoufox   /opt/camoufox      /opt/camoufox
 COPY --from=deps              /app/node_modules  /app/node_modules
 

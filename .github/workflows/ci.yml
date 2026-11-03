@@ -45,6 +45,12 @@ jobs:
           ref: ${{ inputs.ref }}
       - name: Build standard runtime
         run: docker build -f apps/api/Dockerfile -t trawl-smoke .
+      - name: Test offline WAF worker integration
+        run: >-
+          docker run --rm --network none --read-only --tmpfs /tmp:rw,size=64m
+          --memory=512m --cpus=2 --pids-limit=128
+          -v "$PWD/packages/tiers/tests:/app/packages/tiers/tests:ro"
+          --entrypoint bun trawl-smoke test packages/tiers/tests/waf.test.ts
       - name: Test owned browser fixtures
         run: bash scripts/browser-smoke.sh trawl-smoke
       - name: Test native TLS transport with owned browser fixtures
