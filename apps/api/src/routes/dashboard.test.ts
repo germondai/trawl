@@ -47,6 +47,8 @@ describe("local metrics dashboard", () => {
     expect(real.requests).toBe(1)
     expect(real.retainedEvents).toBe(1)
     expect(real.domains[0].domain).toBe("real.example")
+    expect(real.waf.observations).toBe(0)
+    expect(html).toContain("WAF providers")
     store.close()
   })
 
