@@ -131,6 +131,8 @@ try {
 creation snapshot; use `trawl.sessions.list()` for current metadata. The server
 controls session expiry and concurrency: operations in one session must be
 sequential, and a busy session can return HTTP 409. Eval requires `keepPage: true`.
+Create sessions intended for MCP with `publicOnly: true`; ordinary sessions keep
+trusted-operator access to private targets and cannot be used by MCP.
 
 For a saved ID, use `trawl.sessions.scrape(id, options)`, `.eval(id, expression)`,
 `.cookies(id)` and `.destroy(id)`. Session creation and deletion are not retried.

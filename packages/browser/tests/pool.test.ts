@@ -620,7 +620,10 @@ describe("Firefox launch preferences", () => {
       const pool = new BrowserPool({ poolSize: 1, virtualDisplay: ${virtualDisplay}, userPrefs: {
         "network.dns.blockDotOnion": false,
         "network.proxy.failover_direct": true,
+        "network.proxy.no_proxies_on": "*",
         "network.proxy.socks_remote_dns": false,
+        "network.proxy.allow_hijacking_localhost": false,
+        "media.peerconnection.ice.proxy_only_if_behind_proxy": false,
         "test.string": "value",
         "test.integer": 7,
       }})
@@ -636,7 +639,10 @@ describe("Firefox launch preferences", () => {
     expect(options.prefs).toMatchObject({
       "network.dns.blockDotOnion": false,
       "network.proxy.failover_direct": false,
+      "network.proxy.no_proxies_on": "",
       "network.proxy.socks_remote_dns": true,
+      "network.proxy.allow_hijacking_localhost": true,
+      "media.peerconnection.ice.proxy_only_if_behind_proxy": true,
       "test.string": "value",
       "test.integer": 7,
       "dom.ipc.processCount": 2,

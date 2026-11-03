@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- Pin MCP HTTP and browser connections to validated public IPs, including through upstream proxies. Isolate MCP clearance caching and require `publicOnly` named sessions; native operator access to local targets remains available.
+- Apply numeric subnet checks to the MCP outbound URL policy, including IPv4-mapped IPv6 addresses and equivalent IPv6 spellings.
 - Load the pinned Camoufox browser's bundled OneCRL certificate revocations at startup in standard and baseline API images. Add the six eMudhra intermediate revocations and check effective revocation state in a fresh profile during image builds.
 
 ### Added

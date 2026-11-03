@@ -91,6 +91,7 @@ export async function runTier1(
   timeoutMs = 60_000,
   headersTimeoutMs?: number,
   observeResponse?: (evidence: WafEvidence) => void,
+  networkProxy?: string,
 ): Promise<Tier1Result> {
   const start = Date.now()
   const headersAbort = headersTimeoutMs === undefined ? undefined : new AbortController()
@@ -139,7 +140,7 @@ export async function runTier1(
           // Tier 1 feeds the MITM proxy, so its body must keep the same encoded
           // representation described by Content-Encoding, validators, and ranges.
           decompress: false,
-          ...(proxy ? { proxy } : {}),
+          ...(networkProxy || proxy ? { proxy: networkProxy ?? proxy } : {}),
           ...(trustedProxyCa ? { tls: { ca: [...rootCertificates, trustedProxyCa] } } : {}),
           ...(insecure ? { tls: { rejectUnauthorized: false } } : {}),
         })
@@ -200,7 +201,7 @@ export async function runTier1(
     const setCookies = res.headers.getSetCookie()
     if (setCookies.length > 0) responseHeaders["set-cookie"] = setCookies.join("\n")
     const contentType = responseHeaders["content-type"] ?? "application/octet-stream"
-    const proxyFailure = proxy ? proxyResponseFailure(res.status, responseHeaders) : undefined
+    const proxyFailure = proxy || networkProxy ? proxyResponseFailure(res.status, responseHeaders) : undefined
     if (proxyFailure) {
       observeResponse?.({ statusCode: res.status, reasonPhrase: res.statusText, responseHeaders })
       await res.body?.cancel().catch(() => {})

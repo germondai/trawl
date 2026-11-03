@@ -27,6 +27,7 @@ Creation options:
 | `proxy`                   | Configured proxy pool, otherwise direct | HTTP, HTTPS or SOCKS5 URL; fixed for the life of the session            |
 | `headful`                 | `false`                                 | Use the headful pool; requires `BROWSER_HEADFUL_POOL_SIZE > 0`          |
 | `ignoreCertificateErrors` | `false`                                 | Context TLS policy; certificate verification remains enabled by default |
+| `publicOnly`              | `false`                                 | Restrict all context connections to public IPs; required for MCP       |
 | `keepPage`                | `false`                                 | Keep one main page open across operations; enables session eval         |
 
 Use `POST /sessions/:id/scrape` with ordinary `/scrape` options, including POST bodies, screenshots and diagnostics. The session must already exist. The ID comes from the URL, so omit `sessionId` from the body; if provided, it must match the URL or the request returns 400. `POST /scrape` with the same `sessionId` remains equivalent, including session isolation, fixed proxy/TLS policy, busy handling and deadlines.
@@ -44,7 +45,7 @@ curl http://localhost:8191/sessions
 curl -X DELETE http://localhost:8191/sessions/account
 ```
 
-`GET /sessions` returns `{ "sessions": [...] }` with ID, timestamps, busy state and the `keepPage` flag only. It does not expose cookies or proxy credentials. `DELETE /sessions/:id` closes the context and returns `{ "status": "ok" }`.
+`GET /sessions` returns `{ "sessions": [...] }` with ID, timestamps, busy state and the `keepPage` flag, plus `publicOnly: true` when enabled. It does not expose cookies or proxy credentials. `DELETE /sessions/:id` closes the context and returns `{ "status": "ok" }`.
 
 ## Kept pages: eval and cookies
 
@@ -101,7 +102,11 @@ Repeated `sessions.create` calls with the same ID reuse the existing session. Na
 
 ## MCP
 
-Create the session through the native API, then pass its `sessionId` to `scrape`, `read`, `extract`, `screenshot` or `inspect`. Existing public URL restrictions still apply. MCP does not expose login credentials or a POST login tool; perform authentication through `/scrape` first.
+Create a session with `POST /sessions` and `{"publicOnly":true}` before passing its `sessionId` to `scrape`, `read`, `extract`, `screenshot` or `inspect`. MCP rejects ordinary sessions because they may already contain unrestricted pages or background requests. Existing sessions must be recreated with this option; it cannot be added to a live context.
+
+Public-only sessions resolve and validate destinations at connection time through a local forwarding proxy. Redirects, subresources, popups, background requests and retained-page eval use that same policy. HTTPS keeps the target hostname and the session's certificate policy; configured upstream proxies receive approved literal destination IPs. This option also applies when the session is used through native API or `/v1`.
+
+MCP does not expose login credentials or a POST login tool. Authenticate through `/sessions/:id/scrape` first, on the public-only session. The SDK accepts the same creation option: `trawl.sessions.create({ publicOnly: true, keepPage: true })`.
 
 ## Limits and lifecycle
 
@@ -114,3 +119,5 @@ Create the session through the native API, then pass its `sessionId` to `scrape`
 - A live session postpones idle retirement and count-based recycling of its browser, without holding a pool lease while idle. The container memory guard and crash recovery remain active. If the browser is replaced, the context closes and the session becomes unavailable (404 or 410); create a new session and authenticate again.
 - A request deadline invalidates its context before capacity is reused, because a timed out operation may still be changing storage. A failed page request without a deadline does not discard the session automatically.
 - Sessions live in the current process, are not saved in Redis and do not survive a TRAWL restart. Use the same instance for creation and subsequent requests. These endpoints use the same trusted-network access model as `/scrape` and `/v1`; a session ID grants access to its stored login state.
+
+Public-only egress requires a trusted forwarding upstream that honors the CONNECT destination IP. HTTP(S) upstreams must allow literal-IP CONNECT to every target port, including port 80 for plain HTTP URLs; ordinary HTTP forwarding alone is insufficient. TRAWL's own intercepting MITM listener is rejected for MCP and `publicOnly` sessions because it routes by the HTTP hostname instead; ordinary native MITM use is unchanged.

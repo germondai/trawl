@@ -24,7 +24,10 @@ const LAUNCH_TIMEOUT_MS = 90_000
 /** Firefox must neither bypass a proxy nor resolve SOCKS destinations through host DNS. */
 export const PROXY_SAFETY_FIREFOX_PREFS = Object.freeze({
   "network.proxy.failover_direct": false,
+  "network.proxy.no_proxies_on": "",
   "network.proxy.socks_remote_dns": true,
+  "network.proxy.allow_hijacking_localhost": true,
+  "media.peerconnection.ice.proxy_only_if_behind_proxy": true,
 })
 
 type AsyncAction = () => unknown | Promise<unknown>

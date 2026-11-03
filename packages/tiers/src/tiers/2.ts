@@ -53,7 +53,7 @@ async function runTier2Task(
   let cleanup: Promise<void> | undefined
   const close = () =>
     (cleanup ??= closeTemporaryContext(
-      proxyUrl ? openingContext : (openingPage ?? page),
+      proxyUrl || capture.networkProxy ? openingContext : (openingPage ?? page),
       handle.requestBrowserReplacement,
       "tier2 page cleanup timed out",
     ))
@@ -61,9 +61,12 @@ async function runTier2Task(
   try {
     budget.check()
     disown = budget.own(close)
-    if (proxyUrl) {
+    if (proxyUrl || capture.networkProxy) {
+      const transportProxy = capture.networkProxy
+        ? await budget.run(async () => capture.networkProxy?.(proxyUrl))
+        : proxyUrl
       openingContext = newFreshContext(handle.browser, {
-        proxy: proxyUrl,
+        proxy: transportProxy,
         onCreated: handle.noteTemporaryContext,
         requestReplacement: handle.requestBrowserReplacement,
       })

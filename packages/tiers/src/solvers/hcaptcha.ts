@@ -64,7 +64,7 @@ export async function solveHcaptcha(page: Page, timeoutMs = 30_000, signal?: Abo
 
     // Step 4: image challenge appeared - try audio fallback within remaining budget
     const remaining = Math.max(0, deadline - Date.now())
-    return await solveHcaptchaAudio(page.frameLocator(CHALLENGE_FRAME).first(), widget, remaining, signal)
+    return await solveHcaptchaAudio(page.frameLocator(CHALLENGE_FRAME).first(), widget, remaining, signal, page)
   } catch (err) {
     console.log("[hcaptcha] error:", err instanceof Error ? err.message : err)
     return false
@@ -76,6 +76,7 @@ async function solveHcaptchaAudio(
   checkbox: FrameLocator,
   remainingMs: number,
   signal: AbortSignal,
+  page: Page,
 ): Promise<boolean> {
   if (remainingMs < 5000) {
     console.log("[hcaptcha] not enough time for audio attempt")
@@ -136,7 +137,7 @@ async function solveHcaptchaAudio(
     console.log(`[hcaptcha] transcribing audio (attempt ${attempt})`)
 
     const audioSignal = AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, deadline - Date.now()))])
-    const answer = await transcribeAudio(audioHref, audioSignal)
+    const answer = await transcribeAudio(audioHref, audioSignal, page, Math.max(1, deadline - Date.now()))
 
     if (!answer) {
       console.log(`[hcaptcha] transcription empty, reloading audio`)
