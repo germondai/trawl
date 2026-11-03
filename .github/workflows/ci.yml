@@ -24,7 +24,7 @@ jobs:
           bun-version: 1.4.4
       - uses: actions/setup-node@v7
         with:
-          node-version: 26.12.1
+          node-version: 26.13.0
       - run: bun install --frozen-lockfile
       - run: python3 -m unittest discover -s packages/browser/security -p 'test_*.py'
       - run: bun run verify

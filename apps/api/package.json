@@ -1,6 +1,6 @@
 {
   "name": "@trawl/api",
-  "version": "1.9.3",
+  "version": "1.10.0",
   "private": true,
   "scripts": {
     "dev": "bun run --watch src/index.ts",
@@ -14,8 +14,8 @@
     "@trawl/tiers": "workspace:*",
     "@trawl/types": "workspace:*",
     "elysia": "^1.4.30",
-    "linkedom": "^0.18.14",
-    "node-forge": "^1.4.0",
+    "linkedom": "^0.18.15",
+    "node-forge": "^1.4.2",
     "turndown": "^7.2.4",
     "zod": "^4.6.7"
   },

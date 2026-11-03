@@ -110,14 +110,14 @@ docker run -d --name trawl \
   -e MCP_ENABLED=true \
   -e METRICS_DASHBOARD_ENABLED=true \
   -v trawl_metrics:/data/metrics \
-  ghcr.io/germondai/trawl:1.9.3
+  ghcr.io/germondai/trawl:1.10.0
 
 curl http://localhost:8191/health
 ```
 
 Open [the local dashboard](http://localhost:8191/dashboard). Keep the API and MCP endpoint on a trusted network; dashboard history survives container recreation through the mounted volume.
 
-For Redis and Compose deployments, see the [quick-start guide](apps/docs/getting-started/quick-start.md) and [Compose examples](apps/docs/deployment/docker-compose.md). Use `:1.9.3-baseline` on older CPUs or NAS hardware.
+For Redis and Compose deployments, see the [quick-start guide](apps/docs/getting-started/quick-start.md) and [Compose examples](apps/docs/deployment/docker-compose.md). Use `:1.10.0-baseline` on older CPUs or NAS hardware.
 
 <details>
 <summary>Dashboard preview</summary>
@@ -164,7 +164,7 @@ Set your client's FlareSolverr URL to `http://trawl:8191` on a shared Docker net
 
 With `MCP_ENABLED=true`, connect your client using **Streamable HTTP** at `http://localhost:8191/mcp` or the TRAWL host address. Tools: `read`, `scrape`, `extract`, `screenshot` and `inspect`, plus the `scrape_url` compatibility alias.
 
-TRAWL loads known public URLs; it does not provide web search. Existing browser sessions can be reused with `sessionId`. [MCP guide](apps/docs/integrations/mcp.md).
+TRAWL loads known public URLs; it does not provide web search. Reuse browser sessions with `sessionId`; create sessions used by MCP with `publicOnly: true`. [MCP guide](apps/docs/integrations/mcp.md).
 
 ### Browser sessions
 
@@ -206,9 +206,9 @@ Enable `MITM_ENABLED=true` and point your HTTP-compatible client at port `8192`.
 
 | Tags                             | Use case                             |
 | -------------------------------- | ------------------------------------ |
-| `:latest`, `:1.9.3`              | Standard release for modern hardware |
-| `:baseline`, `:1.9.3-baseline`   | Older x86 CPUs and NAS kernels       |
-| `:nightly`, `:nightly-<dev-sha>` | Development builds from `dev`        |
+| `:latest`, `:1.10.0`             | Standard release for modern hardware |
+| `:baseline`, `:1.10.0-baseline`   | Older x86 CPUs and NAS kernels       |
+| `:nightly`, `:nightly-<dev-sha>`  | Development builds from `dev`        |
 
 All tags use `ghcr.io/germondai/trawl`. Both release variants are published for Linux AMD64 and ARM64. [Standalone containers and source builds](apps/docs/deployment/standalone.md).
 

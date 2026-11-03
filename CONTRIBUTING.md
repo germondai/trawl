@@ -20,7 +20,7 @@ For security issues, **do not open a public issue** - see [SECURITY.md](SECURITY
 Requirements depend on the workspace:
 
 - **API and shared packages:** Bun 1.4.4 is the runtime and package manager.
-- **Web and docs:** Node.js 26.12.1 runs the Nuxt and VitePress build tools; Bun installs dependencies.
+- **Web and docs:** Node.js 26.13.0 runs the Nuxt and VitePress build tools; Bun installs dependencies.
 - **Integration tests:** Docker provides Redis and the Linux browser environment.
 
 The scraper service runs on Bun. Its Docker runtime does not require Node.js.
@@ -28,9 +28,15 @@ The scraper service runs on Bun. Its Docker runtime does not require Node.js.
 Camoufox stays at 152.0.4-beta.30, the newest browser supported by camoufox-js
 0.13.0. The API images backport the eMudhra OneCRL revocations and their startup
 import until a compatible upstream browser includes both fixes. Playwright Core
-stays at 1.62.1 to satisfy its peer constraint. The web workspace uses
-TypeScript 6.0.3 because vue-tsc needs its JavaScript compiler API;
-the API and shared packages use TypeScript 7.
+stays at 1.62.1 to satisfy its peer constraint. Bundled uBlock Origin stays at
+1.75.0: versions 1.75.2 and 1.75.4 failed proxied browser readiness checks with
+this Camoufox build. The web workspace uses TypeScript 6.0.3 because vue-tsc
+needs its JavaScript compiler API; the API and shared packages use TypeScript 7.
+
+Docker builds the offline WAF worker with Go 1.27.3. Rod requires `got/lib/lcs`,
+removed in `got` 0.43.0, and the constructor API removed in `fetchup` 0.4.0; keep
+`got` at 0.42.4 and `fetchup` at 0.3.0. The module retains Go 1.26 as its minimum
+language version.
 
 ```bash
 git clone https://github.com/germondai/trawl.git
