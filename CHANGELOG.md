@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Decode Tier 1 HTML responses by their declared charset instead of always as UTF-8, so pages served as `Windows-1251` and other legacy charsets no longer return replacement characters once a cached clearance routes them through the HTTP tier.
+
 ## [1.10.0] - 2026-11-03
 
 ### Security

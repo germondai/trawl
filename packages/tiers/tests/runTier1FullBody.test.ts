@@ -85,3 +85,52 @@ describe("runTier1 - full body on success (regression #46)", () => {
     }
   })
 })
+
+describe("runTier1 - declared legacy charset", () => {
+  const cyrillic = "Ноктюрн / Nocturne / Сезон: 1"
+  const windows1251 = (text: string) =>
+    Uint8Array.from(text, (char) => {
+      const code = char.charCodeAt(0)
+      return code >= 0x410 && code <= 0x44f ? code - 0x350 : code === 0x401 ? 0xa8 : code === 0x451 ? 0xb8 : code
+    })
+  const legacyResponse = (contentType: string, body: Uint8Array) =>
+    new Response(body, { status: 200, headers: { "content-type": contentType } })
+
+  test("decodes an html body by its declared Windows-1251 charset", async () => {
+    const html = `<html><head><title>${cyrillic}</title></head><body>ok</body></html>`
+    const restore = installFetchMock(() => legacyResponse("text/html; charset=Windows-1251", windows1251(html)))
+    try {
+      const result = await runTier1("https://example.com/legacy")
+      expect(result.status).toBe("success")
+      expect(result.html).toContain(cyrillic)
+      expect(result.html).not.toContain("�")
+    } finally {
+      restore()
+    }
+  })
+
+  test("decodes a legacy charset body larger than the detection preview", async () => {
+    const filler = `<p>${"x".repeat(100)}</p>\n`.repeat(800)
+    const html = `<html><body>${filler}<h1>${cyrillic}</h1></body></html>`
+    expect(html.length).toBeGreaterThan(65536)
+    const restore = installFetchMock(() => legacyResponse("text/html; charset=windows-1251", windows1251(html)))
+    try {
+      const result = await runTier1("https://example.com/legacy-large")
+      expect(result.html).toContain(cyrillic)
+      expect(result.html).not.toContain("�")
+    } finally {
+      restore()
+    }
+  })
+
+  test("an explicit utf-8 charset keeps decoding as utf-8", async () => {
+    const html = `<html><body>${cyrillic} €</body></html>`
+    const restore = installFetchMock(() => legacyResponse("text/html; charset=UTF-8", new TextEncoder().encode(html)))
+    try {
+      const result = await runTier1("https://example.com/utf8")
+      expect(result.html).toContain(`${cyrillic} €`)
+    } finally {
+      restore()
+    }
+  })
+})
