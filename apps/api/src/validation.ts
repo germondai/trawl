@@ -115,6 +115,7 @@ export function validateScrapeRequest(body: unknown): asserts body is ScrapeRequ
     "followMetaRefresh",
     "allowShortContent",
     "favicons",
+    "httpReplay",
   ] as const) {
     if (req[field] !== undefined && typeof req[field] !== "boolean") {
       throw new RequestValidationError(`${field} must be a boolean`, 400)

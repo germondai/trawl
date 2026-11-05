@@ -443,13 +443,16 @@ async function scrapeWithinBudget(
     await deps.invalidateSession(domain)
     session = undefined
   }
+  const safeMethod = !req.method || req.method === "GET" || req.method === "HEAD"
+  const httpReplayPost = req.method === "POST" && req.httpReplay === true
+  const replayJar = httpReplayPost ? HttpSessionCookies.fromClearance : HttpSessionCookies.from
   const httpSession =
     minTier === 1 &&
     !ignoreCertificateErrors &&
     !explicitProxy &&
     !deps.proxyPool &&
     !session?.proxyId &&
-    (!req.method || req.method === "GET" || req.method === "HEAD") &&
+    (safeMethod || httpReplayPost) &&
     !req.screenshot &&
     !req.consoleLogs &&
     !req.networkLogs &&
@@ -458,12 +461,10 @@ async function scrapeWithinBudget(
     !req.contentWaitForSelector &&
     !req.favicons &&
     !req.mhtml
-      ? HttpSessionCookies.from(session, req.url)
+      ? replayJar(session, req.url)
       : undefined
   const httpOrigin = (effectiveUrl?: string) =>
-    !ignoreCertificateErrors &&
-    (!req.method || req.method === "GET" || req.method === "HEAD") &&
-    new URL(effectiveUrl ?? req.url).origin === new URL(req.url).origin
+    !ignoreCertificateErrors && safeMethod && new URL(effectiveUrl ?? req.url).origin === new URL(req.url).origin
       ? new URL(req.url).origin
       : undefined
   let headful = false
@@ -474,7 +475,8 @@ async function scrapeWithinBudget(
     // same UA for both the outbound request and the public result.
     const tier1Fingerprint = FINGERPRINT_POOL[Math.floor(Math.random() * FINGERPRINT_POOL.length)] ?? FINGERPRINT
     const httpUserAgent = httpSession && session ? session.userAgent : tier1UserAgent(tier1Fingerprint.userAgent)
-    const httpTimeout = httpSession
+    const boundedReplay = Boolean(httpSession) && !httpReplayPost
+    const httpTimeout = boundedReplay
       ? Math.max(1, Math.min(5000, Math.floor(budget.remaining() / 3)))
       : Math.max(1, budget.remaining())
     const tier1Runner = runners.tier1 ?? runTier1
@@ -487,12 +489,10 @@ async function scrapeWithinBudget(
       deps.validateOutboundUrl,
       ignoreCertificateErrors,
       trustedProxyCa,
-      httpSession ? AbortSignal.any([budget.signal, AbortSignal.timeout(httpTimeout)]) : budget.signal,
+      boundedReplay ? AbortSignal.any([budget.signal, AbortSignal.timeout(httpTimeout)]) : budget.signal,
       httpSession,
       httpTimeout,
-      !httpSession &&
-        (!req.method || req.method === "GET" || req.method === "HEAD") &&
-        (maxTier >= 3 || (maxTier >= 2 && Boolean(session) && !ignoreCertificateErrors))
+      !httpSession && safeMethod && (maxTier >= 3 || (maxTier >= 2 && Boolean(session) && !ignoreCertificateErrors))
         ? Math.min(10_000, httpTimeout)
         : undefined,
       observeResponse ? (evidence) => observeResponse({ ...evidence, tier: 1 }) : undefined,
@@ -531,6 +531,9 @@ async function scrapeWithinBudget(
     emit(crossed1 ? crossedTiming(t1, crossed1) : t1)
     if (explicitProxy && t1.status === "error" && t1.reason?.startsWith("proxy-")) {
       throw new ScrapeError(t1.reason, timings)
+    }
+    if (httpSession && httpReplayPost && !hasUsablePayload(t1) && !t1.explicitChallenge) {
+      throw failure(`POST replay ${failureReason(t1, crossed1)}; the request was not resent`)
     }
     if (hasUsablePayload(t1) && !crossed1) {
       if (httpSession && session && t1.cookies) {
