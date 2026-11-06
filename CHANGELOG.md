@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Decode Tier 1 HTML responses by their declared charset instead of always as UTF-8, so pages served as `Windows-1251` and other legacy charsets no longer return replacement characters once a cached clearance routes them through the HTTP tier (#266).
 - Accept current GeoIP snapshots below the old 50 MB threshold and validate the bundled GeoLite2-City database with its MaxMind reader during image builds.
 - Isolate the build-time OneCRL browser check in a temporary filesystem so standard and baseline images do not retain root-owned browser caches that prevent startup under a non-root UID. Run browser readiness smoke tests as UID 1000 to cover this deployment mode (#265).
 

@@ -507,14 +507,10 @@ export async function runTier1(
       // content-types. Empty for binary payloads so /scrape consumers see the body
       // is binary via the contentType field. `previewText` is bounded to 64 KiB for
       // challenge detection and must not be used as the response body - decode the
-      // full buffer, reusing the preview only when it already covers the whole body.
+      // full buffer by its declared charset.
       html: isTextContentType(contentType)
         ? isHtmlContentType(contentType)
-          ? normalizeHtml(
-              decodedBytes.length > previewLen
-                ? new TextDecoder("utf-8", { fatal: false }).decode(decodedBytes)
-                : previewText,
-            )
+          ? normalizeHtml(decodeTextBody(decodedBytes, contentType))
           : decodeTextBody(decodedBytes, contentType)
         : "",
       body: rawBytes,
