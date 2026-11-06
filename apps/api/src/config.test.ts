@@ -22,6 +22,7 @@ type ConfigSnapshot = {
   port: number
   mitmPort: number
   mitmEscalate429: boolean
+  flareSolverrCookieFallback: boolean
 }
 
 const readConfig = (overrides: Record<string, string>): ConfigSnapshot => {
@@ -49,6 +50,7 @@ const readConfig = (overrides: Record<string, string>): ConfigSnapshot => {
       port: config.PORT,
       mitmPort: config.MITM_PORT,
       mitmEscalate429: config.MITM_ESCALATE_429,
+      flareSolverrCookieFallback: config.FLARESOLVERR_COOKIE_FALLBACK,
     }))
   `
   const result = Bun.spawnSync({
@@ -57,6 +59,7 @@ const readConfig = (overrides: Record<string, string>): ConfigSnapshot => {
     env: {
       ...process.env,
       MITM_ESCALATE_429: "",
+      FLARESOLVERR_COOKIE_FALLBACK: "",
       BROWSER_HARDWARE_CONCURRENCY: "",
       USER_PREFS: "",
       SCRAPE_MAX_TIMEOUT_MS: "",
@@ -69,6 +72,11 @@ const readConfig = (overrides: Record<string, string>): ConfigSnapshot => {
 }
 
 describe("environment configuration", () => {
+  test("keeps FlareSolverr cookie fallback opt-in", () => {
+    expect(readConfig({}).flareSolverrCookieFallback).toBe(false)
+    expect(readConfig({ FLARESOLVERR_COOKIE_FALLBACK: "false" }).flareSolverrCookieFallback).toBe(false)
+    expect(readConfig({ FLARESOLVERR_COOKIE_FALLBACK: " true " }).flareSolverrCookieFallback).toBe(true)
+  })
   test("bounds shutdown drain to leave room for the forced-exit timer", () => {
     expect(readConfig({}).shutdownDrainMs).toBe(0)
     expect(readConfig({ BROWSER_SHUTDOWN_DRAIN_MS: "240000" }).shutdownDrainMs).toBe(240000)
@@ -142,6 +150,7 @@ describe("environment configuration", () => {
       port: 9000,
       mitmPort: 9001,
       mitmEscalate429: false,
+      flareSolverrCookieFallback: false,
     })
   })
 
@@ -189,6 +198,7 @@ describe("environment configuration", () => {
       port: 8191,
       mitmPort: 8192,
       mitmEscalate429: false,
+      flareSolverrCookieFallback: false,
     })
   })
 

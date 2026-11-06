@@ -82,6 +82,9 @@ if (!Number.isInteger(SCRAPE_MAX_TIMEOUT_MS) || SCRAPE_MAX_TIMEOUT_MS < 1 || SCR
   throw new Error("SCRAPE_MAX_TIMEOUT_MS must be an integer from 1 to 2147483647")
 }
 export const SCRAPE_PROXY_SELECTION = parseProxySelection(process.env.SCRAPE_PROXY_SELECTION)
+export const FLARESOLVERR_COOKIE_FALLBACK = /^(1|true|yes)$/i.test(
+  process.env.FLARESOLVERR_COOKIE_FALLBACK?.trim() ?? "",
+)
 
 // Optional extra Firefox prefs. Invalid values fail startup.
 const parseUserPrefs = (value: string | undefined): Record<string, string | number | boolean> => {

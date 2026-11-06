@@ -23,6 +23,11 @@ describe.skipIf(process.env.TRAWL_HTTP_REPLAY_TESTS !== "1")("verified generic H
           return new Response(`document.querySelector('#app').innerHTML = ${JSON.stringify(content)}`, {
             headers: { "content-type": "application/javascript" },
           })
+        if (path === "/cookie-handoff" || path === "/cookie-handoff-none")
+          return new Response(
+            `<html><head><title>Owned application</title></head><body>${content}${path === "/cookie-handoff" ? '<script>document.cookie="cf_clearance=owned-handoff; Path=/"</script>' : ""}</body></html>`,
+            { headers: { "content-type": "text/html" } },
+          )
         if (!request.headers.get("cookie")?.includes("session=owned")) {
           return new Response(
             '<html><head><title>Just a moment...</title></head><body><script>document.cookie="session=owned; Path=/";location.reload()</script></body></html>',
@@ -53,6 +58,106 @@ describe.skipIf(process.env.TRAWL_HTTP_REPLAY_TESTS !== "1")("verified generic H
   afterAll(async () => {
     await browser?.close()
     origin?.stop(true)
+  })
+
+  const handoffClient = (cookieFallback = true) => {
+    const cache = new MemorySessionCache({ ttlSeconds: 60 })
+    const metrics = new MetricsStore()
+    let checkouts = 0
+    let lastTier = 0
+    const deps: OrchestratorDeps = {
+      acquireBrowser: async () => {
+        checkouts++
+        return handle
+      },
+      releaseBrowser: () => {},
+      loadSession: (domain) => cache.load(domain),
+      saveSession: (domain, data) => cache.save(domain, data),
+      invalidateSession: (domain) => cache.invalidate(domain),
+      onTierAttempt: (attempt) => {
+        lastTier = attempt.tier
+      },
+    }
+    const app = new Elysia()
+      .use(v1Route({ cookieFallback, orchestratorDeps: () => deps, poolReady: () => true, metricsStore: metrics }))
+      .use(
+        scrapeRoute(
+          () => deps,
+          () => true,
+          metrics,
+        ),
+      )
+    const send = (route = "/v1", path = "/cookie-handoff", body: Record<string, unknown> = {}) =>
+      app.handle(
+        new Request(`http://localhost${route}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ cmd: "request.get", url: new URL(path, origin.url).href, maxTimeout: 10000, ...body }),
+        }),
+      )
+    return { send, metrics, cache, checkouts: () => checkouts, lastTier: () => lastTier }
+  }
+
+  test("/v1 cookie-handoff fallback obtains cookies once and reuses HTTP clearance", async () => {
+    const client = handoffClient()
+    const { send, metrics, cache } = client
+    try {
+      const first = await send()
+      expect(first.status).toBe(200)
+      const result = await first.json()
+      expect(result.solution.response).toContain(content)
+      expect(result.solution.cookies).toContainEqual(
+        expect.objectContaining({ name: "cf_clearance", value: "owned-handoff" }),
+      )
+      expect(client.checkouts()).toBe(1)
+      expect(client.lastTier()).toBe(3)
+      const repeat = await send()
+      expect(repeat.status).toBe(200)
+      expect((await repeat.json()).solution.cookies).toContainEqual(expect.objectContaining({ name: "cf_clearance" }))
+      expect(client.lastTier()).toBe(1)
+      expect(client.checkouts()).toBe(1)
+      expect(metrics.snapshot().requests).toBe(2)
+      expect(metrics.snapshot().failures).toBe(0)
+    } finally {
+      metrics.close()
+      cache.close()
+    }
+  }, 25000)
+
+  test("/v1 cookie-handoff fallback reports failure when the browser also returns no cookies", async () => {
+    const client = handoffClient()
+    try {
+      const response = await client.send("/v1", "/cookie-handoff-none")
+      expect(response.status).toBe(500)
+      expect(await response.json()).toMatchObject({
+        status: "error",
+        message: expect.stringContaining("no usable cookies"),
+      })
+      expect(client.checkouts()).toBe(1)
+      expect(client.metrics.snapshot()).toMatchObject({ requests: 1, failures: 1 })
+    } finally {
+      client.metrics.close()
+      client.cache.close()
+    }
+  }, 15000)
+
+  test.each([
+    { name: "disabled policy", enabled: false, route: "/v1", cmd: "request.get" },
+    { name: "POST", enabled: true, route: "/v1", cmd: "request.post" },
+    { name: "native scrape", enabled: true, route: "/scrape", cmd: "request.get" },
+  ])("cookie-handoff fallback leaves $name on the HTTP path", async ({ enabled, route, cmd }) => {
+    const client = handoffClient(enabled)
+    try {
+      const response = await client.send(route, "/cookie-handoff", { cmd })
+      expect(response.status).toBe(200)
+      const result = await response.json()
+      expect(route === "/v1" ? result.solution.cookies : result.cookies).toEqual([])
+      expect(client.checkouts()).toBe(0)
+      expect(client.metrics.snapshot()).toMatchObject({ requests: 1, failures: 0 })
+    } finally {
+      client.metrics.close()
+      client.cache.close()
+    }
   })
 
   for (const route of ["/scrape", "/v1"] as const) {

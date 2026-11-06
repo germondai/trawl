@@ -1,6 +1,18 @@
 import type { Cookie, InputCookie } from "@trawl/types"
 import { RequestValidationError } from "./sanitize"
 
+export function cookieMatchesUrl(cookie: Cookie, url: URL): boolean {
+  const domain = cookie.domain.toLowerCase()
+  const host = domain.startsWith(".") ? domain.slice(1) : domain
+  return (
+    (url.hostname === host || (domain.startsWith(".") && url.hostname.endsWith(`.${host}`))) &&
+    (!cookie.secure || url.protocol === "https:") &&
+    (cookie.expires === -1 || cookie.expires > Date.now() / 1000) &&
+    (url.pathname === cookie.path ||
+      (url.pathname.startsWith(cookie.path) && (cookie.path.endsWith("/") || url.pathname[cookie.path.length] === "/")))
+  )
+}
+
 export function normalizeInputCookies(cookies: InputCookie[], url: string) {
   if (!Array.isArray(cookies) || cookies.length > 200)
     throw new RequestValidationError("cookies must be an array of at most 200 cookies", 400)

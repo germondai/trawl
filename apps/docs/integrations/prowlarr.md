@@ -7,6 +7,17 @@ description: Connect Prowlarr to TRAWL as a FlareSolverr replacement.
 
 TRAWL implements the FlareSolverr v2 API exactly, including the `version: "2.0.0"` field that Prowlarr validates. No plugins or code changes required - it's a URL swap.
 
+## Empty cookies after a successful scrape
+
+Prowlarr uses the returned cookies and User-Agent for its own request. If TRAWL can
+retrieve the page over HTTP without cookies, Prowlarr may still report
+`Empty cookies returned by FlareSolverr`.
+
+Set `FLARESOLVERR_COOKIE_FALLBACK=true` in TRAWL's environment and recreate the container
+to try one browser-backed GET when this happens. The option is off by default and keeps
+later HTTP clearance reuse. See [Cookie Handoff](/getting-started/configuration#flaresolverr-cookie-handoff)
+for limits and cases where cookies cannot be transferred between clients.
+
 ## Setup
 
 This is the recommended FlareSolverr-compatible integration. It uses TRAWL's API on port `8191`;
