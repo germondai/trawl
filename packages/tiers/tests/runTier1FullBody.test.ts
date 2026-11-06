@@ -94,7 +94,7 @@ describe("runTier1 - declared legacy charset", () => {
       return code >= 0x410 && code <= 0x44f ? code - 0x350 : code === 0x401 ? 0xa8 : code === 0x451 ? 0xb8 : code
     })
   const legacyResponse = (contentType: string, body: Uint8Array) =>
-    new Response(body, { status: 200, headers: { "content-type": contentType } })
+    new Response(new Uint8Array(body), { status: 200, headers: { "content-type": contentType } })
 
   test("decodes an html body by its declared Windows-1251 charset", async () => {
     const html = `<html><head><title>${cyrillic}</title></head><body>ok</body></html>`
