@@ -116,6 +116,12 @@ RUN curl -fsSL \
     test "$(bun -e 'console.log(JSON.parse(await Bun.file("/opt/camoufox/addons/UBO/manifest.json").text()).version)')" = "${UBO_VERSION}" && \
     rm /tmp/ubo.xpi
 
+# Native proof-of-work solver (Rust cdylib, loaded by packages/tiers via bun:ffi)
+FROM rust:1-slim AS powsolve
+WORKDIR /src
+COPY native/powsolve/ ./
+RUN cargo build --release --locked && strip target/release/libpowsolve.so
+
 FROM oven/bun:1.4.4 AS bun-runtime
 RUN apt-get update && apt-get install -y --no-install-recommends binutils \
  && strip --strip-all /usr/local/bin/bun
@@ -153,6 +159,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 COPY --from=bun-runtime     /usr/local/bin/bun /usr/local/bin/bun
 COPY --from=wafmeow /build/dist/ /opt/trawl-waf/
+COPY --from=powsolve /src/target/release/libpowsolve.so /opt/powsolve/libpowsolve.so
 COPY --link --from=camoufox   /opt/camoufox      /opt/camoufox
 COPY --from=deps              /app/node_modules  /app/node_modules
 
