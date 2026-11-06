@@ -60,7 +60,8 @@ TRAWL starts with HTTP, reuses verified clearance and opens Camoufox when a brow
         • Unique free tools: Proxy Bandwidth Checker, Meta Tag Checker, IP Lookup and others!<br><br>
         <b>Special codes for <a href="https://trawl.germondai.com" target="_blank">TRAWL</a> users:</b><br>
         • <code>TRAWL35</code> - 35% off to Mobile and Residential Proxies<br>
-        • <code>TRAWL40</code> - 40% off to ISP (Static) Proxies
+        • <code>TRAWL40</code> - 40% off to ISP (Static) Proxies<br>
+        • <code>TRAWL2X</code> - 2X traffic for Black Friday
       </td>
     </tr>
     <tr>
