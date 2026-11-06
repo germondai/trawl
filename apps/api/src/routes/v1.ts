@@ -2,8 +2,14 @@ import { PoolExhaustedError } from "@trawl/browser"
 import { normalizeProxy, RequestValidationError, scrape, validateSessionId } from "@trawl/tiers"
 import type { FlareSolverrRequest, FlareSolverrResponse, FlareSolverrScrapeRequest } from "@trawl/types"
 import { Elysia } from "elysia"
-import { buildScrapeRequestFromFlareSolverr, flareSolverrError } from "../adapters/flaresolverr"
+import {
+  buildScrapeRequestFromFlareSolverr,
+  flareSolverrError,
+  scrapeWithCookieFallback,
+} from "../adapters/flaresolverr"
+import { FLARESOLVERR_COOKIE_FALLBACK } from "../config"
 import { getDeps, getPool } from "../deps"
+import { requestId } from "../logger"
 import { type MetricsStore, metrics } from "../metrics"
 import { runLoggedScrape } from "../requestLogging"
 import { requestUrl, validateFlareSolverrRequest } from "../validation"
@@ -14,6 +20,7 @@ interface V1RouteOptions {
   poolReady?: () => boolean
   orchestratorDeps?: typeof getDeps
   metricsStore?: MetricsStore
+  cookieFallback?: boolean
 }
 
 export function v1Route({
@@ -21,6 +28,7 @@ export function v1Route({
   poolReady = () => Boolean(getPool()),
   orchestratorDeps = getDeps,
   metricsStore = metrics,
+  cookieFallback = FLARESOLVERR_COOKIE_FALLBACK,
 }: V1RouteOptions = {}) {
   return new Elysia().post("/v1", async ({ body, set }) => {
     const startTimestamp = Date.now()
@@ -85,7 +93,15 @@ export function v1Route({
         )
       }
       scraperStarted = true
-      const result = await runLoggedScrape("flaresolverr", scrapeRequest, deps, runScrape, undefined, metricsStore)
+      const id = requestId()
+      const result = await runLoggedScrape(
+        "flaresolverr",
+        scrapeRequest,
+        deps,
+        cookieFallback ? (req, deps) => scrapeWithCookieFallback(req, deps, runScrape, id) : runScrape,
+        id,
+        metricsStore,
+      )
       return {
         status: "ok",
         message: "",

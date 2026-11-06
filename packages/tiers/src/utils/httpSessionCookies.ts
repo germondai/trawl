@@ -1,5 +1,6 @@
 import type { Cookie, SessionData } from "@trawl/types"
 import { parseHTML } from "linkedom"
+import { cookieMatchesUrl } from "./cookies"
 
 function documentHash(html: string): string | undefined {
   // Bound parsing cost; uncertain or empty documents stay on the browser path.
@@ -25,19 +26,7 @@ function hasClearance(cookies: Cookie[], target: URL): boolean {
     (cookie) =>
       (cookie.name === "cf_clearance" || /^techaro\.lol-anubis(?:-auth)?(?:-[a-f0-9]{8})?$/.test(cookie.name)) &&
       cookie.value &&
-      matches(cookie, target),
-  )
-}
-
-function matches(cookie: Cookie, url: URL): boolean {
-  const domain = cookie.domain.toLowerCase()
-  const host = domain.startsWith(".") ? domain.slice(1) : domain
-  return (
-    (url.hostname === host || (domain.startsWith(".") && url.hostname.endsWith(`.${host}`))) &&
-    (!cookie.secure || url.protocol === "https:") &&
-    (cookie.expires === -1 || cookie.expires > Date.now() / 1000) &&
-    (url.pathname === cookie.path ||
-      (url.pathname.startsWith(cookie.path) && (cookie.path.endsWith("/") || url.pathname[cookie.path.length] === "/")))
+      cookieMatchesUrl(cookie, target),
   )
 }
 
@@ -61,7 +50,7 @@ export class HttpSessionCookies {
     if (session?.httpOrigin !== target.origin || !session.userAgent || session.cookies.length > 200) return
     if (hasClearance(session.cookies, target)) return new HttpSessionCookies(target.origin, session.cookies)
     if (
-      !session.cookies.some((cookie) => cookie.value && matches(cookie, target)) ||
+      !session.cookies.some((cookie) => cookie.value && cookieMatchesUrl(cookie, target)) ||
       session.httpReplay?.url !== target.href ||
       !/^[a-f0-9]{64}$/.test(session.httpReplay.contentHash)
     )
@@ -77,7 +66,7 @@ export class HttpSessionCookies {
     const target = new URL(url)
     if (target.origin !== this.origin) throw new Error("session-redirect-needs-browser")
     const header = this.cookies
-      .filter((cookie) => matches(cookie, target))
+      .filter((cookie) => cookieMatchesUrl(cookie, target))
       .sort((a, b) => b.path.length - a.path.length)
       .map((cookie) => `${cookie.name}=${cookie.value}`)
       .join("; ")

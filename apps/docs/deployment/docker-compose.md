@@ -125,6 +125,7 @@ TRAWL and Redis.
 | `SCRAPE_MIN_TIER`                  | `1`                  | Lowest scraper tier allowed across every endpoint                       |
 | `TIER1_TRANSPORT` | `bun` | HTTP transport: `bun` or opt-in Firefox TLS/HTTP2 `wreq` |
 | `SCRAPE_MAX_TIMEOUT_MS`            | `60000`              | Default total scrape deadline in milliseconds; requests may override it |
+| `FLARESOLVERR_COOKIE_FALLBACK` | `false` | One bounded browser fallback for successful `/v1` GETs without usable cookies |
 | `USER_PREFS`                       | -                    | Optional JSON Firefox prefs applied to every launched browser           |
 | `SESSION_CACHE_DRIVER`             | `redis`              | Cache backend; minimal Compose defaults to `memory`                     |
 | `REDIS_URL`                        | `redis://redis:6379` | Redis connection (set automatically in compose)                         |
