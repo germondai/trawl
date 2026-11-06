@@ -192,8 +192,8 @@ WORKDIR /app
 RUN --network=none bun -e 'import { launchOptions } from "camoufox-js"; const options = await launchOptions({headless:true,geoip:false,exclude_addons:["UBO"],i_know_what_im_doing:true}); if (!options.executablePath.startsWith("/opt/camoufox/")) throw new Error("Expected the bundled Camoufox executable")'
 # Validate the optional binding against this image's architecture and libc offline.
 RUN --network=none TIER1_TRANSPORT=wreq bun -e 'import { verifyTier1Transport } from "./packages/tiers/src/utils/tier1Transport"; await verifyTier1Transport()'
-# Check effective revocation state with no update service or existing profile.
-RUN --network=none bun packages/browser/security/check-onecrl.ts
+# Keep build-time browser caches out of the runtime image.
+RUN --network=none --mount=type=tmpfs,target=/tmp bun packages/browser/security/check-onecrl.ts
 EXPOSE 8191
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["bun", "run", "apps/api/src/index.ts"]
