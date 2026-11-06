@@ -60,7 +60,8 @@ TRAWL starts with HTTP, reuses verified clearance and opens Camoufox when a brow
         • Unique free tools: Proxy Bandwidth Checker, Meta Tag Checker, IP Lookup and others!<br><br>
         <b>Special codes for <a href="https://trawl.germondai.com" target="_blank">TRAWL</a> users:</b><br>
         • <code>TRAWL35</code> - 35% off to Mobile and Residential Proxies<br>
-        • <code>TRAWL40</code> - 40% off to ISP (Static) Proxies
+        • <code>TRAWL40</code> - 40% off to ISP (Static) Proxies<br>
+        • <code>TRAWL2X</code> - 2X traffic for Black Friday
       </td>
     </tr>
     <tr>
@@ -110,14 +111,14 @@ docker run -d --name trawl \
   -e MCP_ENABLED=true \
   -e METRICS_DASHBOARD_ENABLED=true \
   -v trawl_metrics:/data/metrics \
-  ghcr.io/germondai/trawl:1.10.0
+  ghcr.io/germondai/trawl:1.10.1
 
 curl http://localhost:8191/health
 ```
 
 Open [the local dashboard](http://localhost:8191/dashboard). Keep the API and MCP endpoint on a trusted network; dashboard history survives container recreation through the mounted volume.
 
-For Redis and Compose deployments, see the [quick-start guide](apps/docs/getting-started/quick-start.md) and [Compose examples](apps/docs/deployment/docker-compose.md). Use `:1.10.0-baseline` on older CPUs or NAS hardware.
+For Redis and Compose deployments, see the [quick-start guide](apps/docs/getting-started/quick-start.md) and [Compose examples](apps/docs/deployment/docker-compose.md). Use `:1.10.1-baseline` on older CPUs or NAS hardware.
 
 <details>
 <summary>Dashboard preview</summary>
@@ -206,8 +207,8 @@ Enable `MITM_ENABLED=true` and point your HTTP-compatible client at port `8192`.
 
 | Tags                             | Use case                             |
 | -------------------------------- | ------------------------------------ |
-| `:latest`, `:1.10.0`             | Standard release for modern hardware |
-| `:baseline`, `:1.10.0-baseline`   | Older x86 CPUs and NAS kernels       |
+| `:latest`, `:1.10.1`             | Standard release for modern hardware |
+| `:baseline`, `:1.10.1-baseline`   | Older x86 CPUs and NAS kernels       |
 | `:nightly`, `:nightly-<dev-sha>`  | Development builds from `dev`        |
 
 All tags use `ghcr.io/germondai/trawl`. Both release variants are published for Linux AMD64 and ARM64. [Standalone containers and source builds](apps/docs/deployment/standalone.md).

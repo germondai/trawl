@@ -1,6 +1,70 @@
-import type { SupportedMethod } from "@trawl/tiers"
-import { normalizeInputCookies, normalizeProxy, requireContentTypeForBody, sanitizeHeaders } from "@trawl/tiers"
-import type { FlareSolverrResponse, FlareSolverrScrapeRequest, ScrapeRequest } from "@trawl/types"
+import type { OrchestratorDeps, SupportedMethod, scrape } from "@trawl/tiers"
+import {
+  cookieMatchesUrl,
+  normalizeInputCookies,
+  normalizeProxy,
+  requireContentTypeForBody,
+  ScrapeError,
+  sanitizeHeaders,
+} from "@trawl/tiers"
+import type { FlareSolverrResponse, FlareSolverrScrapeRequest, ScrapeRequest, ScrapeResult } from "@trawl/types"
+import { log, safeUrl } from "../logger"
+
+export async function scrapeWithCookieFallback(
+  req: ScrapeRequest,
+  deps: OrchestratorDeps,
+  runScrape: typeof scrape,
+  id: string,
+): Promise<ScrapeResult> {
+  const started = Date.now()
+  const result = await runScrape(req, deps)
+  const target = new URL(req.url)
+  const hasCookies = (result: ScrapeResult) =>
+    result.cookies.some((cookie) => cookie.name && cookie.value && cookieMatchesUrl(cookie, target))
+  if (
+    req.method !== "GET" ||
+    req.sessionId ||
+    req.cookies?.length ||
+    result.tier !== 1 ||
+    result.statusCode < 200 ||
+    result.statusCode >= 300 ||
+    hasCookies(result)
+  )
+    return result
+
+  const remaining = (req.maxTimeout ?? deps.defaultMaxTimeout ?? 60_000) - (Date.now() - started)
+  if (remaining <= 0) throw new ScrapeError("Scrape deadline exceeded before cookie handoff fallback", result.timings)
+  log("info", "flaresolverr", {
+    event: "cookie-handoff.fallback",
+    request: id,
+    target: safeUrl(req.url),
+    reason: "http-success-without-usable-cookies",
+  })
+  // One fresh browser tier, sharing the HTTP request's remaining deadline.
+  const tier = deps.minTier === 4 ? 4 : 3
+  let browser: ScrapeResult
+  try {
+    browser = await runScrape(
+      { ...req, skipHttp: true, maxTimeout: remaining, maxTier: tier },
+      { ...deps, minTier: tier },
+    )
+  } catch (error) {
+    if (error instanceof ScrapeError) error.timings = [...result.timings, ...error.timings]
+    throw error
+  }
+  const timings = [...result.timings, ...browser.timings]
+  if (!hasCookies(browser)) {
+    const error = new ScrapeError(
+      "Browser returned no usable cookies for the requested URL; cookie handoff is unavailable",
+      timings,
+      undefined,
+      browser.captchaDiagnostics,
+    )
+    error.waf = browser.waf ?? result.waf
+    throw error
+  }
+  return { ...browser, timings, totalMs: Date.now() - started, waf: browser.waf ?? result.waf }
+}
 
 function normalizeProwlarrHeaders(headers?: Record<string, string>): Record<string, string> | undefined {
   if (!headers) return

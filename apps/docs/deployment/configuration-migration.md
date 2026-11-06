@@ -5,6 +5,21 @@ description: Upgrade notes and environment-variable changes across TRAWL release
 
 # Configuration migration
 
+## Upgrading from v1.10.0 to v1.10.1
+
+No configuration changes are required. Recreate the container with the updated image
+for the non-root browser startup fix; keep existing Redis data and dashboard volumes.
+The image also validates its bundled GeoIP database during the build and preserves
+declared HTML charsets in the HTTP tier.
+
+Prowlarr users who encounter `Empty cookies returned by FlareSolverr` can opt in to
+`FLARESOLVERR_COOKIE_FALLBACK=true`. It permits one browser tier after a successful
+stateless GET without usable cookies, within the original request deadline. The
+option is off by default; POST and native scraping retain their existing behavior.
+See [Cookie Handoff](/getting-started/configuration#flaresolverr-cookie-handoff).
+
+The client workspace remains at 0.1.0; this release does not publish it to npm.
+
 ## Upgrading from v1.9.3 to v1.10.0
 
 MCP now validates and pins public destination IPs when opening HTTP and browser

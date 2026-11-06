@@ -47,6 +47,11 @@ tokens too, set the TRAWL extension `solveEmbeddedCaptchas: true`. Solving is be
 `status: "ok"` confirms page delivery, not a token from every widget. The native `/scrape`
 endpoint defaults to attempting embedded widgets.
 
+For cookie-handoff clients such as Prowlarr, the server can enable
+[`FLARESOLVERR_COOKIE_FALLBACK`](/getting-started/configuration#flaresolverr-cookie-handoff).
+It keeps HTTP first and permits one bounded browser attempt when a successful stateless
+GET returns no usable cookies. No client-side field is required; the default is off.
+
 ## Response
 
 ```typescript

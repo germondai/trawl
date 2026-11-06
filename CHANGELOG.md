@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-11-06
+
+### Added
+- Add opt-in `FLARESOLVERR_COOKIE_FALLBACK` for stateless `/v1` GETs that return HTTP content without usable cookies. Try one browser tier within the remaining request deadline, retain cached HTTP clearance reuse, and report an explicit error when cookie handoff remains unavailable (#267).
+
+### Fixed
+- Decode Tier 1 HTML responses by their declared charset instead of always as UTF-8, so pages served as `Windows-1251` and other legacy charsets no longer return replacement characters once a cached clearance routes them through the HTTP tier (#266).
+- Accept current GeoIP snapshots below the old 50 MB threshold and validate the bundled GeoLite2-City database with its MaxMind reader during image builds.
+- Isolate the build-time OneCRL browser check in a temporary filesystem so standard and baseline images do not retain root-owned browser caches that prevent startup under a non-root UID. Run browser readiness smoke tests as UID 1000 to cover this deployment mode (#265).
+
+### Changed
+- Refresh compatible patch dependencies: Elysia 1.4.31, node-forge 1.4.3, Turndown 7.2.5, Biome 2.6.6 and tsdown 0.23.7. Keep the validated browser/runtime pairing and the independently versioned client at 0.1.0.
+
 ## [1.10.0] - 2026-11-03
 
 ### Security

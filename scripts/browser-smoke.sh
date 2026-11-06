@@ -18,11 +18,16 @@ for suite in \
   packages/browser/tests/readiness.integration.test.ts
 do
   memory_limit=1g
+  runtime_user=0:0
   # Persistent contexts need headroom; the runtime memory guard may retire them.
   if [[ "$suite" == apps/api/src/browserSessions.integration.test.ts || "$suite" == apps/api/src/shutdown.integration.test.ts ]]; then
     memory_limit=2g
   fi
-  docker run --rm --memory="$memory_limit" --memory-swap="$memory_limit" --shm-size=256m \
+  # Catch root-owned browser caches baked into runtime images.
+  if [[ "$suite" == packages/browser/tests/readiness.integration.test.ts ]]; then
+    runtime_user=1000:1000
+  fi
+  docker run --rm --user="$runtime_user" --memory="$memory_limit" --memory-swap="$memory_limit" --shm-size=256m \
     -e SESSION_CACHE_DRIVER=memory -e METRICS_DB_PATH=:memory: \
     -e TIER1_TRANSPORT="${TIER1_TRANSPORT:-bun}" \
     -e BROWSER_POOL_SIZE=1 -e BROWSER_HEADFUL_POOL_SIZE=0 \
