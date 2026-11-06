@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Accept current GeoIP snapshots below the old 50 MB threshold and validate the bundled GeoLite2-City database with its MaxMind reader during image builds.
 - Isolate the build-time OneCRL browser check in a temporary filesystem so standard and baseline images do not retain root-owned browser caches that prevent startup under a non-root UID. Run browser readiness smoke tests as UID 1000 to cover this deployment mode (#265).
 
 ## [1.10.0] - 2026-11-03

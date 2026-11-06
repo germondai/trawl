@@ -92,22 +92,10 @@ RUN --network=none python3 /tmp/camoufox-security/backport-onecrl.py /opt/camouf
 RUN strip --strip-unneeded /opt/camoufox/camoufox /opt/camoufox/camoufox-bin \
  && find /opt/camoufox -type f \( -name '*.so*' -o -name 'firefox-bin' \) -exec strip --strip-unneeded {} +
 
-# Bake the GeoIP database so camoufox-js never downloads it at runtime.
-# `geoip: true` (packages/browser/src/pool.ts) otherwise makes camoufox-js fetch
-# GeoLite2-City.mmdb from P3TERX/GeoLite.mmdb on first browser launch, into
-# $CAMOUFOX_INSTALL_DIR. An interrupted/truncated download leaves a corrupt file that
-# camoufox-js reuses forever (getGeolocation only re-downloads when the file is absent),
-# crashing every launch with "Invalid Extended Type at offset N val 7" (issue #20).
-# Baking a verified copy into the image makes startup deterministic and removes the
-# runtime GitHub dependency + first-launch download latency. The size check fails the
-# build if the download is truncated, so a corrupt file can never be baked in.
-# P3TERX/GeoLite.mmdb retains only its two most recent releases, so a pinned tag 404s
-# within days and every build after that fails on curl exit 22 - which is what happened
-# to the 2026.08.07 and 2026.08.19 pins. Track the rolling latest and keep the guarantee
-# that actually matters here (a truncated file is never baked in) with a size floor; the
-# digest of a release that gets deleted cannot be kept current, and it was never a
-# provenance check on MaxMind's data anyway.
-ARG GEOLITE_CITY_MIN_BYTES=50000000
+# Bake the rolling GeoIP database: upstream retains only two releases.
+# The size floor catches obviously incomplete downloads; the runtime stage also
+# parses the database offline with the reader used by camoufox-js (issue #20).
+ARG GEOLITE_CITY_MIN_BYTES=45000000
 RUN curl -fsSL \
       "https://github.com/P3TERX/GeoLite.mmdb/releases/latest/download/GeoLite2-City.mmdb" \
       -o /opt/camoufox/GeoLite2-City.mmdb && \
@@ -188,6 +176,8 @@ ENV CAMOUFOX_INSTALL_DIR=/opt/camoufox \
     NODE_NO_WARNINGS=1
 
 WORKDIR /app
+# Validate the bundled GeoIP database without a runtime download.
+RUN --network=none bun -e 'import maxmind from "maxmind"; const database = await maxmind.open("/opt/camoufox/GeoLite2-City.mmdb"); if (database.metadata.databaseType !== "GeoLite2-City") throw new Error("Expected a GeoLite2-City database")'
 # Fail the build if this library/browser pair cannot use the baked executable offline.
 RUN --network=none bun -e 'import { launchOptions } from "camoufox-js"; const options = await launchOptions({headless:true,geoip:false,exclude_addons:["UBO"],i_know_what_im_doing:true}); if (!options.executablePath.startsWith("/opt/camoufox/")) throw new Error("Expected the bundled Camoufox executable")'
 # Validate the optional binding against this image's architecture and libc offline.
