@@ -5,6 +5,7 @@ import type { Cookie, TierResult } from "@trawl/types"
 import { parseHTML } from "linkedom"
 import { anubisInspectionText, detectAnubisPage } from "../utils/anubis"
 import { describeCertificateError, isCertificateError } from "../utils/certificate"
+import { sleep } from "../utils/deadline"
 import type { ChallengeType } from "../utils/detect"
 import {
   getAwsWafAction,
@@ -25,6 +26,7 @@ import {
 import { isGoogleSorryUrl } from "../utils/googleSorry"
 import { normalizeHtml } from "../utils/html"
 import type { HttpSessionCookies } from "../utils/httpSessionCookies"
+import { cookiePairs, mergeCookieHeader, planPowWall } from "../utils/nativePow"
 import type { OutboundUrlValidator } from "../utils/outboundPolicy"
 import { normalizeProxyError, proxyResponseFailure } from "../utils/proxyFailure"
 import { decodeTextBody, isHtmlContentType, isTextContentType } from "../utils/response"
@@ -77,7 +79,123 @@ const decodeResponseBody = (body: Uint8Array, contentEncoding?: string): Uint8Ar
   }
 }
 
+// Tier 1 with native proof-of-work: when the response is a PoW wall that
+// utils/nativePow recognizes (NCBI identity PoW, Anubis), solve it in-process
+// (Rust via bun:ffi), submit the answer, and refetch with the pass cookie. The
+// result carries every Set-Cookie from the exchange, so a MITM proxy client keeps
+// the pass cookie and skips the wall on its next request.
 export async function runTier1(
+  url: string,
+  extraHeaders?: Record<string, string>,
+  method?: string,
+  body?: string,
+  proxy?: string,
+  validateOutboundUrl?: OutboundUrlValidator,
+  ignoreCertificateErrors?: boolean,
+  trustedProxyCa?: string,
+  signal?: AbortSignal,
+  sessionCookies?: HttpSessionCookies,
+  timeoutMs = 60_000,
+  headersTimeoutMs?: number,
+  observeResponse?: (evidence: WafEvidence) => void,
+  networkProxy?: string,
+): Promise<Tier1Result> {
+  const start = Date.now()
+  const once = (headers: Record<string, string> | undefined, remainingMs: number) =>
+    runTier1Once(
+      url,
+      headers,
+      method,
+      body,
+      proxy,
+      validateOutboundUrl,
+      ignoreCertificateErrors,
+      trustedProxyCa,
+      signal,
+      sessionCookies,
+      remainingMs,
+      headersTimeoutMs,
+      observeResponse,
+      networkProxy,
+    )
+  const first = await once(extraHeaders, timeoutMs)
+  if (!first.body || first.body.length === 0 || first.body.length > 262_144) return first
+  if (!isHtmlContentType(first.contentType ?? "")) return first
+  const html = new TextDecoder("utf-8", { fatal: false }).decode(
+    decodeResponseBody(first.body, first.responseHeaders?.["content-encoding"]),
+  )
+  const plan = planPowWall(html, url)
+  if (!plan) return first
+
+  try {
+    if (plan.waitMs > 0) await sleep(plan.waitMs, signal)
+    const solveStart = Date.now()
+    const submit = plan.submit()
+    const solveMs = Date.now() - solveStart
+    if (!submit) {
+      console.log(`[native-pow] ${plan.kind} unsolved for ${url}`)
+      return first
+    }
+    const cookieKey = Object.keys(extraHeaders ?? {}).find((k) => k.toLowerCase() === "cookie")
+    const clientCookie = cookieKey ? extraHeaders?.[cookieKey] : undefined
+    const firstCookies = cookiePairs(first.responseHeaders?.["set-cookie"])
+    const submitCookie = sessionCookies
+      ? sessionCookies.header(submit.url)
+      : mergeCookieHeader(clientCookie, firstCookies)
+    await validateOutboundUrl?.(submit.url)
+    const res = await tier1Transport.fetch(submit.url, {
+      timeoutMs: Math.max(1, timeoutMs - (Date.now() - start)),
+      signal,
+      method: submit.method,
+      body: submit.body,
+      redirect: "manual",
+      headers: {
+        "user-agent": tier1UserAgent(FINGERPRINT.userAgent),
+        accept: submit.method === "POST" ? "*/*" : "text/html,application/xhtml+xml,*/*;q=0.8",
+        "accept-language": "en-US,en;q=0.9",
+        referer: url,
+        ...(submit.method === "POST" ? { origin: new URL(url).origin } : {}),
+        ...(submit.contentType ? { "content-type": submit.contentType } : {}),
+        ...(submitCookie ? { cookie: submitCookie } : {}),
+      },
+      ...(networkProxy || proxy ? { proxy: networkProxy ?? proxy } : {}),
+      ...(trustedProxyCa ? { tls: { ca: [...rootCertificates, trustedProxyCa] } } : {}),
+      ...(ignoreCertificateErrors ? { tls: { rejectUnauthorized: false } } : {}),
+    })
+    await res.arrayBuffer().catch(() => undefined)
+    sessionCookies?.update(res.headers, submit.url)
+    const submitSetCookies = res.headers.getSetCookie()
+    if (res.status >= 400 || submitSetCookies.length === 0) {
+      console.log(`[native-pow] ${plan.kind} rejected for ${url}: HTTP ${res.status}`)
+      return first
+    }
+    const retryHeaders: Record<string, string> = { ...extraHeaders }
+    if (cookieKey) delete retryHeaders[cookieKey]
+    retryHeaders.cookie = mergeCookieHeader(clientCookie, [
+      ...firstCookies,
+      ...cookiePairs(submitSetCookies.join("\n")),
+    ])
+    const second = await once(retryHeaders, Math.max(1, timeoutMs - (Date.now() - start)))
+    const allSetCookies = [
+      first.responseHeaders?.["set-cookie"],
+      submitSetCookies.join("\n"),
+      second.responseHeaders?.["set-cookie"],
+    ]
+      .filter((v): v is string => Boolean(v))
+      .join("\n")
+    if (second.responseHeaders && allSetCookies) second.responseHeaders["set-cookie"] = allSetCookies
+    second.durationMs = Date.now() - start
+    console.log(
+      `[native-pow] ${plan.kind} solved in ${solveMs}ms, page ${second.status} in ${second.durationMs}ms for ${url}`,
+    )
+    return second
+  } catch (err) {
+    console.log(`[native-pow] ${plan.kind} failed for ${url}: ${err instanceof Error ? err.message : err}`)
+    return first
+  }
+}
+
+async function runTier1Once(
   url: string,
   extraHeaders?: Record<string, string>,
   method?: string,
