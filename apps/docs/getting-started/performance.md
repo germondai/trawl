@@ -44,8 +44,9 @@ valid and accepted for that origin. Each request still fetches fresh content fro
 TRAWL does not return a cached response body.
 
 In the native API, an accepted HTTP replay reports `tier: 1` and `sessionCached: true`.
-A cached browser response reports Tier 2. Replay is limited to direct GET/HEAD requests with
-verified TLS and eligible Cloudflare or Anubis cookies. Explicit proxies, a configured
+A cached browser response reports Tier 2. Replay is limited to direct GET/HEAD requests, or POST
+requests that set `httpReplay: true` (clearance cookies only, never resent after a timeout or
+disconnect), with verified TLS and eligible Cloudflare or Anubis cookies. Explicit proxies, a configured
 datacenter proxy pool, imported cookies and browser captures do not use this replay path.
 See [Session Cache](/architecture/session-cache) for cookie scope, expiry and fallback rules.
 

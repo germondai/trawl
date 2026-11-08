@@ -4,6 +4,7 @@ import type { ExternalCaptchaSession } from "../solvers/externalCaptcha"
 import type { BlockedEvidenceSink } from "./blockedEvidence"
 import { captureLimit } from "./captureConfig"
 import type { RequestBudget } from "./deadline"
+import type { PostReplay } from "./postReplay"
 import { attachResponseCapture, type ResponseCaptureOptions } from "./responseCapture"
 
 // Captured evidence lives in memory alongside a browser slot, so every dimension is
@@ -36,6 +37,7 @@ export interface CaptureOptions extends ResponseCaptureOptions {
   // The tier strips per-request instrumentation from it again when the operation ends.
   sessionPage?: Page
   budget?: RequestBudget
+  postReplay?: PostReplay
   // Shared across Tier 3 retries when a residential fallback is available.
   cloudflareDeadline?: number
   externalCaptcha?: ExternalCaptchaSession

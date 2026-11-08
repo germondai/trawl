@@ -21,6 +21,7 @@ import {
   hasTurnstile,
   isBlocked,
   isCloudflarePage,
+  isExplicitChallengeRejection,
 } from "../utils/detect"
 import { isGoogleSorryUrl } from "../utils/googleSorry"
 import { normalizeHtml } from "../utils/html"
@@ -36,6 +37,7 @@ export interface Tier1Result extends TierResult {
   // The wall Tier 1 recognized, when it recognized one. The orchestrator routes the
   // browser it acquires for the later tiers on this: DataDome needs a headful one.
   challenge?: ChallengeType
+  explicitChallenge?: boolean
   effectiveUrl?: string
   html?: string
   body?: Uint8Array
@@ -123,6 +125,7 @@ export async function runTier1(
     let currentUrl = url
     let currentMethod = m
     let currentBody = METHODS_WITH_BODY.has(m) ? body : undefined
+    let redirected = false
     let res: Response
     for (let redirects = 0; ; redirects++) {
       await validateOutboundUrl?.(currentUrl)
@@ -167,6 +170,7 @@ export async function runTier1(
       if (redirects >= (validateOutboundUrl || ignoreCertificateErrors || sessionCookies ? 9 : 19))
         throw new Error("Too many redirects")
       await res.body?.cancel()
+      redirected = true
       const nextUrl = new URL(location, currentUrl)
       if (nextUrl.origin !== new URL(currentUrl).origin) {
         for (const name of ["authorization", "cookie", "proxy-authorization", "host"]) delete headers[name]
@@ -228,6 +232,7 @@ export async function runTier1(
         durationMs: Date.now() - start,
         reason: awsAction === "captcha" ? "aws-waf-captcha-required" : "aws-waf-challenge",
         challenge: "aws-waf",
+        explicitChallenge: !redirected && awsAction === "challenge",
         responseHeaders,
         contentType,
         body: new Uint8Array(),
@@ -245,6 +250,7 @@ export async function runTier1(
         durationMs: Date.now() - start,
         reason: "cloudflare-challenge",
         challenge: "cloudflare-interstitial",
+        explicitChallenge: !redirected,
         responseHeaders,
         contentType,
         body: new Uint8Array(),
@@ -279,6 +285,7 @@ export async function runTier1(
         durationMs: Date.now() - start,
         reason: anubis === "blocked" ? "anubis-blocked" : "anubis-challenge",
         challenge: "anubis",
+        explicitChallenge: !redirected && anubis === "challenge",
         responseHeaders,
         contentType,
         body: rawBytes,
@@ -309,6 +316,8 @@ export async function runTier1(
         durationMs: Date.now() - start,
         reason: "cloudflare-challenge",
         challenge: "cloudflare-interstitial",
+        explicitChallenge:
+          !redirected && m === "POST" && isExplicitChallengeRejection(res.status, previewText, responseHeaders),
         responseHeaders,
         contentType,
         body: rawBytes,

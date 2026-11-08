@@ -57,7 +57,8 @@ Priority: u=0, i
 Eligible repeat requests send saved Cloudflare or Anubis clearance cookies and the browser's
 User-Agent rather than making an unauthenticated probe. The response is fetched again, not
 served from a body cache. Rejected clearance falls back to the browser tiers. This requires
-a direct GET/HEAD request, verified TLS and matching origin provenance; see
+a direct GET/HEAD request (or a POST with `httpReplay: true`, which replays clearance cookies only, keeps
+the request's own deadline and is never resent after a timeout or disconnect), verified TLS and matching origin provenance; see
 [Session Cache](/architecture/session-cache#automatic-http-clearance-reuse) for eligibility and fallback.
 
 **Escalates for:** recognized Cloudflare, Akamai, or Imperva challenge responses and blocked status codes such as 403 or 429. Detection uses provider-specific headers and HTML markers.

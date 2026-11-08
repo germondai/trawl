@@ -42,6 +42,7 @@ export interface ScrapeRequest {
   headers?: Record<string, string>
   method?: SupportedMethod
   body?: string
+  httpReplay?: boolean
   // Strict per-request route: target traffic must use this proxy and never fall back direct.
   proxy?: string
   // Opt-in viewport screenshot from the browser tiers (2-4), returned as
