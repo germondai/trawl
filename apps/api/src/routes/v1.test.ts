@@ -102,6 +102,60 @@ describe("POST /v1 cookie handoff", () => {
     return { send, metrics }
   }
 
+  test.each(["https://prowlarr.servarr.com/v1/ping", "HTTPS://PROWLARR.SERVARR.COM:443/v1/ping"])(
+    "accepts Prowlarr's public connectivity check without requiring cookies: %s",
+    async (url) => {
+      let attempts = 0
+      const client = setup(async () => ({
+        ...http,
+        url,
+        html: "Pong",
+        tier: ++attempts === 1 ? 1 : 3,
+      }))
+      try {
+        const response = await client.send({ url })
+        expect(response.status).toBe(200)
+        expect(await response.json()).toMatchObject({
+          status: "ok",
+          solution: { status: 200, response: "Pong", cookies: [] },
+        })
+        expect(attempts).toBe(1)
+        expect(client.metrics.snapshot()).toMatchObject({ requests: 1, failures: 0 })
+      } finally {
+        client.metrics.close()
+      }
+    },
+  )
+
+  test.each([
+    { url: "https://other.test/v1/ping" },
+    { url: "https://prowlarr.servarr.com.other.test/v1/ping" },
+    { url: "http://prowlarr.servarr.com/v1/ping" },
+    { url: "https://prowlarr.servarr.com:444/v1/ping" },
+    { url: "https://prowlarr.servarr.com/v1/ping-other" },
+    { url: "https://prowlarr.servarr.com/v1/ping?indexer=1" },
+    { url: "https://prowlarr.servarr.com/v1/ping", html: "Verification required" },
+    { url: "https://prowlarr.servarr.com/v1/ping", effectiveUrl: "https://other.test/indexer" },
+    { url: "https://other.test/indexer", effectiveUrl: "https://prowlarr.servarr.com/v1/ping" },
+  ])("keeps cookie handoff required outside the exact public ping: %j", async ({ url, effectiveUrl, html }) => {
+    let attempts = 0
+    const client = setup(async () => ({
+      ...http,
+      url: effectiveUrl ?? url,
+      html: html ?? "Pong",
+      tier: ++attempts === 1 ? 1 : 3,
+    }))
+    try {
+      const response = await client.send({ url })
+      expect(response.status).toBe(500)
+      expect((await response.json()).message).toContain("no usable cookies")
+      expect(attempts).toBe(2)
+      expect(client.metrics.snapshot()).toMatchObject({ requests: 1, failures: 1 })
+    } finally {
+      client.metrics.close()
+    }
+  })
+
   test.each([true, false])("shares the original %s explicit timeout with its browser fallback", async (explicit) => {
     let now = 1000
     const clock = spyOn(Date, "now").mockImplementation(() => now)
