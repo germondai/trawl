@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Add the opt-in `httpReplay` request flag: a `POST` that sets it can reuse browser-verified Cloudflare or Anubis clearance from the shared HTTP jar in Tier 1, with the request's own deadline, cookies set by earlier replayed requests of the same origin, and write-back of the reply's cookies. A timed-out, disconnected or otherwise ambiguous replay is returned as an error and never resent; only an explicit challenge rejection of the submitted request itself (Cloudflare header or 403/503 interstitial, Anubis, AWS WAF header) continues to the browser tiers within the original deadline, while a challenge met after a redirect of an accepted POST, a generic 4xx/5xx reply or a reply that merely resembles a challenge or widget shell is an error, not a resend. The generic document proof, the existing TLS, proxy, origin and cookie boundaries and the default browser path for `POST` are unchanged.
+- Add opt-in `httpReplay` for POST requests with browser-verified Cloudflare or Anubis clearance. Reuse HTTP cookies within the request deadline and permit browser recovery only after explicit challenge rejection. Guard both tier retries and browser reloads against resubmitting an accepted or ambiguous POST; retain existing routing, TLS and default POST behavior (#268, #274).
 
 ### Fixed
 - Preserve successful Prowlarr proxy ping checks without cookies when `FLARESOLVERR_COOKIE_FALLBACK` is enabled, while retaining cookie handoff requirements for indexers (#273).

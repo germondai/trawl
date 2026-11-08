@@ -21,6 +21,7 @@ import {
   hasTurnstile,
   isBlocked,
   isCloudflarePage,
+  isExplicitChallengeRejection,
 } from "../utils/detect"
 import { isGoogleSorryUrl } from "../utils/googleSorry"
 import { normalizeHtml } from "../utils/html"
@@ -315,7 +316,8 @@ export async function runTier1(
         durationMs: Date.now() - start,
         reason: "cloudflare-challenge",
         challenge: "cloudflare-interstitial",
-        explicitChallenge: !redirected && (res.status === 403 || res.status === 503),
+        explicitChallenge:
+          !redirected && m === "POST" && isExplicitChallengeRejection(res.status, previewText, responseHeaders),
         responseHeaders,
         contentType,
         body: rawBytes,

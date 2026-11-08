@@ -17,12 +17,14 @@ import { runTier3, type Tier3Result } from "./tiers/3"
 // Tier 4 (residential proxy) is dynamically imported only when needed.
 import type { runTier4, Tier4Result } from "./tiers/4"
 import { anubisOomKills } from "./utils/anubisRetry"
+import type { CaptureOptions } from "./utils/capture"
 import { normalizeInputCookies } from "./utils/cookies"
 import { createCrossedLandingGuard, type LandingProbe } from "./utils/crossedLanding"
 import { DeadlineError, RequestBudget } from "./utils/deadline"
 import { normalizeHtml } from "./utils/html"
 import { HttpSessionCookies, httpReplayProof } from "./utils/httpSessionCookies"
 import { metaRefreshTarget } from "./utils/metaRefresh"
+import { PostReplay } from "./utils/postReplay"
 import { type ProxyPool, proxyIdentity } from "./utils/proxyRotator"
 import { isHtmlContentType } from "./utils/response"
 import { RequestValidationError, requireContentTypeForBody, sanitizeHeaders } from "./utils/sanitize"
@@ -256,7 +258,7 @@ async function scrapeWithinBudget(
   // of `timings` - that stays the thin, machine-readable attempt history - and reached
   // only via the thrown ScrapeError.
   let blockedEvidence: BlockedEvidence | undefined
-  const capture = {
+  const capture: CaptureOptions = {
     networkProxy,
     anubisDetected: false,
     cookies: req.cookies,
@@ -556,6 +558,7 @@ async function scrapeWithinBudget(
         contentType: t1.contentType,
       }
     }
+    if (httpSession && httpReplayPost) capture.postReplay = new PostReplay(budget)
     headful = t1.challenge === "datadome"
   }
 
@@ -569,6 +572,12 @@ async function scrapeWithinBudget(
   // while the request is still inside the time the caller asked for.
   let handle = await deps.acquireBrowser(domain, Math.max(maxTimeout - (Date.now() - totalStart), 0), { headful })
   let handleReleased = false
+
+  const checkPostReplay = async (result: TierResult): Promise<void> => {
+    if (capture.postReplay && !(await capture.postReplay.canRetry())) {
+      throw failure(`POST replay ${failureReason(result)}; the request was not resent`)
+    }
+  }
 
   const switchToHeadful = async (): Promise<void> => {
     if (handle.headful) return
@@ -609,6 +618,7 @@ async function scrapeWithinBudget(
     } else if (session && maxTier >= 2) {
       const remaining = maxTimeout - (Date.now() - totalStart)
       const tier2Runner = runners.tier2 ?? runTier2
+      capture.postReplay?.beginAttempt()
       let t2 = await tier2Runner(
         req.url,
         handle,
@@ -623,7 +633,9 @@ async function scrapeWithinBudget(
         sessionProxy,
       )
       if (t2.challenge === "datadome" && !handle.headful) {
+        await checkPostReplay(t2)
         await switchToHeadful()
+        capture.postReplay?.beginAttempt()
         t2 = await tier2Runner(
           req.url,
           handle,
@@ -685,6 +697,7 @@ async function scrapeWithinBudget(
         }
       }
       // Session failed - purge it
+      await checkPostReplay(t2)
       await deps.invalidateSession(domain)
     }
 
@@ -709,6 +722,7 @@ async function scrapeWithinBudget(
         budget.check()
         const remaining3 = maxTimeout - (Date.now() - totalStart)
         const tier3Runner = runners.tier3 ?? runTier3
+        capture.postReplay?.beginAttempt()
         t3 = await tier3Runner(
           req.url,
           handle,
@@ -723,7 +737,9 @@ async function scrapeWithinBudget(
           ignoreCertificateErrors || Boolean(trustedProxyCa && proxy3 === explicitProxy),
         )
         if (t3.challenge === "datadome" && !handle.headful) {
+          await checkPostReplay(t3)
           await switchToHeadful()
+          capture.postReplay?.beginAttempt()
           t3 = await tier3Runner(
             req.url,
             handle,
@@ -745,6 +761,7 @@ async function scrapeWithinBudget(
         }
         const pool = deps.proxyPool
         if (t3.status !== "blocked" || req.proxy || !proxy3 || !pool || attempt + 1 >= MAX_PROXY_ATTEMPTS) break
+        await checkPostReplay(t3)
         pool.markBad(proxy3)
         const next = pool.next(domain)
         if (!next || next === proxy3) break
@@ -797,6 +814,7 @@ async function scrapeWithinBudget(
         }
       }
       tier3Failure = failureReason(t3, crossed3)
+      await checkPostReplay(t3)
     }
 
     if (maxTier < 4) {
@@ -820,6 +838,7 @@ async function scrapeWithinBudget(
       console.log(`[orchestrator] Tier 4 via residential proxy: ${proxy4.replace(/\/\/[^@]*@/, "//**@")}`)
       budget.check()
       const remaining4 = maxTimeout - (Date.now() - totalStart)
+      capture.postReplay?.beginAttempt()
       t4 = await runTier4Lazy(
         req.url,
         handle,
@@ -834,7 +853,9 @@ async function scrapeWithinBudget(
         ignoreCertificateErrors || Boolean(trustedProxyCa && proxy4 === explicitProxy),
       )
       if (t4.challenge === "datadome" && !handle.headful) {
+        await checkPostReplay(t4)
         await switchToHeadful()
+        capture.postReplay?.beginAttempt()
         t4 = await runTier4Lazy(
           req.url,
           handle,
@@ -856,6 +877,7 @@ async function scrapeWithinBudget(
       }
       const pool = deps.residentialProxyPool
       if (t4.status !== "blocked" || req.proxy || !pool || attempt + 1 >= MAX_PROXY_ATTEMPTS) break
+      await checkPostReplay(t4)
       pool.markBad(proxy4)
       const next = pool.next(domain)
       if (!next || next === proxy4) break

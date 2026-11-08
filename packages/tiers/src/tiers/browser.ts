@@ -15,6 +15,7 @@ import { trackMainDocumentResponses } from "../utils/mainResponse"
 import { followMetaRefresh } from "../utils/metaRefresh"
 import { isHardNetworkFailure } from "../utils/network"
 import { installOutboundPolicy, type OutboundUrlValidator } from "../utils/outboundPolicy"
+import { installPostReplayRoute } from "../utils/postReplay"
 import { isProxyTransportFailure, normalizeProxyError, proxyResponseFailure } from "../utils/proxyFailure"
 import {
   browserDocumentHtml,
@@ -103,7 +104,9 @@ async function runBrowserTierTask<T extends 3 | 4>(
     await capture.externalCaptcha?.preparePage(page)
     await installOutboundPolicy(page, validateOutboundUrl)
     const initialCookies = snapshotChallengeCookies(await context.cookies())
-    if ((extraHeaders && Object.keys(extraHeaders).length > 0) || method === "POST") {
+    if (capture.postReplay) {
+      pageTeardowns.push(await installPostReplayRoute(page, url, extraHeaders, body, capture.postReplay))
+    } else if ((extraHeaders && Object.keys(extraHeaders).length > 0) || method === "POST") {
       const override = (route: RouteLike) => {
         route.continue(routeContinueOverrides(route, extraHeaders, method, body))
       }

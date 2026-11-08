@@ -481,8 +481,8 @@ describe("HTTP clearance replay for opted-in POST requests", () => {
           explicitChallenge: true,
         }
       },
-      tier3: async () => ({
-        tier: 3 as const,
+      tier2: async () => ({
+        tier: 2 as const,
         status: "success" as const,
         durationMs: 1,
         html: "<html><body>Rendered</body></html>",
@@ -803,9 +803,11 @@ describe("HTTP clearance replay for opted-in POST requests", () => {
       const deps = localDeps(origin, () => {
         checkouts++
       })
-      const first = await scrape({ url: `${origin}/page`, maxTier: 1 }, deps)
+      const first = await scrape({ url: `${origin}/page`, maxTier: 1, maxTimeout: 1000 }, deps)
       expect(first).toMatchObject({ tier: 1, sessionCached: true })
-      await expect(scrape(submission(origin), deps)).rejects.toThrow("not resent")
+      await expect(scrape(submission(origin, { maxTimeout: 700 }), deps)).rejects.toThrow(
+        /not resent|deadline exceeded/i,
+      )
       await Bun.sleep(200)
       expect(submissions).toBe(1)
       expect(checkouts).toBe(0)
@@ -889,5 +891,98 @@ describe("HTTP clearance replay for opted-in POST requests", () => {
     ).rejects.toThrow("POST replay http-403; the request was not resent")
     expect(submissions).toBe(1)
     expect(checkouts).toBe(0)
+  })
+
+  test.each([
+    { status: 403, html: "<html><title>Please wait</title><body>Submission recorded</body></html>" },
+    { status: 503, html: "<html><title>Please wait</title><body>Submission recorded</body></html>" },
+    { status: 503, html: "<html><body><!-- window._cf_chl_opt = {} -->Submission recorded</body></html>" },
+    { status: 503, html: "<html><body><pre>window._cf_chl_opt = {}</pre>Submission recorded</body></html>" },
+    {
+      status: 503,
+      html: '<html><body><script type="application/json">{"_cf_chl_opt":{}}</script>Submission recorded</body></html>',
+    },
+  ])("does not resend an accepted POST with a generic challenge-like reply: %j", async ({ status, html }) => {
+    let submissions = 0
+    let checkouts = 0
+    server = Bun.serve({
+      port: 0,
+      fetch(request) {
+        if (request.method === "POST") submissions++
+        return new Response(html, {
+          status,
+          headers: { "content-type": "text/html" },
+        })
+      },
+    })
+    const origin = `http://127.0.0.1:${server.port}`
+    await expect(
+      scrape(
+        submission(origin),
+        localDeps(origin, () => {
+          checkouts++
+        }),
+        {
+          tier2: async (url, _handle, _session, _budget, headers, method, body) => {
+            await fetch(url, { method, body, headers })
+            return { tier: 2, status: "success", durationMs: 1, html: "Resent" }
+          },
+        },
+      ),
+    ).rejects.toThrow("not resent")
+    expect(submissions).toBe(1)
+    expect(checkouts).toBe(0)
+  })
+
+  test("does not resend after an ambiguous browser fallback outcome", async () => {
+    let submissions = 0
+    const attempts: number[] = []
+    server = Bun.serve({
+      port: 0,
+      fetch(request) {
+        if (request.method === "POST") submissions++
+        return submissions === 1 ? challengePage() : new Response("Submission recorded")
+      },
+    })
+    const origin = `http://127.0.0.1:${server.port}`
+    await expect(
+      scrape(
+        submission(origin),
+        localDeps(origin, () => {}),
+        {
+          tier2: async (url, _handle, _session, _budget, headers, method, body) => {
+            attempts.push(2)
+            await (await fetch(url, { method, body, headers })).text()
+            return { tier: 2, status: "error", durationMs: 1, reason: "browser connection closed after submission" }
+          },
+          tier3: async (url, _handle, _budget, _proxy, headers, method, body) => {
+            attempts.push(3)
+            const response = await fetch(url, { method, body, headers })
+            return { tier: 3, status: "success", durationMs: 1, html: await response.text() }
+          },
+        },
+      ),
+    ).rejects.toThrow("not resent")
+    expect(submissions).toBe(2)
+    expect(attempts).toEqual([2])
+  })
+
+  test.each([422, 500])("preserves an application HTTP %s response without resending", async (status) => {
+    let submissions = 0
+    server = Bun.serve({
+      port: 0,
+      fetch() {
+        submissions++
+        return new Response('{"error":"Application reply"}', {
+          status,
+          headers: { "content-type": "application/json" },
+        })
+      },
+    })
+    const origin = `http://127.0.0.1:${server.port}`
+    const result = await scrape(submission(origin), localDeps(origin))
+    expect(result.statusCode).toBe(status)
+    expect(JSON.parse(result.html)).toEqual({ error: "Application reply" })
+    expect(submissions).toBe(1)
   })
 })
