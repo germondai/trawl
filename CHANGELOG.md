@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Preserve successful Prowlarr proxy ping checks without cookies when `FLARESOLVERR_COOKIE_FALLBACK` is enabled, while retaining cookie handoff requirements for indexers (#273).
+
 ## [1.10.1] - 2026-11-06
 
 ### Added
