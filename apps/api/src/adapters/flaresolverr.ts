@@ -28,7 +28,11 @@ export async function scrapeWithCookieFallback(
     result.tier !== 1 ||
     result.statusCode < 200 ||
     result.statusCode >= 300 ||
-    hasCookies(result)
+    hasCookies(result) ||
+    // Prowlarr's proxy test checks connectivity, not indexer cookie handoff.
+    (target.href === "https://prowlarr.servarr.com/v1/ping" &&
+      new URL(result.url).href === target.href &&
+      result.html.trim() === "Pong")
   )
     return result
 
