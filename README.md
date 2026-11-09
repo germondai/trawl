@@ -176,14 +176,16 @@ curl -X POST http://localhost:8191/sessions \
   -H 'Content-Type: application/json' \
   -d '{"id":"research"}'
 
-curl -X POST http://localhost:8191/scrape \
+curl -X POST http://localhost:8191/sessions/research/scrape \
   -H 'Content-Type: application/json' \
-  -d '{"url":"https://nopecha.com/demo/cloudflare","sessionId":"research","solveEmbeddedCaptchas":false}'
+  -d '{"url":"https://nopecha.com/demo/cloudflare","solveEmbeddedCaptchas":false}'
 
 curl -X DELETE http://localhost:8191/sessions/research
 ```
 
-Sessions preserve browser storage between requests and keep login state out of the shared clearance cache. Requests within one session are sequential. Sessions expire when idle and do not survive an API restart; open tabs are closed after each request.
+Sessions preserve browser storage between requests and keep login state out of the shared clearance cache. Requests within one session are sequential. `/scrape` with `sessionId` remains equivalent to `/sessions/:id/scrape`.
+
+By default, request pages close after each operation. Create a session with `"keepPage": true` to retain one main page and use `/sessions/:id/eval` to run JavaScript in it. Sessions expire when idle and do not survive an API restart.
 
 [Session API, authentication and lifecycle](apps/docs/api-reference/browser-sessions.md)
 

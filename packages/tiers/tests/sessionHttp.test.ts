@@ -894,30 +894,53 @@ describe("HTTP clearance replay for opted-in POST requests", () => {
   })
 
   test.each([
-    { status: 403, html: "<html><title>Please wait</title><body>Submission recorded</body></html>" },
-    { status: 503, html: "<html><title>Please wait</title><body>Submission recorded</body></html>" },
-    { status: 503, html: "<html><body><!-- window._cf_chl_opt = {} -->Submission recorded</body></html>" },
-    { status: 503, html: "<html><body><pre>window._cf_chl_opt = {}</pre>Submission recorded</body></html>" },
+    {
+      status: 403,
+      html: "<html><title>Please wait</title><body>Submission recorded</body></html>",
+      applicationResponse: false,
+    },
+    {
+      status: 503,
+      html: "<html><title>Please wait</title><body>Submission recorded</body></html>",
+      applicationResponse: false,
+    },
+    {
+      status: 503,
+      html: "<html><body><!-- window._cf_chl_opt = {} -->Submission recorded</body></html>",
+      applicationResponse: true,
+    },
+    {
+      status: 503,
+      html: "<html><body><pre>window._cf_chl_opt = {}</pre>Submission recorded</body></html>",
+      applicationResponse: true,
+    },
     {
       status: 503,
       html: '<html><body><script type="application/json">{"_cf_chl_opt":{}}</script>Submission recorded</body></html>',
+      applicationResponse: true,
     },
-  ])("does not resend an accepted POST with a generic challenge-like reply: %j", async ({ status, html }) => {
-    let submissions = 0
-    let checkouts = 0
-    server = Bun.serve({
-      port: 0,
-      fetch(request) {
-        if (request.method === "POST") submissions++
-        return new Response(html, {
-          status,
-          headers: { "content-type": "text/html" },
-        })
-      },
-    })
-    const origin = `http://127.0.0.1:${server.port}`
-    await expect(
-      scrape(
+    {
+      status: 503,
+      html: '<html><body><script type="module;example">window._cf_chl_opt={}</script>Submission recorded</body></html>',
+      applicationResponse: true,
+    },
+  ])(
+    "does not resend an accepted POST with ambiguous or inert challenge markers: %j",
+    async ({ status, html, applicationResponse }) => {
+      let submissions = 0
+      let checkouts = 0
+      server = Bun.serve({
+        port: 0,
+        fetch(request) {
+          if (request.method === "POST") submissions++
+          return new Response(html, {
+            status,
+            headers: { "content-type": "text/html" },
+          })
+        },
+      })
+      const origin = `http://127.0.0.1:${server.port}`
+      const result = scrape(
         submission(origin),
         localDeps(origin, () => {
           checkouts++
@@ -928,11 +951,17 @@ describe("HTTP clearance replay for opted-in POST requests", () => {
             return { tier: 2, status: "success", durationMs: 1, html: "Resent" }
           },
         },
-      ),
-    ).rejects.toThrow("not resent")
-    expect(submissions).toBe(1)
-    expect(checkouts).toBe(0)
-  })
+      )
+      if (applicationResponse) {
+        const response = await result
+        expect(response.tier).toBe(1)
+        expect(response.statusCode).toBe(status)
+        expect(response.html).toContain("Submission recorded")
+      } else await expect(result).rejects.toThrow("not resent")
+      expect(submissions).toBe(1)
+      expect(checkouts).toBe(0)
+    },
+  )
 
   test("does not resend after an ambiguous browser fallback outcome", async () => {
     let submissions = 0
