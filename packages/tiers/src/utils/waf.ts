@@ -12,6 +12,65 @@ export function wafUnavailable(reason: NonNullable<WafDetection["reason"]>): Waf
   return { engine: "wafmeow", version: "3.1.0", state: "unavailable", products: [], reason }
 }
 
+/** Keep only bounded rule references and diagnostic codes, never captured values. */
+export function sanitizeWafDetails(
+  value: WafDetection,
+): Pick<WafDetection, "matches" | "incompleteProducts" | "diagnostics" | "detailsTruncated"> {
+  const details: ReturnType<typeof sanitizeWafDetails> = {}
+  if (value.matches !== undefined) {
+    if (!Array.isArray(value.matches) || value.matches.length > 32) throw new Error("Invalid WAF matches")
+    details.matches = value.matches.map((match) => {
+      if (
+        !match ||
+        typeof match.product !== "string" ||
+        match.product.length > 256 ||
+        !Number.isSafeInteger(match.schema) ||
+        match.schema < 1 ||
+        !Array.isArray(match.fingerprints) ||
+        match.fingerprints.length > 16
+      )
+        throw new Error("Invalid WAF match")
+      return {
+        product: match.product,
+        schema: match.schema,
+        fingerprints: match.fingerprints.map((ref) => {
+          if (!ref || !Number.isSafeInteger(ref.fingerprint) || ref.fingerprint < 1 || ref.evidence !== 0)
+            throw new Error("Invalid WAF evidence reference")
+          return { fingerprint: ref.fingerprint, evidence: ref.evidence }
+        }),
+      }
+    })
+  }
+  if (value.incompleteProducts !== undefined) {
+    if (
+      !Array.isArray(value.incompleteProducts) ||
+      value.incompleteProducts.length > 256 ||
+      !value.incompleteProducts.every((name) => typeof name === "string" && name.length <= 256)
+    )
+      throw new Error("Invalid incomplete WAF products")
+    details.incompleteProducts = [...value.incompleteProducts]
+  }
+  if (value.diagnostics !== undefined) {
+    if (!Array.isArray(value.diagnostics) || value.diagnostics.length > 16) throw new Error("Invalid WAF diagnostics")
+    details.diagnostics = value.diagnostics.map((item) => {
+      if (
+        !item ||
+        !["body_truncated", "missing_response", "invalid_engine", "invalid_evidence", "transport_error"].includes(
+          item.code,
+        ) ||
+        (item.evidence !== 0 && item.evidence !== -1)
+      )
+        throw new Error("Invalid WAF diagnostic")
+      return { code: item.code, evidence: item.evidence }
+    })
+  }
+  if (value.detailsTruncated !== undefined) {
+    if (typeof value.detailsTruncated !== "boolean") throw new Error("Invalid WAF detail truncation flag")
+    details.detailsTruncated = value.detailsTruncated
+  }
+  return details
+}
+
 export function snapshotWafEvidence(evidence: WafEvidence): string {
   const headers: { name: string; value: string }[] = []
   let headerBytes = 0
@@ -155,6 +214,7 @@ export class WafDetector {
             version: result.version,
             state: result.state,
             products: result.products,
+            ...sanitizeWafDetails(result),
           })
           buffer = buffer.slice(end + 1)
           end = buffer.indexOf("\n")

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Include matched wafmeow rule references, incomplete product evaluations and diagnostic codes in native/SDK/MCP results and metric history, while retaining existing profiles and solver routing (#258).
+
 ## [1.11.0] - 2026-11-09
 
 ### Added

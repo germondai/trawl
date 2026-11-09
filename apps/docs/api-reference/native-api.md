@@ -202,6 +202,12 @@ Successful responses and native scrape errors can include:
     "version": "3.1.0",
     "state": "incomplete",
     "products": ["Cloudflare (Cloudflare Inc.)"],
+    "matches": [{
+      "product": "Cloudflare (Cloudflare Inc.)",
+      "schema": 1,
+      "fingerprints": [{ "fingerprint": 1, "evidence": 0 }]
+    }],
+    "incompleteProducts": ["ModSecurity (SpiderLabs)"],
     "sourceTier": 1
   }
 }
@@ -212,6 +218,19 @@ solve. A match identifies a provider signature; it does not prove an active bloc
 successful bypass. No match does not prove that a WAF is absent. `incomplete` preserves
 positive matches while indicating that some catalogue rules could not be evaluated, for
 example because a body or the original HTTP reason phrase was not captured.
+
+`matches` references the first satisfied schema and supporting fingerprints in the catalogue
+for the reported `version`. Schema and fingerprint numbers start at 1; `evidence: 0` refers
+to the single retained response identified by `sourceTier`. These references do not include
+matched header values, cookies or body text, and are not confidence scores.
+`incompleteProducts` lists products whose rules could not be fully evaluated; these are not
+positive matches. When present, `diagnostics` contains codes such as `body_truncated` with
+an evidence index (`-1` denotes a run-level diagnostic), without raw error messages.
+
+Rule details are limited to 32 matched products and 16 fingerprint references per match.
+`detailsTruncated: true` indicates omitted rule details; `products` still lists every match.
+The extra fields are optional for compatibility with older helpers. They are also retained
+in metric history; logs summarize incomplete products and diagnostic codes.
 
 Detection inspects at most 64 KiB of HTML and 16 KiB / 128 headers. Truncated or missing
 channels are marked incomplete or unavailable. Raw evidence is never returned by the worker.

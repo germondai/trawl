@@ -67,7 +67,13 @@ const blockedRequest = { url: "https://example.com", skipHttp: true, maxTier: 2,
 
 describe("POST /scrape on a blocked outcome", () => {
   test("returns requested WAF attribution without exposing wall evidence", async () => {
-    const waf = { engine: "wafmeow" as const, version: "3.1.0", state: "complete" as const, products: ["Example WAF"] }
+    const waf = {
+      engine: "wafmeow" as const,
+      version: "3.1.0",
+      state: "complete" as const,
+      products: ["Example WAF"],
+      matches: [{ product: "Example WAF", schema: 1, fingerprints: [{ fingerprint: 1, evidence: 0 }] }],
+    }
     const app = scrapeRoute(
       () => ({ ...blockedDeps(), detectWaf: async () => waf }),
       () => ({}),

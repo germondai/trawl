@@ -26,6 +26,8 @@ describe("request logging", () => {
       version: "3.1.0",
       state: "incomplete" as const,
       products: ["Cloudflare"],
+      incompleteProducts: ["Body provider"],
+      diagnostics: [{ code: "body_truncated" as const, evidence: 0 }],
       sourceTier: 1 as const,
       durationMs: 1.25,
     }
@@ -74,6 +76,8 @@ describe("request logging", () => {
       true,
     )
     expect(lines.join("\n")).not.toMatch(/private|secret/)
+    expect(lines.some((line) => line.includes("wafIncompleteProducts=") && line.includes("Body provider"))).toBe(true)
+    expect(lines.some((line) => line.includes("wafDiagnostics=body_truncated"))).toBe(true)
     expect(store.snapshot().waf.providers).toEqual([{ product: "Cloudflare", requests: 2, failures: 1 }])
     store.close()
   })

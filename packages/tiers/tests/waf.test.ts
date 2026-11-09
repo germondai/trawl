@@ -19,14 +19,14 @@ function worker(script: string): WafDetector {
   return detector
 }
 
-const fakeWorker = `
+const fakeWorker = (result: unknown) => `
 let buffer = "";
 for await (const chunk of Bun.stdin.stream()) {
   buffer += new TextDecoder().decode(chunk);
   let end;
   while ((end = buffer.indexOf("\\n")) !== -1) {
     JSON.parse(buffer.slice(0, end));
-    console.log(${JSON.stringify(JSON.stringify({ ...detection, private: "must not escape" }))});
+    console.log(${JSON.stringify(JSON.stringify(result))});
     buffer = buffer.slice(end + 1);
   }
 }`
@@ -36,7 +36,7 @@ const evidence = snapshotWafEvidence({
   responseHeaders: { server: "cloudflare" },
 })
 
-test.skipIf(!existsSync("/opt/trawl-waf/trawl-waf"))(
+test.skipIf(!existsSync(process.env.WAFMEOW_PATH?.trim() || "/opt/trawl-waf/trawl-waf"))(
   "bundled helper classifies header, body and separate cookie evidence",
   async () => {
     const detector = new WafDetector()
@@ -58,7 +58,25 @@ test.skipIf(!existsSync("/opt/trawl-waf/trawl-waf"))(
       )
       expect(result.state).not.toBe("unavailable")
       expect(result.products).toContain(product)
+      expect(result.matches).toContainEqual({
+        product,
+        schema: expect.any(Number),
+        fingerprints: expect.arrayContaining([{ fingerprint: expect.any(Number), evidence: 0 }]),
+      })
     }
+    const partial = await detector.detect(
+      snapshotWafEvidence({
+        statusCode: 200,
+        reasonPhrase: "OK",
+        responseHeaders: { server: "cloudflare" },
+        html: "x".repeat(80_000),
+      }),
+      1_000,
+    )
+    expect(partial.state).toBe("incomplete")
+    expect(partial.products).toContain("Cloudflare (Cloudflare Inc.)")
+    expect(partial.incompleteProducts?.length).toBeGreaterThan(0)
+    expect(partial.diagnostics).toContainEqual({ code: "body_truncated", evidence: 0 })
   },
 )
 
@@ -89,9 +107,50 @@ test("preserves individual Set-Cookie fields including commas in expiry dates", 
 })
 
 test("streams repeated detections and returns only provider metadata", async () => {
-  const detector = worker(fakeWorker)
+  const detector = worker(fakeWorker({ ...detection, private: "must not escape" }))
   expect(await detector.detect(evidence, 1_000)).toMatchObject({ ...detection, durationMs: expect.any(Number) })
   expect(await detector.detect(evidence, 1_000)).toMatchObject(detection)
+})
+
+test("preserves bounded WAF details while stripping nested raw evidence", async () => {
+  const details = {
+    matches: [{ product: "Cloudflare", schema: 1, fingerprints: [{ fingerprint: 1, evidence: 0 }] }],
+    incompleteProducts: ["Body provider"],
+    diagnostics: [{ code: "body_truncated", evidence: 0 }],
+    detailsTruncated: true,
+  }
+  const detector = worker(
+    fakeWorker({
+      ...detection,
+      ...details,
+      matches: [
+        {
+          ...details.matches[0],
+          html: "private-html",
+          fingerprints: [{ ...details.matches[0]?.fingerprints[0], value: "private-cookie" }],
+        },
+      ],
+      diagnostics: [{ ...details.diagnostics[0], message: "private-url" }],
+    }),
+  )
+  const result = await detector.detect(evidence, 1_000)
+  expect(result).toMatchObject({ ...detection, ...details })
+  expect(JSON.stringify(result)).not.toContain("private")
+})
+
+test("rejects invalid rule references and malformed optional metadata", async () => {
+  const match = { product: "Cloudflare", schema: 1, fingerprints: [{ fingerprint: 1, evidence: 0 }] }
+  for (const details of [
+    { matches: [{ ...match, schema: 0 }] },
+    { matches: [{ ...match, fingerprints: [{ fingerprint: 1, evidence: 1 }] }] },
+    { matches: Array(33).fill(match) },
+    { incompleteProducts: "Cloudflare" },
+    { diagnostics: [{ code: "private-code", evidence: 0 }] },
+    { detailsTruncated: 1 },
+  ]) {
+    const detector = worker(fakeWorker({ ...detection, ...details }))
+    expect(await detector.detect(evidence, 1_000)).toMatchObject({ state: "unavailable", reason: "failed" })
+  }
 })
 
 test("missing and crashing executables degrade the diagnostic", async () => {
