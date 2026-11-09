@@ -11,6 +11,7 @@
 !apps/docs/**/*.md
 .github/
 docker-compose*.yml
+native/*/target/
 
 # Local agent / IDE state - not needed at build or runtime
 .git/

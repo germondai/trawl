@@ -19,7 +19,8 @@ TRAWL detects supported walls, chooses the matching browser flow and checks whet
 | ALTCHA                  | Native proof-of-work widget                                                          | Site profile required                                     |
 | Friendly Captcha v1/v2  | Native widget execution and response checks                                          | Site profile required                                     |
 | CAP                     | Native proof of work; verifies every visible widget                                  | No catalogue entry                                        |
-| Anubis                  | Native JavaScript proof of work and metarefresh handling                             | No catalogue entry                                        |
+| NCBI identity PoW       | Bounded HTTP SHA-256 solve; returns clearance cookies                                | No catalogue entry                                        |
+| Anubis                  | Bounded HTTP proof of work and wait-based flows, with browser fallback                             | No catalogue entry                                        |
 | Akamai Bot Manager      | Supported sensor and press-and-hold flows                                            | No dedicated catalogue entry                              |
 | Imperva / Incapsula     | Supported sensor challenges; no built-in solver for its own interactive CAPTCHA      | Site profile required                                     |
 | DDoS-Guard              | JavaScript challenge execution and cookie checks                                     | No dedicated catalogue entry                              |

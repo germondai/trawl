@@ -116,6 +116,15 @@ RUN curl -fsSL \
     test "$(bun -e 'console.log(JSON.parse(await Bun.file("/opt/camoufox/addons/UBO/manifest.json").text()).version)')" = "${UBO_VERSION}" && \
     rm /tmp/ubo.xpi
 
+# Build against the baseline libc and generic CPU target for both image variants.
+FROM rust:1.97.1-slim-bookworm AS powsolve
+WORKDIR /src
+COPY native/powsolve/ ./
+RUN cargo fetch --locked
+RUN --network=none cargo test --release --locked --offline \
+ && cargo build --release --locked --offline \
+ && strip target/release/libpowsolve.so
+
 FROM debian:bookworm-slim AS bun-runtime
 RUN apt-get update && apt-get install -y --no-install-recommends curl unzip binutils ca-certificates
 # Pull the Bun runtime directly from GitHub releases. The baseline-built binary
@@ -172,6 +181,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 COPY --from=bun-runtime /usr/local/bin/bun /usr/local/bin/bun
 COPY --from=wafmeow /build/dist/ /opt/trawl-waf/
+COPY --from=powsolve /src/target/release/libpowsolve.so /src/ANUBIS-LICENSE /opt/powsolve/
 
 COPY --link --from=camoufox   /opt/camoufox      /opt/camoufox
 COPY --from=deps              /app/node_modules  /app/node_modules
@@ -202,6 +212,8 @@ RUN --network=none bun -e 'import maxmind from "maxmind"; const database = await
 RUN --network=none bun -e 'import { launchOptions } from "camoufox-js"; const options = await launchOptions({headless:true,geoip:false,exclude_addons:["UBO"],i_know_what_im_doing:true}); if (!options.executablePath.startsWith("/opt/camoufox/")) throw new Error("Expected the bundled Camoufox executable")'
 # Validate the optional binding against this image's architecture and libc offline.
 RUN --network=none TIER1_TRANSPORT=wreq bun -e 'import { verifyTier1Transport } from "./packages/tiers/src/utils/tier1Transport"; await verifyTier1Transport()'
+# Missing native dependencies or an ABI mismatch must fail both image builds.
+RUN --network=none bun -e 'import { verifyNativePow } from "./packages/tiers/src/utils/nativePow"; await verifyNativePow()'
 # Keep build-time browser caches out of the runtime image.
 RUN --network=none --mount=type=tmpfs,target=/tmp bun packages/browser/security/check-onecrl.ts
 EXPOSE 8191
