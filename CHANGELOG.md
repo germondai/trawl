@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Avoid detecting Cloudflare and Turnstile challenges from ordinary verification text, comments and inert HTML examples. Preserve active challenge markers and prevent POST replay from resending application replies containing examples.
 
+### Changed
+- Include existing browser resource and recovery checks in release CI and optional manual runs without extending ordinary PR checks.
+
 ## [1.11.0] - 2026-11-09
 
 ### Added

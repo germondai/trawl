@@ -150,6 +150,13 @@ TRAWL_POOL_RESOURCE_TESTS=1 BROWSER_BLOCK_ADS=false BROWSER_HARDWARE_CONCURRENCY
 The fixtures simulate a challenge page; they do not establish live CAPTCHA
 success rates. Heavy browser workloads may require a larger memory limit.
 
+Release PRs from `dev` to `main` and release publishing include this resource
+suite in browser smoke checks. Regular PRs keep the shorter suite. Run the CI
+workflow manually with `resource_tests` enabled for the same checks before
+preparing a release, or use `TRAWL_POOL_RESOURCE_TESTS=1 bash scripts/browser-smoke.sh trawl-smoke`
+with an already built image. The resource suite runs with a 1 GiB memory/swap
+limit; session and shutdown suites retain their existing 2 GiB limit.
+
 External CAPTCHA integration tests use owned widgets, a local provider API fixture
 and real Camoufox. They never submit a paid task:
 
