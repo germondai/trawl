@@ -7,12 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-11-09
+
 ### Added
 - Solve supported NCBI and Anubis proof-of-work walls in the HTTP tier before browser escalation. Bound native work to one cancellable, short-lived process and preserve cookie scope, request identity and GET-only replay (#272).
 - Add opt-in `httpReplay` for POST requests with browser-verified Cloudflare or Anubis clearance. Reuse HTTP cookies within the request deadline and permit browser recovery only after explicit challenge rejection. Guard both tier retries and browser reloads against resubmitting an accepted or ambiguous POST; retain existing routing, TLS and default POST behavior (#268, #274).
 
 ### Fixed
-- Preserve successful Prowlarr proxy ping checks without cookies when `FLARESOLVERR_COOKIE_FALLBACK` is enabled, while retaining cookie handoff requirements for indexers (#273).
+- Preserve successful Prowlarr proxy ping checks without cookies when `FLARESOLVERR_COOKIE_FALLBACK` is enabled, while retaining cookie handoff requirements for indexers (#273, #275).
+
+### Changed
+- Refresh compatible workspace dependencies, including Vue 3.5.45, Vite 8.3.6, Rollup 4.68.0, Undici 8.12.4, Impit 0.14.8 and MaxMind 5.0.8. Retain the tested Camoufox/Playwright/uBlock Origin combination and TypeScript 6 for Vue tooling.
+- Build the native PoW solver with Rust 1.99.1 and update SHA-2, Argon2 and HashX while retaining proof compatibility checks against Anubis.
+- Keep Bun 1.4.4, Node.js 26.13.0, Go 1.27.3, Nginx 1.31.8 and Redis 8.10.3.
+
+### Upgrade notes
+- No configuration or data migration is required. Native PoW solving applies to supported GET requests; POST clearance replay remains opt-in with `httpReplay: true`.
+- The client workspace remains at 0.1.0; this release does not publish it to npm.
 
 ## [1.10.1] - 2026-11-06
 

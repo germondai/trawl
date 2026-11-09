@@ -117,7 +117,7 @@ RUN curl -fsSL \
     rm /tmp/ubo.xpi
 
 # Build against the baseline libc and generic CPU target for both image variants.
-FROM rust:1.97.1-slim-bookworm AS powsolve
+FROM rust:1.99.1-slim-bookworm AS powsolve
 WORKDIR /src
 COPY native/powsolve/ ./
 RUN cargo fetch --locked

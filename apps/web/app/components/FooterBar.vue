@@ -13,8 +13,8 @@ const docsUrl = useDocsUrl()
       <div class="footer-center">
         <a href="https://github.com/germondai/trawl" target="_blank" rel="noopener noreferrer">GitHub</a>
         <a :href="docsUrl">Docs</a>
-        <a href="https://github.com/germondai/trawl/releases/tag/v1.10.1" target="_blank" rel="noopener noreferrer"
-          >v1.10.1</a
+        <a href="https://github.com/germondai/trawl/releases/tag/v1.11.0" target="_blank" rel="noopener noreferrer"
+          >v1.11.0</a
         >
         <a href="https://github.com/germondai/trawl/issues" target="_blank" rel="noopener noreferrer">Issues</a>
         <a href="https://github.com/germondai/trawl/blob/main/LICENSE" target="_blank" rel="noopener noreferrer"

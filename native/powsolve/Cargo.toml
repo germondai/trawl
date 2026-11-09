@@ -7,9 +7,9 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-sha2 = "0.10"
-argon2 = "0.5"
-hashx = "0.8"
+sha2 = "0.11"
+argon2 = "0.6"
+hashx = "0.10"
 
 [profile.release]
 opt-level = 3

@@ -12,13 +12,13 @@ const tabs: { id: Tab; label: string; hint: string }[] = [
 ]
 const setups: Record<Tab, string> = {
   docker:
-    "docker run -d --name trawl \\\n  -p 127.0.0.1:8191:8191 \\\n  --shm-size=1gb \\\n  -e SESSION_CACHE_DRIVER=memory \\\n  -e METRICS_DASHBOARD_ENABLED=true \\\n  -e MCP_ENABLED=true \\\n  -e BROWSER_POOL_SIZE=1 \\\n  -v trawl_metrics:/data/metrics \\\n  ghcr.io/germondai/trawl:1.10.1",
+    "docker run -d --name trawl \\\n  -p 127.0.0.1:8191:8191 \\\n  --shm-size=1gb \\\n  -e SESSION_CACHE_DRIVER=memory \\\n  -e METRICS_DASHBOARD_ENABLED=true \\\n  -e MCP_ENABLED=true \\\n  -e BROWSER_POOL_SIZE=1 \\\n  -v trawl_metrics:/data/metrics \\\n  ghcr.io/germondai/trawl:1.11.0",
   minimal:
-    'services:\n  trawl:\n    image: ghcr.io/germondai/trawl:1.10.1\n    ports: ["127.0.0.1:8191:8191"]\n    shm_size: 1gb\n    environment:\n      SESSION_CACHE_DRIVER: memory\n      BROWSER_POOL_SIZE: 1\n      METRICS_DASHBOARD_ENABLED: "true"\n      MCP_ENABLED: "true"\n    volumes: [trawl_metrics:/data/metrics]\n    restart: unless-stopped\nvolumes:\n  trawl_metrics:',
+    'services:\n  trawl:\n    image: ghcr.io/germondai/trawl:1.11.0\n    ports: ["127.0.0.1:8191:8191"]\n    shm_size: 1gb\n    environment:\n      SESSION_CACHE_DRIVER: memory\n      BROWSER_POOL_SIZE: 1\n      METRICS_DASHBOARD_ENABLED: "true"\n      MCP_ENABLED: "true"\n    volumes: [trawl_metrics:/data/metrics]\n    restart: unless-stopped\nvolumes:\n  trawl_metrics:',
   cached:
-    'services:\n  redis:\n    image: redis:8.10.3-alpine\n    command: ["redis-server", "--appendonly", "yes"]\n    volumes: [redis_data:/data]\n    healthcheck:\n      test: ["CMD", "redis-cli", "ping"]\n  trawl:\n    image: ghcr.io/germondai/trawl:1.10.1\n    ports: ["127.0.0.1:8191:8191"]\n    shm_size: 1gb\n    environment:\n      REDIS_URL: redis://redis:6379\n      BROWSER_POOL_SIZE: 1\n      METRICS_DASHBOARD_ENABLED: "true"\n      MCP_ENABLED: "true"\n    volumes: [trawl_metrics:/data/metrics]\n    depends_on:\n      redis:\n        condition: service_healthy\nvolumes:\n  redis_data:\n  trawl_metrics:',
+    'services:\n  redis:\n    image: redis:8.10.3-alpine\n    command: ["redis-server", "--appendonly", "yes"]\n    volumes: [redis_data:/data]\n    healthcheck:\n      test: ["CMD", "redis-cli", "ping"]\n  trawl:\n    image: ghcr.io/germondai/trawl:1.11.0\n    ports: ["127.0.0.1:8191:8191"]\n    shm_size: 1gb\n    environment:\n      REDIS_URL: redis://redis:6379\n      BROWSER_POOL_SIZE: 1\n      METRICS_DASHBOARD_ENABLED: "true"\n      MCP_ENABLED: "true"\n    volumes: [trawl_metrics:/data/metrics]\n    depends_on:\n      redis:\n        condition: service_healthy\nvolumes:\n  redis_data:\n  trawl_metrics:',
   production:
-    'services:\n  redis:\n    image: redis:8.10.3-alpine\n    command: ["redis-server", "--appendonly", "yes"]\n    restart: unless-stopped\n    volumes: [redis_data:/data]\n    healthcheck:\n      test: ["CMD", "redis-cli", "ping"]\n  trawl:\n    image: ghcr.io/germondai/trawl:1.10.1\n    restart: unless-stopped\n    ports: ["127.0.0.1:8191:8191"]\n    shm_size: 1gb\n    environment:\n      REDIS_URL: redis://redis:6379\n      BROWSER_POOL_SIZE: 1\n      METRICS_DASHBOARD_ENABLED: "true"\n      MCP_ENABLED: "true"\n    volumes: [trawl_metrics:/data/metrics]\n    depends_on:\n      redis:\n        condition: service_healthy\n    healthcheck:\n      test: ["CMD", "curl", "-sf", "http://localhost:8191/health"]\n      interval: 30s\nvolumes:\n  redis_data:\n  trawl_metrics:',
+    'services:\n  redis:\n    image: redis:8.10.3-alpine\n    command: ["redis-server", "--appendonly", "yes"]\n    restart: unless-stopped\n    volumes: [redis_data:/data]\n    healthcheck:\n      test: ["CMD", "redis-cli", "ping"]\n  trawl:\n    image: ghcr.io/germondai/trawl:1.11.0\n    restart: unless-stopped\n    ports: ["127.0.0.1:8191:8191"]\n    shm_size: 1gb\n    environment:\n      REDIS_URL: redis://redis:6379\n      BROWSER_POOL_SIZE: 1\n      METRICS_DASHBOARD_ENABLED: "true"\n      MCP_ENABLED: "true"\n    volumes: [trawl_metrics:/data/metrics]\n    depends_on:\n      redis:\n        condition: service_healthy\n    healthcheck:\n      test: ["CMD", "curl", "-sf", "http://localhost:8191/health"]\n      interval: 30s\nvolumes:\n  redis_data:\n  trawl_metrics:',
 }
 </script>
 
@@ -34,7 +34,7 @@ const setups: Record<Tab, string> = {
         <div class="cta-label">open source · AGPL-3.0 · self-hosted</div>
         <h2 class="cta-heading">start with one browser.</h2>
         <p class="cta-sub">
-          Run v1.10.1 with MCP enabled and persistent dashboard history. Pull the image, wait for /health, then send
+          Run v1.11.0 with MCP enabled and persistent dashboard history. Pull the image, wait for /health, then send
           your first request.
         </p>
         <div class="cta-actions">
@@ -72,7 +72,7 @@ const setups: Record<Tab, string> = {
         </div>
 
         <p class="tag-hint">
-          For older CPUs or NAS deployments, use <code>:1.10.1-baseline</code>. Heavy pages and extra sessions may need
+          For older CPUs or NAS deployments, use <code>:1.11.0-baseline</code>. Heavy pages and extra sessions may need
           more memory.
           <a :href="`${docsUrl}/deployment/standalone#older-cpus-synology-nas`">same commands, different runtime</a>.
         </p>
