@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Solve supported NCBI and Anubis proof-of-work walls in the HTTP tier before browser escalation. Bound native work to one cancellable, short-lived process and preserve cookie scope, request identity and GET-only replay (#272).
 - Add opt-in `httpReplay` for POST requests with browser-verified Cloudflare or Anubis clearance. Reuse HTTP cookies within the request deadline and permit browser recovery only after explicit challenge rejection. Guard both tier retries and browser reloads against resubmitting an accepted or ambiguous POST; retain existing routing, TLS and default POST behavior (#268, #274).
 
 ### Fixed

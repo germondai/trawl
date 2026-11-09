@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { createHash } from "node:crypto"
-import { cookiePairs, mergeCookieHeader, planPowWall } from "../src/utils/nativePow"
+import { planPowWall } from "../src/utils/nativePow"
 
 const ncbiPage = (id: string, bits: number) => `<!doctype html><html><body><script>
 const challengeId = "${id}";
@@ -39,10 +39,10 @@ describe("planPowWall", () => {
     expect(planPowWall("<html><body>hello</body></html>", "https://example.com/")).toBeUndefined()
   })
 
-  test("solves NCBI identity PoW and builds the /_pow/solve POST", () => {
+  test("solves NCBI identity PoW and builds the /_pow/solve POST", async () => {
     const plan = planPowWall(ncbiPage("abc123", 12), "https://pubmed.ncbi.nlm.nih.gov/33288961/")
     expect(plan?.kind).toBe("ncbi-pow(bits=12)")
-    const submit = plan?.submit()
+    const submit = await plan?.submit()
     expect(submit?.method).toBe("POST")
     expect(submit?.url).toBe("https://pubmed.ncbi.nlm.nih.gov/_pow/solve")
     const payload = JSON.parse(submit?.body ?? "{}")
@@ -52,9 +52,9 @@ describe("planPowWall", () => {
     expect(leadingZeroBits(digest)).toBeGreaterThanOrEqual(12)
   })
 
-  test("solves Anubis fast (leading zero hex digits) and builds pass-challenge", () => {
+  test("solves Anubis fast (leading zero hex digits) and builds pass-challenge", async () => {
     const plan = planPowWall(anubisPage("fast", 3, "deadbeef"), "https://git.example.org/repo?tab=1")
-    const submit = plan?.submit()
+    const submit = await plan?.submit()
     expect(submit?.method).toBe("GET")
     const u = new URL(submit?.url ?? "")
     expect(u.pathname).toBe("/.within.website/x/cmd/anubis/api/pass-challenge")
@@ -66,21 +66,58 @@ describe("planPowWall", () => {
     expect(digest.startsWith("000")).toBe(true)
   })
 
-  test("Anubis preact waits difficulty*80ms and submits sha256(randomData)", () => {
+  test("Anubis preact waits difficulty*80ms and submits sha256(randomData)", async () => {
     const plan = planPowWall(anubisPage("preact", 2, "cafe"), "https://site.example/a?b=c")
     expect(plan?.waitMs).toBeGreaterThanOrEqual(160)
-    const u = new URL(plan?.submit()?.url ?? "")
+    const u = new URL((await plan?.submit())?.url ?? "")
     expect(u.searchParams.get("result")).toBe(createHash("sha256").update("cafe").digest("hex"))
     expect(u.searchParams.get("redir")).toBe("/a?b=c")
   })
-})
 
-describe("cookie helpers", () => {
-  test("cookiePairs keeps name=value only", () => {
-    expect(cookiePairs("a=1; Path=/; HttpOnly\nb=2; Secure")).toEqual(["a=1", "b=2"])
+  test("rejects malformed metadata and cross-origin submission prefixes", () => {
+    const page = anubisPage("fast", 0, "abcd")
+    for (const prefix of ["https://other.example", "//other.example", "/\\other.example", "/?redirect=", {}]) {
+      expect(
+        planPowWall(page.replace('>""</script>', `>${JSON.stringify(prefix)}</script>`), "https://example.org/"),
+      ).toBeUndefined()
+    }
+    for (const difficulty of [-1, 0.5, 257, "4", {}, null]) {
+      expect(
+        planPowWall(
+          page.replace('"difficulty":0', `"difficulty":${JSON.stringify(difficulty)}`),
+          "https://example.org/",
+        ),
+      ).toBeUndefined()
+    }
+    expect(planPowWall(anubisPage("unknown", 1, "abcd"), "https://example.org/")).toBeUndefined()
+    expect(planPowWall(`<template>${ncbiPage("fixture", 0)}</template>`, "https://example.org/")).toBeUndefined()
   })
 
-  test("mergeCookieHeader overrides by name", () => {
-    expect(mergeCookieHeader("a=1; c=3", ["a=2", "b=4"])).toBe("a=2; c=3; b=4")
+  test("a hard solve stays cancellable without blocking the event loop", async () => {
+    const plan = planPowWall(ncbiPage("impossible", 256), "https://example.org/")
+    const controller = new AbortController()
+    let ticks = 0
+    const heartbeat = setInterval(() => ticks++, 5)
+    const cancel = setTimeout(() => controller.abort(), 80)
+    const started = performance.now()
+    try {
+      const active = plan?.submit(1000, controller.signal)
+      expect(await planPowWall(ncbiPage("easy", 0), "https://example.org/")?.submit()).toBeUndefined()
+      expect(await active).toBeUndefined()
+      expect(performance.now() - started).toBeLessThan(2000)
+      expect(ticks).toBeGreaterThan(0)
+      // Cancellation releases the slot instead of leaving a busy solver behind.
+      expect(await planPowWall(ncbiPage("easy", 0), "https://example.org/")?.submit()).toBeDefined()
+    } finally {
+      clearTimeout(cancel)
+      clearInterval(heartbeat)
+    }
+  })
+
+  test("a solve has a deadline even without a caller signal", async () => {
+    const started = performance.now()
+    expect(await planPowWall(ncbiPage("impossible", 256), "https://example.org/")?.submit(60)).toBeUndefined()
+    expect(performance.now() - started).toBeLessThan(2000)
+    expect(await planPowWall(ncbiPage("fixture", 257), "https://example.org/")?.submit()).toBeUndefined()
   })
 })

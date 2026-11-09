@@ -1,133 +1,116 @@
-import { dlopen, FFIType } from "bun:ffi"
 import { createHash } from "node:crypto"
-import { availableParallelism } from "node:os"
-
-// Native proof-of-work walls solved at Tier 1, without a browser.
-//
-// The search runs in native/powsolve (Rust, loaded through bun:ffi). Without the
-// library only the text-SHA-256 shape is solved, in JS; the other shapes fall back
-// to the browser tiers as before.
-//
-// Recognized walls:
-//   NCBI identity PoW (PubMed, PMC): sha256(`${challengeId}:${nonce}`), `bits` leading
-//     zero bits, POST /_pow/solve, cookie N_POW_Challenge.
-//   Anubis fast/slow:   sha256(randomData + nonce), `difficulty` leading zero hex digits.
-//   Anubis sha256/argon2id/hashx: hex-decoded randomData as raw bytes, `difficulty` bits.
-//   Anubis preact:      result = sha256hex(randomData) after difficulty*80 ms.
-//   Anubis metarefresh: challenge = randomData after difficulty*800 ms.
-
-const ALGO = { sha256: 0, argon2id: 1, hashx: 2 } as const
-
-type NativeLib = {
-  textSha256: (prefix: Uint8Array, bits: number, threads: number, out: Uint8Array) => number
-  bytes: (algo: number, data: Uint8Array, bits: number, threads: number, out: Uint8Array) => number
-}
-
-let nativeLib: NativeLib | null | undefined
-
-function loadNative(): NativeLib | null {
-  if (nativeLib !== undefined) return nativeLib
-  nativeLib = null
-  const path = process.env.POWSOLVE_LIB ?? "/opt/powsolve/libpowsolve.so"
-  try {
-    const { symbols } = dlopen(path, {
-      pow_text_sha256: {
-        args: [FFIType.ptr, FFIType.u64, FFIType.u32, FFIType.u32, FFIType.ptr],
-        returns: FFIType.i64_fast,
-      },
-      pow_bytes: {
-        args: [FFIType.u32, FFIType.ptr, FFIType.u64, FFIType.u32, FFIType.u32, FFIType.ptr],
-        returns: FFIType.i64_fast,
-      },
-    })
-    // Zero-length buffers cannot be passed as pointers; pad with one unread byte.
-    const nonEmpty = (b: Uint8Array) => (b.length > 0 ? b : new Uint8Array(1))
-    nativeLib = {
-      textSha256: (prefix, bits, threads, out) =>
-        Number(symbols.pow_text_sha256(nonEmpty(prefix), prefix.length, bits, threads, out)),
-      bytes: (algo, data, bits, threads, out) =>
-        Number(symbols.pow_bytes(algo, nonEmpty(data), data.length, bits, threads, out)),
-    }
-    console.log(`[native-pow] loaded ${path}`)
-  } catch (err) {
-    console.log(`[native-pow] native solver unavailable (${err instanceof Error ? err.message : err}); JS fallback`)
-  }
-  return nativeLib
-}
-
-const THREADS = Math.max(1, Math.min(8, availableParallelism()))
-
-function leadingZeroBitsOk(hash: Uint8Array, bits: number): boolean {
-  let remaining = bits
-  for (const byte of hash) {
-    if (remaining <= 0) return true
-    if (remaining >= 8) {
-      if (byte !== 0) return false
-      remaining -= 8
-    } else {
-      return (byte & (0xff << (8 - remaining)) & 0xff) === 0
-    }
-  }
-  return remaining <= 0
-}
-
-const toHex = (b: Uint8Array) => Buffer.from(b).toString("hex")
-
-function solveTextSha256(prefix: string, bits: number): { nonce: number; hash: string } | undefined {
-  const lib = loadNative()
-  if (lib) {
-    const out = new Uint8Array(32)
-    const nonce = lib.textSha256(new TextEncoder().encode(prefix), bits, THREADS, out)
-    return nonce < 0 ? undefined : { nonce, hash: toHex(out) }
-  }
-  // JS fallback, bounded so a hard wall does not stall the event loop.
-  const limit = 2 ** Math.min(bits + 4, 24)
-  for (let nonce = 0; nonce < limit; nonce++) {
-    const hash = createHash("sha256").update(`${prefix}${nonce}`).digest()
-    if (leadingZeroBitsOk(hash, bits)) return { nonce, hash: hash.toString("hex") }
-  }
-  return undefined
-}
-
-function solveBytes(algo: number, data: Uint8Array, bits: number): { nonce: number; hash: string } | undefined {
-  const lib = loadNative()
-  if (!lib) return undefined
-  const out = new Uint8Array(32)
-  const nonce = lib.bytes(algo, data, bits, THREADS, out)
-  return nonce < 0 ? undefined : { nonce, hash: toHex(out) }
-}
+import { fileURLToPath } from "node:url"
+import { parseHTML } from "linkedom"
+import { detectAnubisPage } from "./anubis"
 
 export interface PowPlan {
   kind: string
   // Milliseconds the server requires between issuing and submitting.
   waitMs: number
-  // Builds the submit request after the wait. Solving happens here, synchronously.
-  submit: () => { url: string; method: "GET" | "POST"; body?: string; contentType?: string } | undefined
+  submit: (
+    timeoutMs?: number,
+    signal?: AbortSignal,
+  ) => Promise<{ url: string; method: "GET" | "POST"; body?: string; contentType?: string } | undefined>
 }
 
 export function looksLikePowWall(html: string): boolean {
   return html.includes("/_pow/solve") || html.includes("anubis_challenge")
 }
 
-const jsonScript = (html: string, id: string): unknown => {
-  const m = html.match(new RegExp(`<script[^>]*\\bid=["']${id}["'][^>]*>([\\s\\S]*?)</script>`, "i"))
-  if (!m) return null
+const ALGO = { sha256: 0, argon2id: 1, hashx: 2 } as const
+let solving = false
+
+// One short-lived process bounds native CPU work and can be killed during FFI.
+async function solve(
+  algorithm: number,
+  data: string,
+  bits: number,
+  timeoutMs = 1000,
+  signal?: AbortSignal,
+): Promise<{ nonce: number; hash: string } | undefined> {
+  if (solving || signal?.aborted || timeoutMs <= 0) return
+  solving = true
+  let child: ReturnType<typeof Bun.spawn<"pipe", "pipe", "ignore">> | undefined
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const abort = () => child?.kill("SIGKILL")
   try {
-    return JSON.parse(m[1] ?? "")
+    child = Bun.spawn(
+      [process.execPath, "--no-env-file", fileURLToPath(new URL("./nativePowSolver.ts", import.meta.url))],
+      {
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "ignore",
+        env: { PATH: process.env.PATH, POWSOLVE_LIB: process.env.POWSOLVE_LIB },
+      },
+    )
+    timer = setTimeout(abort, Math.min(timeoutMs, 1000))
+    signal?.addEventListener("abort", abort, { once: true })
+    if (signal?.aborted) abort()
+    child.stdin.write(JSON.stringify({ algorithm, data, bits }))
+    child.stdin.end()
+    const output = await new Response(child.stdout).text()
+    if ((await child.exited) !== 0 || signal?.aborted) return
+    const result = JSON.parse(output)
+    if (
+      result &&
+      Number.isInteger(result.nonce) &&
+      result.nonce >= 0 &&
+      result.nonce <= 0xffffffff &&
+      /^[a-f0-9]{64}$/.test(result.hash)
+    )
+      return result
+  } catch {
+    return
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener("abort", abort)
+    if (child) {
+      child.kill("SIGKILL")
+      await child.exited
+    }
+    solving = false
+  }
+}
+
+/** Image builds must exercise the native ABI rather than silently using JS. */
+export async function verifyNativePow(): Promise<void> {
+  for (const algorithm of [0, 1, 2]) {
+    const result = await solve(algorithm, "12345699", 0)
+    if (result?.nonce !== 0) throw new Error("Native proof-of-work solver unavailable")
+    if (algorithm === 0) {
+      const expected = createHash("sha256").update(Buffer.from("1234569900000000", "hex")).digest("hex")
+      if (result.hash !== expected) throw new Error("Native SHA-256 proof does not match the protocol")
+    }
+  }
+}
+
+const jsonScript = (document: ReturnType<typeof parseHTML>["document"], id: string): unknown => {
+  const script = document.getElementById(id)
+  if (script?.tagName !== "SCRIPT" || script.getAttribute("type") !== "application/json") return null
+  try {
+    return JSON.parse(script.textContent ?? "")
   } catch {
     return null
   }
 }
 
-function planNcbi(html: string, pageUrl: string): PowPlan | undefined {
-  const id = html.match(/const\s+challengeId\s*=\s*"([^"]+)"/)?.[1]
-  const bits = Number(html.match(/const\s+bits\s*=\s*(\d+)/)?.[1])
-  if (!id || !Number.isFinite(bits) || !html.includes("/_pow/solve")) return undefined
+function text(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 4096
+}
+function bitsValid(bits: number): boolean {
+  return Number.isInteger(bits) && bits >= 0 && bits <= 256
+}
+
+function planNcbi(script: string, pageUrl: string): PowPlan | undefined {
+  const id = script.match(/const\s+challengeId\s*=\s*"([^"]+)"/)?.[1]
+  const bits = Number(script.match(/const\s+bits\s*=\s*(\d+)\s*;/)?.[1])
+  if (!text(id) || !Number.isFinite(bits) || !script.includes("/_pow/solve")) return undefined
   return {
     kind: `ncbi-pow(bits=${bits})`,
     waitMs: 0,
-    submit: () => {
-      const solved = solveTextSha256(`${id}:`, bits)
+    submit: async (timeoutMs, signal) => {
+      if (!bitsValid(bits)) return
+      const solved = await solve(-1, `${id}:`, bits, timeoutMs, signal)
       if (!solved) return undefined
       return {
         url: new URL("/_pow/solve", pageUrl).href,
@@ -139,21 +122,36 @@ function planNcbi(html: string, pageUrl: string): PowPlan | undefined {
   }
 }
 
-function planAnubis(html: string, pageUrl: string): PowPlan | undefined {
-  const data = jsonScript(html, "anubis_challenge") as {
+function planAnubis(
+  html: string,
+  pageUrl: string,
+  document: ReturnType<typeof parseHTML>["document"],
+): PowPlan | undefined {
+  if (detectAnubisPage(html) !== "challenge") return
+  const data = jsonScript(document, "anubis_challenge") as {
     challenge?: { id?: string; randomData?: string }
     rules?: { algorithm?: string; difficulty?: number }
   } | null
   const id = data?.challenge?.id
   const randomData = data?.challenge?.randomData
   const algorithm = data?.rules?.algorithm
-  const difficulty = Number(data?.rules?.difficulty ?? 0)
-  if (!id || !randomData || !algorithm) return undefined
+  const difficulty = data?.rules?.difficulty
+  if (!text(id) || !text(randomData) || !text(algorithm) || typeof difficulty !== "number" || !bitsValid(difficulty))
+    return undefined
+  if (!["fast", "slow", "sha256", "argon2id", "hashx", "preact", "metarefresh"].includes(algorithm)) return
 
-  const basePrefix = (jsonScript(html, "anubis_base_prefix") as string | null) ?? ""
-  const publicUrl = jsonScript(html, "anubis_public_url") as string | null
+  const basePrefix = jsonScript(document, "anubis_base_prefix") ?? ""
+  if (
+    typeof basePrefix !== "string" ||
+    (basePrefix !== "" && !/^\/(?!\/)/.test(basePrefix)) ||
+    /[\\?#]/.test(basePrefix)
+  )
+    return
+  const publicUrl = jsonScript(document, "anubis_public_url")
+  if (publicUrl !== null && typeof publicUrl !== "string") return
   const page = new URL(pageUrl)
   const passUrl = new URL(`${basePrefix}/.within.website/x/cmd/anubis/api/pass-challenge`, page.origin)
+  if (passUrl.origin !== page.origin) return
   // Mirrors getRedirectUrl() in Anubis' web/js/main.ts.
   const redir =
     publicUrl === null
@@ -168,7 +166,7 @@ function planAnubis(html: string, pageUrl: string): PowPlan | undefined {
     return {
       kind: `anubis-${algorithm}(difficulty=${difficulty})`,
       waitMs: difficulty * perStep + 150,
-      submit: () => {
+      submit: async () => {
         // Server-side pages set redir to the request URI.
         passUrl.searchParams.set("redir", page.pathname + page.search)
         passUrl.searchParams.set("id", id)
@@ -180,18 +178,16 @@ function planAnubis(html: string, pageUrl: string): PowPlan | undefined {
     }
   }
 
-  const solve = (): { nonce: number; hash: string } | undefined => {
-    if (algorithm === "fast" || algorithm === "slow") return solveTextSha256(randomData, difficulty * 4)
-    const algo = ALGO[algorithm as keyof typeof ALGO]
-    if (algo === undefined || !/^[0-9a-f]*$/i.test(randomData) || randomData.length % 2) return undefined
-    return solveBytes(algo, Buffer.from(randomData, "hex"), difficulty)
-  }
+  const bits = algorithm === "fast" || algorithm === "slow" ? difficulty * 4 : difficulty
+  if (!bitsValid(bits)) return
+  const algo = algorithm === "fast" || algorithm === "slow" ? -1 : ALGO[algorithm as keyof typeof ALGO]
+  if (algo === undefined || (algo !== -1 && (!/^[0-9a-f]+$/i.test(randomData) || randomData.length % 2))) return
 
   return {
     kind: `anubis-${algorithm}(difficulty=${difficulty})`,
     waitMs: 0,
-    submit: () => {
-      const solved = solve()
+    submit: async (timeoutMs, signal) => {
+      const solved = await solve(algo, randomData, bits, timeoutMs, signal)
       if (!solved) return undefined
       passUrl.searchParams.set("id", id)
       passUrl.searchParams.set("response", solved.hash)
@@ -204,29 +200,16 @@ function planAnubis(html: string, pageUrl: string): PowPlan | undefined {
 }
 
 export function planPowWall(html: string, pageUrl: string): PowPlan | undefined {
-  if (!looksLikePowWall(html)) return undefined
-  return planNcbi(html, pageUrl) ?? planAnubis(html, pageUrl)
-}
-
-// "a=1; Path=/\nb=2; HttpOnly" -> ["a=1", "b=2"]
-export function cookiePairs(setCookie: string | undefined): string[] {
-  if (!setCookie) return []
-  return setCookie
-    .split("\n")
-    .map((line) => line.split(";", 1)[0]?.trim() ?? "")
-    .filter((pair) => pair.includes("="))
-}
-
-export function mergeCookieHeader(existing: string | undefined, pairs: string[]): string {
-  const jar = new Map<string, string>()
-  for (const part of (existing ?? "").split(";")) {
-    const p = part.trim()
-    const eq = p.indexOf("=")
-    if (eq > 0) jar.set(p.slice(0, eq), p.slice(eq + 1))
-  }
-  for (const p of pairs) {
-    const eq = p.indexOf("=")
-    jar.set(p.slice(0, eq), p.slice(eq + 1))
-  }
-  return [...jar].map(([k, v]) => `${k}=${v}`).join("; ")
+  if (html.length > 262_144 || !looksLikePowWall(html)) return undefined
+  const { document } = parseHTML(html)
+  for (const node of document.querySelectorAll("template, noscript")) node.remove()
+  const scripts = [...document.querySelectorAll("script")]
+    .filter(
+      (node) =>
+        !node.hasAttribute("src") &&
+        (!node.getAttribute("type") || /^(?:text|application)\/javascript$/i.test(node.getAttribute("type") ?? "")),
+    )
+    .map((node) => node.textContent ?? "")
+    .join("\n")
+  return planNcbi(scripts, pageUrl) ?? planAnubis(html, pageUrl, document)
 }

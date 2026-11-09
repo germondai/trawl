@@ -1,3 +1,4 @@
+// Anubis protocol and seed derivation: TecharoHQ/anubis (MIT); see ANUBIS-LICENSE.
 //! Native proof-of-work solvers for trawl's Tier 1.
 //!
 //! Two search shapes cover the walls trawl meets:
@@ -201,5 +202,25 @@ mod tests {
         }
         let (_, hash) = solve_bytes(ALGO_ARGON2ID, &data, 2, 4).unwrap();
         assert!(leading_zero_bits_ok(&hash, 2));
+    }
+
+    #[test]
+    fn proofs_accepted_by_upstream_anubis() {
+        // Accepted by unmodified Anubis v1.28.2 on owned local targets.
+        let decode = |hex: &str| {
+            hex.as_bytes().chunks_exact(2).map(|pair| {
+                u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap()
+            }).collect::<Vec<_>>()
+        };
+        let cases = [
+            (0, "44e4480a482705241c4a262977f29cc660a4e643189b2a82e12b513b9fc2c76be35187adbc9c7d0588012864af7284faec04bf1c09919bd03ae28de1919b1010", 12, 6131, "0008d67dd599481e8c237989cd15e508796336748a8a592bd3bb8fd8e95f8ffc"),
+            (1, "c7e5f676a9e9f842279d8238eaf816617064f6822e3c1cd26e98745be149fede17a4e076be806c55e9b6b2e53b3bf62a771f9b10c6190f515dbedcb73e988769", 2, 1, "38ae841c25d572060d195cd5feedc4fbd2ee6f9495989674f32a9edde4df8422"),
+            (2, "f2777b9af8f4f77123761ae09d7d20abab00bb68acfdf996309927c65cea0b6561e79c4fdd0eb1c37c6d55de83da2119e85ef1dad83bb409b5ee731eb18172ca", 10, 392, "001b337f6eeb6b91a92ec1190d668a68f8f3b84c01f74e39d9270ba9804a7882"),
+        ];
+        for (algo, data, bits, nonce, hash) in cases {
+            let result = solve_bytes(algo, &decode(data), bits, 1).unwrap();
+            assert_eq!(result.0, nonce);
+            assert_eq!(result.1.as_slice(), decode(hash).as_slice());
+        }
     }
 }
