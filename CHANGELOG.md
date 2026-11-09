@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Include existing browser resource and recovery checks in release CI and optional manual runs without extending ordinary PR checks.
+- Clarify the session scrape endpoint and opt-in `keepPage` behavior in the README.
 
 ## [1.11.0] - 2026-11-09
 
