@@ -11,6 +11,7 @@ describe.skipIf(process.env.TRAWL_HTTP_REPLAY_TESTS !== "1")("verified generic H
   let browser: Awaited<ReturnType<typeof launchAnubisBrowser>>
   let handle: BrowserHandle
   let origin: ReturnType<typeof Bun.serve>
+  let postRequests = 0
   const content = '<h1>Verified application content</h1><a href="/correct">Details</a>'
 
   beforeAll(async () => {
@@ -19,6 +20,40 @@ describe.skipIf(process.env.TRAWL_HTTP_REPLAY_TESTS !== "1")("verified generic H
       port: 0,
       fetch(request) {
         const path = new URL(request.url).pathname
+        if (
+          ["/post-reload", "/post-cf-header", "/post-browser-error", "/post-cf-markup", "/post-anubis"].includes(path)
+        ) {
+          if (request.method === "POST") postRequests++
+          if (path === "/post-browser-error" && postRequests === 2)
+            return new Response(
+              new ReadableStream({
+                start(controller) {
+                  controller.enqueue(new TextEncoder().encode("<html><body>Submission recorded"))
+                  setTimeout(() => controller.error(new Error("Owned partial response")), 20)
+                },
+              }),
+              { headers: { "content-type": "text/html" } },
+            )
+          const recovery = ["/post-cf-header", "/post-cf-markup", "/post-anubis"].includes(path)
+          const challenged = postRequests === 1 || (recovery && postRequests === 2)
+          const reload = postRequests === 2 && path === "/post-reload"
+          const wall =
+            path === "/post-anubis" && postRequests === 2
+              ? '<script id="anubis_challenge" type="application/json">{"rules":{"algorithm":"fast"},"challenge":{"id":"owned","randomData":"owned"}}</script>'
+              : "<script>window._cf_chl_opt={}</script>"
+          return new Response(
+            `<html><head><title>${challenged ? "Just a moment..." : "Submission recorded"}</title></head><body>${challenged ? wall : "Submission recorded"}${reload ? "<script>setTimeout(() => location.reload(), 50)</script>" : ""}</body></html>`,
+            {
+              status: challenged ? 403 : 200,
+              headers: {
+                "content-type": "text/html",
+                ...(challenged && !(postRequests === 2 && ["/post-cf-markup", "/post-anubis"].includes(path))
+                  ? { "cf-mitigated": "challenge" }
+                  : {}),
+              },
+            },
+          )
+        }
         if (path === "/app.js")
           return new Response(`document.querySelector('#app').innerHTML = ${JSON.stringify(content)}`, {
             headers: { "content-type": "application/javascript" },
@@ -97,6 +132,50 @@ describe.skipIf(process.env.TRAWL_HTTP_REPLAY_TESTS !== "1")("verified generic H
       )
     return { send, metrics, cache, checkouts: () => checkouts, lastTier: () => lastTier }
   }
+
+  test.each(["/post-reload", "/post-cf-header", "/post-browser-error", "/post-cf-markup", "/post-anubis"])(
+    "guards browser POST reloads and preserves explicit challenge recovery: %s",
+    async (path) => {
+      postRequests = 0
+      const client = handoffClient()
+      const target = new URL(path, origin.url)
+      try {
+        await client.cache.save(target.hostname, {
+          cookies: [
+            {
+              name: "cf_clearance",
+              value: "owned",
+              domain: target.hostname,
+              path: "/",
+              expires: -1,
+              secure: false,
+              httpOnly: true,
+            },
+          ],
+          userAgent: handle.fingerprint.userAgent,
+          savedAt: Date.now(),
+          httpOrigin: target.origin,
+        })
+        const response = await client.send("/scrape", path, {
+          method: "POST",
+          body: "field=value",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          httpReplay: true,
+          maxTimeout: 5000,
+          solveEmbeddedCaptchas: false,
+          allowShortContent: true,
+        })
+        await response.json()
+        const recovery = ["/post-cf-header", "/post-cf-markup", "/post-anubis"].includes(path)
+        expect(postRequests).toBe(recovery ? 3 : 2)
+        if (recovery) expect(response.status).toBe(200)
+      } finally {
+        client.metrics.close()
+        client.cache.close()
+      }
+    },
+    15000,
+  )
 
   test("/v1 cookie-handoff fallback obtains cookies once and reuses HTTP clearance", async () => {
     const client = handoffClient()
