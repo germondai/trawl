@@ -60,6 +60,10 @@ describe("MCP route", () => {
       version: "3.1.0",
       state: "complete" as const,
       products: ["Cloudflare"],
+      matches: [{ product: "Cloudflare", schema: 1, fingerprints: [{ fingerprint: 1, evidence: 0 }] }],
+      incompleteProducts: ["Body provider"],
+      diagnostics: [{ code: "body_truncated" as const, evidence: 0 }],
+      detailsTruncated: true,
       sourceTier: 1 as const,
     }
     const app = mcpRoute({

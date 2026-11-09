@@ -11,6 +11,10 @@ const waf = {
   version: "3.1.0",
   state: "complete" as const,
   products: ["Cloudflare", "Cloudflare"],
+  matches: [{ product: "Cloudflare", schema: 1, fingerprints: [{ fingerprint: 1, evidence: 0 }] }],
+  incompleteProducts: ["Body provider"],
+  diagnostics: [{ code: "body_truncated" as const, evidence: 0 }],
+  detailsTruncated: true,
   sourceTier: 1 as const,
   durationMs: 2.5,
 }
@@ -47,12 +51,24 @@ describe("local metrics", () => {
 
   test("retains provider attribution for success and failure without raw evidence", () => {
     const store = new MetricsStore()
+    const observedWaf = {
+      ...waf,
+      html: "private-html",
+      matches: [
+        {
+          ...waf.matches[0],
+          value: "private-header",
+          fingerprints: [{ ...waf.matches[0]?.fingerprints[0], value: "private-cookie" }],
+        },
+      ],
+      diagnostics: [{ ...waf.diagnostics[0], message: "private-url" }],
+    }
     store.record({
       source: "native",
       url: "https://example.com",
       statusCode: 200,
       durationMs: 10,
-      waf: { ...waf, html: "private-html" } as typeof waf,
+      waf: observedWaf,
     })
     const error = new ScrapeError("private-error", [{ tier: 1, status: "blocked", durationMs: 1 }])
     error.waf = { ...waf, state: "incomplete" }
@@ -65,6 +81,7 @@ describe("local metrics", () => {
       providers: [{ product: "Cloudflare", requests: 2, failures: 1 }],
     })
     expect(snapshot.recentFailures[0]?.waf).toMatchObject({ products: ["Cloudflare"], sourceTier: 1 })
+    expect(snapshot.recentEvents[1]?.waf).toMatchObject({ matches: waf.matches, diagnostics: waf.diagnostics })
     expect(JSON.stringify(snapshot)).not.toContain("private")
     store.close()
   })
@@ -88,6 +105,12 @@ describe("local metrics", () => {
       expect(reopened.snapshot().requests).toBe(2)
       expect(reopened.snapshot().waf.providers).toEqual([{ product: "Cloudflare", requests: 1, failures: 0 }])
       expect(reopened.snapshot().recentEvents[0]?.waf).toMatchObject({ products: ["Cloudflare"] })
+      expect(reopened.snapshot().recentEvents[0]?.waf).toMatchObject({
+        matches: waf.matches,
+        incompleteProducts: waf.incompleteProducts,
+        diagnostics: waf.diagnostics,
+        detailsTruncated: true,
+      })
       reopened.close()
     } finally {
       rmSync(dir, { recursive: true, force: true })

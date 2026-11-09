@@ -14,6 +14,9 @@ const wafLogFields = (waf?: WafDetection) => ({
   wafSourceTier: waf?.sourceTier,
   wafDurationMs: waf?.durationMs,
   wafReason: waf?.reason,
+  wafIncompleteProducts: waf?.incompleteProducts?.join(", "),
+  wafDiagnostics: waf?.diagnostics?.map((item) => item.code).join(", "),
+  wafDetailsTruncated: waf?.detailsTruncated,
 })
 
 export async function runLoggedScrape(
