@@ -22,6 +22,7 @@ import { isGoogleSorryUrl } from "../utils/googleSorry"
 import { trackMainDocumentResponses } from "../utils/mainResponse"
 import { followMetaRefresh } from "../utils/metaRefresh"
 import { installOutboundPolicy, type OutboundUrlValidator } from "../utils/outboundPolicy"
+import { installPostReplayRoute } from "../utils/postReplay"
 import { browserDocumentHtml, captureResponse, isHtmlContentType } from "../utils/response"
 import type { RouteLike } from "../utils/sanitize"
 import { routeContinueOverrides } from "../utils/sanitize"
@@ -97,7 +98,9 @@ async function runTier2Task(
 
     await page.setExtraHTTPHeaders({ "User-Agent": session.userAgent })
 
-    if ((extraHeaders && Object.keys(extraHeaders).length > 0) || method === "POST") {
+    if (capture.postReplay) {
+      await installPostReplayRoute(page, url, extraHeaders, body, capture.postReplay)
+    } else if ((extraHeaders && Object.keys(extraHeaders).length > 0) || method === "POST") {
       await page.route(url, (route: RouteLike) => {
         route.continue(routeContinueOverrides(route, extraHeaders, method, body))
       })

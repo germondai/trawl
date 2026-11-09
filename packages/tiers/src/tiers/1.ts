@@ -5,6 +5,7 @@ import type { Cookie, TierResult } from "@trawl/types"
 import { parseHTML } from "linkedom"
 import { anubisInspectionText, detectAnubisPage } from "../utils/anubis"
 import { describeCertificateError, isCertificateError } from "../utils/certificate"
+import { sleep } from "../utils/deadline"
 import type { ChallengeType } from "../utils/detect"
 import {
   getAwsWafAction,
@@ -21,10 +22,12 @@ import {
   hasTurnstile,
   isBlocked,
   isCloudflarePage,
+  isExplicitChallengeRejection,
 } from "../utils/detect"
 import { isGoogleSorryUrl } from "../utils/googleSorry"
 import { normalizeHtml } from "../utils/html"
-import type { HttpSessionCookies } from "../utils/httpSessionCookies"
+import { HttpSessionCookies } from "../utils/httpSessionCookies"
+import { planPowWall } from "../utils/nativePow"
 import type { OutboundUrlValidator } from "../utils/outboundPolicy"
 import { normalizeProxyError, proxyResponseFailure } from "../utils/proxyFailure"
 import { decodeTextBody, isHtmlContentType, isTextContentType } from "../utils/response"
@@ -36,6 +39,7 @@ export interface Tier1Result extends TierResult {
   // The wall Tier 1 recognized, when it recognized one. The orchestrator routes the
   // browser it acquires for the later tiers on this: DataDome needs a headful one.
   challenge?: ChallengeType
+  explicitChallenge?: boolean
   effectiveUrl?: string
   html?: string
   body?: Uint8Array
@@ -94,6 +98,154 @@ export async function runTier1(
   networkProxy?: string,
 ): Promise<Tier1Result> {
   const start = Date.now()
+  const deadline = start + timeoutMs
+  let budgetSignal = signal
+  const once = (target: string, headers: Record<string, string> | undefined, cookies = sessionCookies) =>
+    runTier1Once(
+      target,
+      headers,
+      method,
+      body,
+      proxy,
+      validateOutboundUrl,
+      ignoreCertificateErrors,
+      trustedProxyCa,
+      budgetSignal,
+      cookies,
+      Math.max(0, deadline - Date.now()),
+      headersTimeoutMs,
+      observeResponse,
+      networkProxy,
+    )
+  const first = await once(url, extraHeaders)
+  if (
+    !first.body ||
+    first.body.length === 0 ||
+    first.body.length > 262_144 ||
+    !isHtmlContentType(first.contentType ?? "")
+  )
+    return first
+  const html =
+    first.html ?? new TextDecoder().decode(decodeResponseBody(first.body, first.responseHeaders?.["content-encoding"]))
+  const pageUrl = first.effectiveUrl ?? url
+  const plan = planPowWall(html, pageUrl)
+  if (!plan) return first
+  // A wall is never successful content, including when its native fast path fails.
+  first.status = "needs-js"
+  first.reason ??= "proof-of-work-challenge"
+  if ((method ?? "GET").toUpperCase() !== "GET" || signal?.aborted || deadline <= Date.now()) return first
+  budgetSignal = AbortSignal.any([AbortSignal.timeout(Math.ceil(deadline - Date.now())), ...(signal ? [signal] : [])])
+
+  try {
+    if (plan.waitMs >= deadline - Date.now()) return first
+    if (plan.waitMs > 0) await sleep(plan.waitMs, budgetSignal)
+    const submit = await plan.submit(deadline - Date.now(), budgetSignal)
+    if (!submit || budgetSignal.aborted || new URL(submit.url).origin !== new URL(pageUrl).origin) return first
+    const headers: Record<string, string> = {}
+    for (const [name, value] of Object.entries(extraHeaders ?? {})) headers[name.toLowerCase()] = value
+    if (new URL(pageUrl).origin !== new URL(url).origin) {
+      for (const name of ["authorization", "cookie", "proxy-authorization", "host"]) delete headers[name]
+    }
+    const cookies =
+      sessionCookies ??
+      new HttpSessionCookies(
+        new URL(pageUrl).origin,
+        (headers.cookie ?? "").split(";").flatMap((pair) => {
+          const eq = pair.indexOf("=")
+          if (eq <= 0) return []
+          return [
+            {
+              name: pair.slice(0, eq).trim(),
+              value: pair.slice(eq + 1).trim(),
+              domain: new URL(pageUrl).hostname,
+              path: "/",
+              expires: -1,
+              httpOnly: false,
+              secure: new URL(pageUrl).protocol === "https:",
+              sameSite: "Lax" as const,
+            },
+          ]
+        }),
+      )
+    if (!sessionCookies) {
+      const responseCookies = new Headers()
+      for (const raw of first.responseHeaders?.["set-cookie"]?.split("\n") ?? [])
+        responseCookies.append("set-cookie", raw)
+      cookies.update(responseCookies, pageUrl)
+    }
+    for (const name of ["cookie", "host", "content-length", "content-type", "content-encoding", "transfer-encoding"])
+      delete headers[name]
+    await validateOutboundUrl?.(submit.url)
+    budgetSignal.throwIfAborted()
+    const res = await tier1Transport.fetch(submit.url, {
+      timeoutMs: deadline - Date.now(),
+      signal: budgetSignal,
+      method: submit.method,
+      body: submit.body,
+      redirect: "manual",
+      headers: {
+        "user-agent": tier1UserAgent(FINGERPRINT.userAgent),
+        accept: "*/*",
+        "accept-language": "en-US,en;q=0.9",
+        ...headers,
+        referer: pageUrl,
+        ...(submit.method === "POST" ? { origin: new URL(pageUrl).origin } : {}),
+        ...(submit.contentType ? { "content-type": submit.contentType } : {}),
+        cookie: cookies.header(submit.url),
+      },
+      ...(networkProxy || proxy ? { proxy: networkProxy ?? proxy } : {}),
+      ...(trustedProxyCa ? { tls: { ca: [...rootCertificates, trustedProxyCa] } } : {}),
+      ...(ignoreCertificateErrors ? { tls: { rejectUnauthorized: false } } : {}),
+    })
+    await res.body?.cancel()
+    if (res.status < 200 || res.status >= 400 || budgetSignal.aborted) return first
+    cookies.update(res.headers, submit.url)
+    const location = res.headers.get("location")
+    const retryUrl =
+      [301, 302, 303, 307, 308].includes(res.status) && location ? new URL(location, submit.url).href : pageUrl
+    if (new URL(retryUrl).origin !== new URL(pageUrl).origin || !cookies.header(retryUrl)) return first
+    const second = await once(retryUrl, headers, cookies)
+    const secondHtml = second.body
+      ? new TextDecoder().decode(decodeResponseBody(second.body, second.responseHeaders?.["content-encoding"]))
+      : ""
+    if (planPowWall(secondHtml, second.effectiveUrl ?? pageUrl)) return first
+    if (second.responseHeaders) {
+      const setCookie = [
+        first.responseHeaders?.["set-cookie"],
+        ...res.headers.getSetCookie(),
+        second.responseHeaders["set-cookie"],
+      ]
+        .filter(Boolean)
+        .join("\n")
+      if (setCookie) second.responseHeaders["set-cookie"] = setCookie
+    }
+    second.durationMs = Date.now() - start
+    second.certificateError ??= first.certificateError
+    return second
+  } catch {
+    return first
+  } finally {
+    first.durationMs = Date.now() - start
+  }
+}
+
+async function runTier1Once(
+  url: string,
+  extraHeaders?: Record<string, string>,
+  method?: string,
+  body?: string,
+  proxy?: string,
+  validateOutboundUrl?: OutboundUrlValidator,
+  ignoreCertificateErrors?: boolean,
+  trustedProxyCa?: string,
+  signal?: AbortSignal,
+  sessionCookies?: HttpSessionCookies,
+  timeoutMs = 60_000,
+  headersTimeoutMs?: number,
+  observeResponse?: (evidence: WafEvidence) => void,
+  networkProxy?: string,
+): Promise<Tier1Result> {
+  const start = Date.now()
   const headersAbort = headersTimeoutMs === undefined ? undefined : new AbortController()
   const headersTimer = headersAbort ? setTimeout(() => headersAbort.abort(), headersTimeoutMs) : undefined
   const requestSignal = headersAbort
@@ -123,6 +275,7 @@ export async function runTier1(
     let currentUrl = url
     let currentMethod = m
     let currentBody = METHODS_WITH_BODY.has(m) ? body : undefined
+    let redirected = false
     let res: Response
     for (let redirects = 0; ; redirects++) {
       await validateOutboundUrl?.(currentUrl)
@@ -167,6 +320,7 @@ export async function runTier1(
       if (redirects >= (validateOutboundUrl || ignoreCertificateErrors || sessionCookies ? 9 : 19))
         throw new Error("Too many redirects")
       await res.body?.cancel()
+      redirected = true
       const nextUrl = new URL(location, currentUrl)
       if (nextUrl.origin !== new URL(currentUrl).origin) {
         for (const name of ["authorization", "cookie", "proxy-authorization", "host"]) delete headers[name]
@@ -228,6 +382,7 @@ export async function runTier1(
         durationMs: Date.now() - start,
         reason: awsAction === "captcha" ? "aws-waf-captcha-required" : "aws-waf-challenge",
         challenge: "aws-waf",
+        explicitChallenge: !redirected && awsAction === "challenge",
         responseHeaders,
         contentType,
         body: new Uint8Array(),
@@ -245,6 +400,7 @@ export async function runTier1(
         durationMs: Date.now() - start,
         reason: "cloudflare-challenge",
         challenge: "cloudflare-interstitial",
+        explicitChallenge: !redirected,
         responseHeaders,
         contentType,
         body: new Uint8Array(),
@@ -278,7 +434,9 @@ export async function runTier1(
         status: anubis === "blocked" ? "blocked" : "needs-js",
         durationMs: Date.now() - start,
         reason: anubis === "blocked" ? "anubis-blocked" : "anubis-challenge",
+        effectiveUrl: currentUrl,
         challenge: "anubis",
+        explicitChallenge: !redirected && anubis === "challenge",
         responseHeaders,
         contentType,
         body: rawBytes,
@@ -309,6 +467,8 @@ export async function runTier1(
         durationMs: Date.now() - start,
         reason: "cloudflare-challenge",
         challenge: "cloudflare-interstitial",
+        explicitChallenge:
+          !redirected && m === "POST" && isExplicitChallengeRejection(res.status, previewText, responseHeaders),
         responseHeaders,
         contentType,
         body: rawBytes,
@@ -480,6 +640,7 @@ export async function runTier1(
         status: "blocked",
         durationMs: Date.now() - start,
         reason: `http-${res.status}`,
+        effectiveUrl: currentUrl,
         responseHeaders,
         contentType,
         body: rawBytes,
@@ -501,7 +662,7 @@ export async function runTier1(
       certificateError,
       status: "success",
       durationMs: Date.now() - start,
-      effectiveUrl: res.url,
+      effectiveUrl: res.url || currentUrl,
       ...(sessionCookies ? { cookies: sessionCookies.snapshot() } : {}),
       // `html` is best-effort text view of the body - only meaningful for text-like
       // content-types. Empty for binary payloads so /scrape consumers see the body

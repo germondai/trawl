@@ -18,6 +18,9 @@ to try one browser-backed GET when this happens. The option is off by default an
 later HTTP clearance reuse. See [Cookie Handoff](/getting-started/configuration#flaresolverr-cookie-handoff)
 for limits and cases where cookies cannot be transferred between clients.
 
+The proxy's **Test** uses Prowlarr's public ping endpoint. A successful HTTP `Pong`
+response passes without cookies; indexer requests retain the cookie fallback.
+
 ## Setup
 
 This is the recommended FlareSolverr-compatible integration. It uses TRAWL's API on port `8191`;

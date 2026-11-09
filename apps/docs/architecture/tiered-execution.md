@@ -52,12 +52,29 @@ Sec-Fetch-User: ?1
 Priority: u=0, i
 ```
 
-**Succeeds for:** sites that serve the requested content without a browser challenge.
+**Succeeds for:** sites that serve the requested content without a browser challenge, and supported NCBI or Anubis proof-of-work walls.
+
+For GET requests, Tier 1 can solve NCBI identity PoW and Anubis `fast`, `slow`,
+`sha256`, `argon2id`, `hashx`, `preact` and `metarefresh` without opening a browser.
+Standard and baseline images bundle the Rust solver. Local source runs can use a
+JavaScript fallback for text SHA-256; the other hash algorithms require the library
+at `/opt/powsolve/libpowsolve.so` (or an operator-supplied `POWSOLVE_LIB` path).
+
+Hashing runs in one short-lived process with one native search thread, for at most
+one second within the request deadline. Cancellation kills that process; busy,
+unsupported, rejected or timed-out solves retain browser escalation. Server-required
+waits also stay within the request deadline. The submit endpoint must share the wall's
+origin, cookies retain their scope, and caller POST/PUT requests are never resubmitted
+by this fast path. Returned clearance cookies are available to native and `/v1` callers
+and through `Set-Cookie` for proxy clients. They do not create browser-verified shared
+cache provenance. Responses with partitioned cookies or previously unverified parent-domain
+cookies retain browser fallback rather than widening the HTTP jar's cookie scope.
 
 Eligible repeat requests send saved Cloudflare or Anubis clearance cookies and the browser's
 User-Agent rather than making an unauthenticated probe. The response is fetched again, not
 served from a body cache. Rejected clearance falls back to the browser tiers. This requires
-a direct GET/HEAD request, verified TLS and matching origin provenance; see
+a direct GET/HEAD request (or a POST with `httpReplay: true`, which replays clearance cookies only, keeps
+the request's own deadline and is never resent after a timeout or disconnect), verified TLS and matching origin provenance; see
 [Session Cache](/architecture/session-cache#automatic-http-clearance-reuse) for eligibility and fallback.
 
 **Escalates for:** recognized Cloudflare, Akamai, or Imperva challenge responses and blocked status codes such as 403 or 429. Detection uses provider-specific headers and HTML markers.

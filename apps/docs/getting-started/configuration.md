@@ -156,6 +156,10 @@ pool limits and proxy settings. A usable cookie has a non-empty name and value, 
 expired, and matches the requested URL's domain, path and HTTPS requirements. If the
 browser also returns none, `/v1` returns an explicit error. It never invents a cookie.
 
+Prowlarr's public `https://prowlarr.servarr.com/v1/ping` connectivity test keeps a
+successful HTTP `Pong` response without requiring cookies or starting a browser.
+This exception requires the same final URL and does not apply to indexer requests.
+
 Later requests can reuse browser-verified clearance over HTTP with an enabled session
 cache. POST requests, named sessions, imported cookies and the native API keep their
 existing behavior. Cold requests may use more browser resources when this option is enabled.

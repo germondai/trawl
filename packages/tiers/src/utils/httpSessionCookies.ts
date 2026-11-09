@@ -45,10 +45,23 @@ export class HttpSessionCookies {
     this.domains = new Set(cookies.map((cookie) => cookie.domain.replace(/^\./, "").toLowerCase()))
   }
 
-  static from(session: SessionData | undefined, url: string): HttpSessionCookies | undefined {
+  private static target(session: SessionData | undefined, url: string): URL | undefined {
     const target = new URL(url)
     if (session?.httpOrigin !== target.origin || !session.userAgent || session.cookies.length > 200) return
-    if (hasClearance(session.cookies, target)) return new HttpSessionCookies(target.origin, session.cookies)
+    return target
+  }
+
+  static fromClearance(session: SessionData | undefined, url: string): HttpSessionCookies | undefined {
+    const target = HttpSessionCookies.target(session, url)
+    if (!session || !target || !hasClearance(session.cookies, target)) return
+    return new HttpSessionCookies(target.origin, session.cookies)
+  }
+
+  static from(session: SessionData | undefined, url: string): HttpSessionCookies | undefined {
+    const verified = HttpSessionCookies.fromClearance(session, url)
+    if (verified) return verified
+    const target = HttpSessionCookies.target(session, url)
+    if (!session || !target) return
     if (
       !session.cookies.some((cookie) => cookie.value && cookieMatchesUrl(cookie, target)) ||
       session.httpReplay?.url !== target.href ||

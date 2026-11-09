@@ -33,7 +33,8 @@ stays at 1.62.1 to satisfy its peer constraint. Bundled uBlock Origin stays at
 this Camoufox build. The web workspace uses TypeScript 6.0.3 because vue-tsc
 needs its JavaScript compiler API; the API and shared packages use TypeScript 7.
 
-Docker builds the offline WAF worker with Go 1.27.3. Rod requires `got/lib/lcs`,
+Docker builds the native PoW solver with Rust 1.99.1 and checks its protocol vectors
+and runtime ABI. It builds the offline WAF worker with Go 1.27.3. Rod requires `got/lib/lcs`,
 removed in `got` 0.43.0, and the constructor API removed in `fetchup` 0.4.0; keep
 `got` at 0.42.4 and `fetchup` at 0.3.0. The module retains Go 1.26 as its minimum
 language version.

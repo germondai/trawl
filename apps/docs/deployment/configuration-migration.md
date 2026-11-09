@@ -5,6 +5,27 @@ description: Upgrade notes and environment-variable changes across TRAWL release
 
 # Configuration migration
 
+## Upgrading from v1.10.1 to v1.11.0
+
+No configuration or data migration is required. Recreate the container with the updated
+image and retain existing data volumes.
+
+Supported NCBI and Anubis GET challenges can now complete in the HTTP tier without
+opening a browser. Native hashing is bounded by the request deadline and a one-second
+cap; unsupported or rejected attempts retain browser fallback. See
+[HTTP proof-of-work handling](/architecture/tiered-execution#tier-1-plain-http-fetch)
+for supported algorithms and cookie limits.
+
+POST requests keep their existing behavior by default. Set `httpReplay: true` to opt
+into HTTP reuse of browser-verified Cloudflare or Anubis clearance. Accepted or ambiguous
+submissions are not resent during browser recovery. See
+[automatic HTTP clearance reuse](/architecture/session-cache#automatic-http-clearance-reuse).
+
+Prowlarr proxy pings can succeed without cookies when
+`FLARESOLVERR_COOKIE_FALLBACK=true`; protected indexers still require usable cookie handoff.
+
+The client workspace remains at 0.1.0; this release does not publish it to npm.
+
 ## Upgrading from v1.10.0 to v1.10.1
 
 No configuration changes are required. Recreate the container with the updated image

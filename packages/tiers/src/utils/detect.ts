@@ -43,6 +43,31 @@ export function getAwsWafAction(
   return undefined
 }
 
+const CLOUDFLARE_CHALLENGE_MARKERS = /_cf_chl_opt|orchestrate\/chl_page/i
+
+function hasCloudflareChallengeScript(html: string): boolean {
+  if (!CLOUDFLARE_CHALLENGE_MARKERS.test(html)) return false
+  const { document } = parseHTML(html)
+  return [...document.querySelectorAll("script")].some((script) => {
+    if (script.closest("template,noscript,textarea,style")) return false
+    const type = script.getAttribute("type")?.trim().toLowerCase()
+    if (type && !/^(?:module|(?:text|application)\/(?:java|ecma)script)$/.test(type)) return false
+    return (
+      /\/cdn-cgi\/challenge-platform\/.*orchestrate\/chl_page/i.test(script.getAttribute("src") ?? "") ||
+      /(?:^|[;{}])\s*(?:window\.)?_cf_chl_opt\s*=\s*\{/i.test(script.textContent ?? "")
+    )
+  })
+}
+
+export function isExplicitChallengeRejection(status: number, html: string, headers: Record<string, string>): boolean {
+  return (
+    hasCloudflareChallengeHeader(headers) ||
+    getAwsWafAction(status, headers) === "challenge" ||
+    detectAnubisPage(html) === "challenge" ||
+    ((status === 403 || status === 503) && hasCloudflareChallengeScript(html))
+  )
+}
+
 export function isCloudflarePage(html: string, headers: Record<string, string>): boolean {
   if (hasCloudflareChallengeHeader(headers)) return true
   if (hasDdosGuardChallenge(html)) return false
@@ -59,9 +84,8 @@ export function isCloudflarePage(html: string, headers: Record<string, string>):
   if (/id="turnstile-wrapper"/i.test(html)) return true
   // Active challenge orchestration markers. Unlike the passive telemetry markers
   // below, these only occur while Cloudflare is serving an interstitial.
-  if (/_cf_chl_opt/i.test(html)) return true
+  if (CLOUDFLARE_CHALLENGE_MARKERS.test(html)) return true
   if (/id=["']challenge-form["']/i.test(html)) return true
-  if (/orchestrate\/chl_page/i.test(html)) return true
   // CF firewall/WAF deny page (error 1020 and friends) - static "blocked" page, not a
   // solvable JS challenge, but still needs to be recognized as CF so the orchestrator
   // reports tier failure and escalates instead of returning the block page as content

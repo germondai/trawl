@@ -16,7 +16,8 @@ This is a cookie cache, not a page-content cache. Each request fetches the targe
 
 Before an ordinary HTTP request, TRAWL checks whether the saved session can be replayed:
 
-- The request is GET or HEAD and permits Tier 1.
+- The request is GET or HEAD, or a POST that sets `httpReplay: true`, and permits Tier 1. A POST
+  replays only browser-verified Cloudflare or Anubis clearance, never the document proof below.
 - The connection is direct: no explicit request proxy or configured datacenter proxy pool.
 - TLS verification is enabled.
 - The entry contains the browser's User-Agent, valid scoped cookies and provenance for the exact
@@ -32,6 +33,22 @@ The HTTP attempt receives at most five seconds or one third of the remaining req
 whichever is smaller. Rejected clearance, recognized challenge walls, detected JavaScript shells
 and embedded widget markup fall back through the existing tiers. A successful replay refreshes
 the cached cookies and browser identity without keeping another browser page open.
+
+An opted-in POST replay keeps the request's own deadline instead of that bound, because the server
+may process the submission even when the reply is slow. Only an explicit rejection of the submitted
+request itself continues to the browser tiers, within the remaining request deadline: a Cloudflare
+challenge announced by its `cf-mitigated` header or served as a 403/503 interstitial, an Anubis
+challenge, or an AWS WAF challenge announced by its action header. Cloudflare markup must identify
+an active challenge; generic titles such as "Please wait" do not authorize another submission.
+A timeout, disconnect, cross-origin redirect or unresolved widget/script shell returns an error
+without resending. Ordinary application replies retain their existing HTTP status/body semantics;
+a generic 4xx/5xx response never authorizes a retry. POST replay does not use the generic document proof.
+
+Browser recovery applies the same rule to both tier retries and page reloads. Before another POST,
+TRAWL requires an explicit challenge rejection of the preceding submission itself. An accepted
+POST whose redirect target is challenged, or a new submission with no response, cannot reuse an
+older rejection as permission to retry. This does not provide exactly-once processing at the
+target: after an ambiguous outcome, callers must check the target before deciding to retry.
 
 Anubis replay recognizes the default authentication cookie names, including their optional
 settings suffix. Test and referrer cookies do not qualify. Custom cookie names and clearance
