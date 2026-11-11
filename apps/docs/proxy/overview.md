@@ -53,6 +53,11 @@ small payloads-are buffered. Compressed `gzip`, `deflate`, and Brotli responses 
 for challenge inspection; the original bytes remain the response body. Chunked buffered responses
 are de-chunked before being returned.
 
+If an upstream error occurs after a non-safe request may have been sent, the proxy returns
+`502` instead of automatically submitting the operation again. Requests that failed before
+transmission and safe methods retain scraper fallback. Disconnecting the client closes its
+owned direct or streaming upstream connection.
+
 ## Challenge escalation
 
 When Tier 0 detects a supported challenge wall, the request is passed to the same `scrape()`
@@ -62,6 +67,15 @@ orchestrator used by `POST /scrape`:
 2. cached browser session;
 3. fresh browser challenge solve;
 4. residential proxy solve, when configured.
+
+Requests with client credentials do not read or populate shared clearance sessions.
+For browser solving, client cookies are imported into the request's temporary context
+with host-scoped defaults and `Secure` for HTTPS requests. Browser cookie rules apply,
+including cookie sharing between ports on the same host. The browser keeps its own
+consistent user agent.
+`Authorization` is forwarded by the HTTP tiers only. If such a request requires a
+browser, the proxy returns `502` rather than forwarding that header through browser
+redirects. Use cookies for authenticated browser requests.
 
 For browser-tier complete HTML documents, the proxy returns the rendered solved DOM rather than the
 original challenge response. Charset-less UTF-8 HTML fragments with non-ASCII content use the captured
@@ -86,6 +100,7 @@ The proxy buffers ordinary responses by default so challenge detection sees the 
 It streams when at least one of these applies:
 
 - `Content-Length` is at least 8 MiB;
+- an unknown-length response reaches the same 8 MiB buffer threshold;
 - the content type is `video/*` or `audio/*`;
 - an unknown-length response has a known binary content type;
 - the URL has a known media, archive, installer, disk-image, PDF, or font extension.

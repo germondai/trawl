@@ -4,6 +4,7 @@ import net from "node:net"
 import { gzipSync } from "node:zlib"
 import { ANUBIS_CHALLENGE } from "../../../../../packages/tiers/tests/fixtures/anubis"
 import { directForwardHttp } from "../directForward"
+import { STREAM_THRESHOLD_BYTES } from "../streaming"
 
 const fullBody = Buffer.from("0123456789ABCDEF")
 
@@ -110,6 +111,53 @@ const baseUrl = `http://127.0.0.1:${server.port}`
 
 afterAll(() => server.stop(true))
 
+test.each([false, true])("streams unknown-length text at the buffer threshold (chunked=%s)", async (chunked) => {
+  const payload = Buffer.alloc(STREAM_THRESHOLD_BYTES, 120)
+  const sockets = new Set<net.Socket>()
+  const origin = net.createServer((socket) => {
+    sockets.add(socket)
+    socket.once("close", () => sockets.delete(socket))
+    socket.once("data", () => {
+      socket.write(
+        `HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n${chunked ? "Transfer-Encoding: chunked\r\n" : ""}\r\n`,
+      )
+      if (chunked) socket.write(`${payload.length.toString(16)}\r\n`)
+      socket.write(payload)
+    })
+  })
+  origin.listen(0, "127.0.0.1")
+  await once(origin, "listening")
+  try {
+    const result = await directForwardHttp({
+      url: `http://127.0.0.1:${(origin.address() as net.AddressInfo).port}/`,
+      method: "GET",
+      headers: {},
+      timeoutMs: 500,
+    })
+    expect(result.mode).toBe("stream")
+    if (result.mode !== "stream") return
+    const chunks = [result.prefix ?? Buffer.alloc(0)]
+    result.socket.on("data", (chunk: Buffer) => chunks.push(chunk))
+    const ended = once(result.socket, "end")
+    for (const socket of sockets) socket.end(chunked ? "\r\n4\r\ntail\r\n0\r\n\r\n" : "tail")
+    result.socket.resume()
+    await ended
+    expect(Buffer.concat(chunks)).toEqual(
+      chunked
+        ? Buffer.concat([
+            Buffer.from(`${payload.length.toString(16)}\r\n`),
+            payload,
+            Buffer.from("\r\n4\r\ntail\r\n0\r\n\r\n"),
+          ])
+        : Buffer.concat([payload, Buffer.from("tail")]),
+    )
+    result.socket.destroy()
+  } finally {
+    for (const socket of sockets) socket.destroy()
+    await new Promise<void>((resolve) => origin.close(() => resolve()))
+  }
+})
+
 describe("directForwardHttp - Range / 206 Partial Content", () => {
   test("forwards Range request header and gets 206 Partial Content back", async () => {
     const result = await directForwardHttp({
@@ -203,42 +251,47 @@ describe("directForwardHttp - buffered by default", () => {
     },
   )
 
-  test("skips 103 Early Hints and escalates cf-mitigated without waiting for an open body", async () => {
-    const sockets = new Set<net.Socket>()
-    const hangingServer = net.createServer((socket) => {
-      sockets.add(socket)
-      socket.once("close", () => sockets.delete(socket))
-      socket.write(
-        "HTTP/1.1 103 Early Hints\r\nLink: </style.css>; rel=preload\r\n\r\n" +
-          "HTTP/1.1 403 Forbidden\r\nContent-Type: text/html\r\nCF-Mitigated: Challenge\r\nConnection: keep-alive\r\n\r\n",
-      )
-    })
-    hangingServer.listen(0, "127.0.0.1")
-    await once(hangingServer, "listening")
-    const address = hangingServer.address()
-    if (!address || typeof address === "string") throw new Error("test server did not bind a TCP port")
-
-    try {
-      const startedAt = performance.now()
-      const result = await directForwardHttp({
-        url: `http://127.0.0.1:${address.port}/challenge`,
-        method: "GET",
-        headers: {},
-        timeoutMs: 2_000,
+  test.each(["GET", "HEAD"])(
+    "skips 103 Early Hints and escalates cf-mitigated for %s without waiting for an open body",
+    async (method) => {
+      const sockets = new Set<net.Socket>()
+      const hangingServer = net.createServer((socket) => {
+        sockets.add(socket)
+        socket.once("close", () => sockets.delete(socket))
+        socket.write(
+          "HTTP/1.1 103 Early Hints\r\nLink: </style.css>; rel=preload\r\n\r\n" +
+            "HTTP/1.1 403 Forbidden\r\nContent-Type: text/html\r\nCF-Mitigated: Challenge\r\nConnection: keep-alive\r\n\r\n",
+        )
       })
+      hangingServer.listen(0, "127.0.0.1")
+      await once(hangingServer, "listening")
+      const address = hangingServer.address()
+      if (!address || typeof address === "string") throw new Error("test server did not bind a TCP port")
 
-      expect(performance.now() - startedAt).toBeLessThan(500)
-      expect(result.mode).toBe("buffer")
-      if (result.mode !== "buffer") return
-      expect(result.status).toBe(403)
-      expect(result.challengeDetected).toBe(true)
-      expect(result.headers["cf-mitigated"]).toBe("Challenge")
-      expect(result.body.length).toBe(0)
-    } finally {
-      for (const socket of sockets) socket.destroy()
-      await new Promise<void>((resolve, reject) => hangingServer.close((error) => (error ? reject(error) : resolve())))
-    }
-  })
+      try {
+        const startedAt = performance.now()
+        const result = await directForwardHttp({
+          url: `http://127.0.0.1:${address.port}/challenge`,
+          method,
+          headers: {},
+          timeoutMs: 2_000,
+        })
+
+        expect(performance.now() - startedAt).toBeLessThan(500)
+        expect(result.mode).toBe("buffer")
+        if (result.mode !== "buffer") return
+        expect(result.status).toBe(403)
+        expect(result.challengeDetected).toBe(true)
+        expect(result.headers["cf-mitigated"]).toBe("Challenge")
+        expect(result.body.length).toBe(0)
+      } finally {
+        for (const socket of sockets) socket.destroy()
+        await new Promise<void>((resolve, reject) =>
+          hangingServer.close((error) => (error ? reject(error) : resolve())),
+        )
+      }
+    },
+  )
 
   test("escalates a DataDome block from its header before waiting for an open body", async () => {
     const sockets = new Set<net.Socket>()

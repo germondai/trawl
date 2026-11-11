@@ -19,7 +19,8 @@ import tls from "node:tls"
 import { brotliDecompressSync, gunzipSync, inflateSync } from "node:zlib"
 import { anubisInspectionText, detectChallengeType, isChallengeWall } from "@trawl/tiers"
 import { isGoogleSorryRedirect } from "./googleSorry"
-import { shouldStream } from "./streaming"
+import { responseHasBody } from "./httpResponse"
+import { STREAM_THRESHOLD_BYTES, shouldStream } from "./streaming"
 
 export interface ForwardResultBuffered {
   mode: "buffer"
@@ -49,6 +50,7 @@ export interface ForwardResultStream {
 export interface ForwardResultError {
   mode: "error"
   error: Error
+  requestSent?: boolean
 }
 
 export type ForwardResult = ForwardResultBuffered | ForwardResultStream | ForwardResultError
@@ -65,6 +67,7 @@ export interface DirectForwardHttpOpts {
   skipChallengeDetection?: boolean
   // Socket timeout for the upstream connection. Default 30s.
   timeoutMs?: number
+  signal?: AbortSignal
 }
 
 export async function directForwardHttp(opts: DirectForwardHttpOpts): Promise<ForwardResult> {
@@ -85,11 +88,19 @@ export async function directForwardHttp(opts: DirectForwardHttpOpts): Promise<Fo
   socket.on("error", () => {})
   return new Promise<ForwardResult>((resolve) => {
     let settled = false
+    let requestSent = false
     const fail = (err: Error) => {
+      socket.destroy()
       if (settled) return
       settled = true
-      socket.destroy()
-      resolve({ mode: "error", error: err })
+      resolve({ mode: "error", error: err, requestSent })
+    }
+    const abort = () => fail(new Error("proxy client disconnected"))
+    opts.signal?.addEventListener("abort", abort, { once: true })
+    socket.once("close", () => opts.signal?.removeEventListener("abort", abort))
+    if (opts.signal?.aborted) {
+      abort()
+      return
     }
 
     const timeout = opts.timeoutMs ?? 30_000
@@ -100,13 +111,14 @@ export async function directForwardHttp(opts: DirectForwardHttpOpts): Promise<Fo
     socket.connect(port, host, () => {
       const authority = parsed.port ? `${host}:${parsed.port}` : host
       const path = `${parsed.pathname}${parsed.search}`
+      requestSent = true
       writeRequest(socket, requestHead(opts.method, path, authority, opts.headers, opts.body), opts.body)
 
-      readHttpResponse(socket, opts.url, opts.skipChallengeDetection ?? false)
+      readHttpResponse(socket, opts.url, opts.skipChallengeDetection ?? false, opts.method)
         .then((result) => {
           if (settled) return
           settled = true
-          resolve(result)
+          resolve(result.mode === "error" ? { ...result, requestSent } : result)
         })
         .catch(fail)
     })
@@ -123,6 +135,7 @@ export interface DirectForwardHttpsOpts {
   skipChallengeDetection?: boolean
   timeoutMs?: number
   servername?: string
+  signal?: AbortSignal
 }
 
 const requestHead = (
@@ -159,11 +172,19 @@ export async function directForwardHttps(opts: DirectForwardHttpsOpts): Promise<
   socket.on("error", () => {})
   return new Promise<ForwardResult>((resolve) => {
     let settled = false
+    let requestSent = false
     const fail = (err: Error) => {
+      socket.destroy()
       if (settled) return
       settled = true
-      socket.destroy()
-      resolve({ mode: "error", error: err })
+      resolve({ mode: "error", error: err, requestSent })
+    }
+    const abort = () => fail(new Error("proxy client disconnected"))
+    opts.signal?.addEventListener("abort", abort, { once: true })
+    socket.once("close", () => opts.signal?.removeEventListener("abort", abort))
+    if (opts.signal?.aborted) {
+      abort()
+      return
     }
 
     const timeout = opts.timeoutMs ?? 30_000
@@ -173,13 +194,14 @@ export async function directForwardHttps(opts: DirectForwardHttpsOpts): Promise<
 
     socket.once("secureConnect", () => {
       const host = opts.port === 443 ? opts.host : `${opts.host}:${opts.port}`
+      requestSent = true
       writeRequest(socket, requestHead(opts.method, opts.path, host, opts.headers, opts.body), opts.body)
 
-      readHttpResponse(socket, `https://${opts.host}${opts.path}`, opts.skipChallengeDetection ?? false)
+      readHttpResponse(socket, `https://${opts.host}${opts.path}`, opts.skipChallengeDetection ?? false, opts.method)
         .then((result) => {
           if (settled) return
           settled = true
-          resolve(result)
+          resolve(result.mode === "error" ? { ...result, requestSent } : result)
         })
         .catch(fail)
     })
@@ -193,6 +215,7 @@ async function readHttpResponse(
   socket: net.Socket,
   url: string,
   skipChallengeDetection: boolean,
+  method: string,
   initialResponseBytes: Buffer = Buffer.alloc(0),
 ): Promise<ForwardResult> {
   const headerBuf = await readUpTo(socket, MAX_HEADER_BYTES, "\r\n\r\n", initialResponseBytes)
@@ -215,7 +238,7 @@ async function readHttpResponse(
   // followed by another HTTP response on the same connection. Do not treat the
   // final response headers/body as the body of the 1xx response.
   if (status >= 100 && status < 200 && status !== 101) {
-    return readHttpResponse(socket, url, skipChallengeDetection, headerBuf.leftover)
+    return readHttpResponse(socket, url, skipChallengeDetection, method, headerBuf.leftover)
   }
 
   const headers: Record<string, string> = {}
@@ -262,6 +285,19 @@ async function readHttpResponse(
     }
   }
 
+  if (!responseHasBody(status, method)) {
+    socket.destroy()
+    return {
+      mode: "buffer",
+      status,
+      headers,
+      contentType,
+      contentLength,
+      body: Buffer.alloc(0),
+      challengeDetected: false,
+    }
+  }
+
   const streamDecision = shouldStream(url, contentLength, contentType)
 
   const isChunked = (headers["transfer-encoding"] ?? "").toLowerCase().includes("chunked")
@@ -282,9 +318,12 @@ async function readHttpResponse(
     // Ordinary HTML/JSON/text responses are buffered to completion. This is
     // required both for valid chunk decoding and challenge detection.
     const initial = headerBuf.leftover ?? Buffer.alloc(0)
-    const remaining = isChunked ? await readCompleteChunkedBody(socket, initial) : await drainSocket(socket)
+    const result = await readUnknownLengthBody(socket, initial, isChunked)
+    if (result.streamed) {
+      return { mode: "stream", status, headers, contentType, socket, prefix: result.body }
+    }
     socket.destroy()
-    const wireBody = isChunked ? remaining : Buffer.concat([initial, remaining])
+    const wireBody = result.body
     let body: Buffer
     try {
       body = isChunked ? decodeChunkedBody(wireBody) : wireBody
@@ -385,6 +424,7 @@ async function readUpTo(
         socket.pause()
         socket.off("data", onData)
         socket.off("error", onError)
+        socket.off("close", onClose)
         const endIdx = idx + delimiter.length
         const leftover = endIdx < buf.length ? buf.subarray(endIdx) : undefined
         resolve({ found: true, text: buf.subarray(0, endIdx).toString("latin1"), leftover })
@@ -393,6 +433,7 @@ async function readUpTo(
       if (total > maxBytes) {
         socket.off("data", onData)
         socket.off("error", onError)
+        socket.off("close", onClose)
         resolve({ found: false, text: buf.toString("latin1") })
         return true
       }
@@ -406,94 +447,100 @@ async function readUpTo(
     const onError = (err: Error) => {
       socket.off("data", onData)
       socket.off("error", onError)
+      socket.off("close", onClose)
       reject(err)
     }
+    const onClose = () => onError(new Error("upstream closed before response headers completed"))
 
     socket.on("data", onData)
     socket.once("error", onError)
-    if (!inspect()) socket.resume()
+    socket.once("close", onClose)
+    if (!inspect()) {
+      if (socket.destroyed || socket.readableEnded) onClose()
+      else socket.resume()
+    }
   })
 }
 
 async function readChunk(socket: net.Socket) {
+  if (socket.destroyed || socket.readableEnded) return {}
   return new Promise<{ chunk?: Buffer }>((resolve) => {
     const onData = (chunk: Buffer) => {
+      socket.pause()
       socket.off("data", onData)
       socket.off("end", onEnd)
       socket.off("error", onError)
+      socket.off("close", onEnd)
       resolve({ chunk })
     }
     const onEnd = () => {
       socket.off("data", onData)
       socket.off("end", onEnd)
       socket.off("error", onError)
+      socket.off("close", onEnd)
       resolve({})
     }
     const onError = () => {
       socket.off("data", onData)
       socket.off("end", onEnd)
       socket.off("error", onError)
+      socket.off("close", onEnd)
       resolve({})
     }
     socket.once("data", onData)
     socket.once("end", onEnd)
     socket.once("error", onError)
+    socket.once("close", onEnd)
     socket.resume()
   })
 }
 
-// Drain everything remaining on the socket into a single Buffer. Used after
-// challenge detection to capture the full challenge HTML before escalation.
-async function drainSocket(socket: net.Socket): Promise<Buffer> {
-  const chunks: Buffer[] = []
-  return new Promise((resolve) => {
-    const onData = (chunk: Buffer) => chunks.push(chunk)
-    const finish = () => {
-      socket.off("data", onData)
-      socket.off("end", onFinish)
-      socket.off("error", onFinish)
-      resolve(Buffer.concat(chunks))
-    }
-    const onFinish = () => finish()
-    socket.on("data", onData)
-    socket.once("end", onFinish)
-    socket.once("error", onFinish)
-    socket.resume()
-  })
-}
-
-async function readCompleteChunkedBody(socket: net.Socket, initial: Buffer): Promise<Buffer> {
-  try {
-    decodeChunkedBody(initial)
-    return initial
-  } catch {
-    // The first packet commonly contains only part of the chunked body.
-  }
-
+// Unknown lengths obey the same threshold as declared lengths; preserve wire
+// framing when handing a growing response over to the streaming path.
+async function readUnknownLengthBody(
+  socket: net.Socket,
+  initial: Buffer,
+  chunked: boolean,
+): Promise<{ body: Buffer; streamed: boolean }> {
   return new Promise((resolve) => {
     const chunks = initial.length ? [initial] : []
     let total = initial.length
-    const finish = () => {
+    const finish = (streamed = false) => {
+      socket.pause()
       socket.off("data", onData)
       socket.off("end", onEnd)
       socket.off("error", onEnd)
-      resolve(Buffer.concat(chunks, total))
+      socket.off("close", onEnd)
+      resolve({ body: Buffer.concat(chunks, total), streamed })
+    }
+    const inspect = (): boolean => {
+      if (total >= STREAM_THRESHOLD_BYTES) {
+        finish(true)
+        return true
+      }
+      if (!chunked) return false
+      try {
+        decodeChunkedBody(Buffer.concat(chunks, total))
+        finish()
+        return true
+      } catch {
+        return false
+      }
     }
     const onData = (chunk: Buffer) => {
       chunks.push(chunk)
       total += chunk.length
-      try {
-        decodeChunkedBody(Buffer.concat(chunks, total))
-        finish()
-      } catch {
-        // Keep reading until the terminating zero-size chunk arrives.
-      }
+      inspect()
     }
     const onEnd = () => finish()
     socket.on("data", onData)
     socket.once("end", onEnd)
     socket.once("error", onEnd)
-    socket.resume()
+    socket.once("close", onEnd)
+    if (!inspect()) {
+      if (socket.destroyed || socket.readableEnded) finish()
+      else socket.resume()
+    }
   })
 }
 

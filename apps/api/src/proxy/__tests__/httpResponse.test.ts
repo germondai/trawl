@@ -2,9 +2,37 @@ import { describe, expect, test } from "bun:test"
 import { once } from "node:events"
 import http from "node:http"
 import net from "node:net"
-import { serializeResponseHeaders } from "../httpResponse"
+import { PassThrough } from "node:stream"
+import { serializeResponseHeaders, writeResponseFromStream } from "../httpResponse"
 
 describe("proxy response serialization", () => {
+  test.each([
+    { method: "HEAD", status: 200, preservesLength: true },
+    { method: "GET", status: 204, preservesLength: false },
+    { method: "GET", status: 304, preservesLength: true },
+  ])("preserves bodyless metadata for $method $status", ({ method, status, preservesLength }) => {
+    const head = serializeResponseHeaders(
+      status,
+      { "content-length": "12", "transfer-encoding": "chunked" },
+      "text/plain",
+      { bodyLength: 0, method },
+    )
+    expect(head.includes("content-length: 12")).toBe(preservesLength)
+    expect(head).not.toContain("Content-Length: 0")
+    expect(head).not.toContain("transfer-encoding")
+  })
+
+  test("destroys the upstream stream when the client closes without an error", async () => {
+    const client = new PassThrough()
+    const upstream = new PassThrough()
+    client.resume()
+    writeResponseFromStream(client as unknown as net.Socket, 200, {}, upstream as unknown as net.Socket, "video/mp4", 0)
+    client.destroy()
+    await Bun.sleep(0)
+    expect(upstream.destroyed).toBe(true)
+    upstream.destroy()
+  })
+
   test.each([false, true])("emits each cookie as a valid field for streamed=%s", (streamed) => {
     const head = serializeResponseHeaders(
       200,
