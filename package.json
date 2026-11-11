@@ -20,7 +20,6 @@
     "verify": "bun run check && bun run typecheck && bun run test && bun run build"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.6.6",
-    "hash-wasm": "^4.13.0"
+    "@biomejs/biome": "2.6.6"
   }
 }

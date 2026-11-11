@@ -1,6 +1,5 @@
 #!/bin/sh
-set -e
-set -u
+set -eu
 cd "$(dirname "$0")"
 go mod download
 waf_module=$(go list -m -f '{{.Dir}}' github.com/Lu1sDV/wafmeow/v3)
