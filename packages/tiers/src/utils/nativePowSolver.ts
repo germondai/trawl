@@ -79,9 +79,18 @@ function solveBytes(algo: number, data: Uint8Array, bits: number): { nonce: numb
   return nonce < 0 ? undefined : { nonce, hash: toHex(out) }
 }
 
-const input = JSON.parse(await Bun.stdin.text()) as { algorithm: number; data: string; bits: number }
-const result =
-  input.algorithm === -1
-    ? solveTextSha256(input.data, input.bits)
-    : solveBytes(input.algorithm, Buffer.from(input.data, "hex"), input.bits)
+const input = JSON.parse(await Bun.stdin.text())
+let result: unknown
+if (input.task === "altcha") {
+  const { solveAltchaPuzzle } = await import("../solvers/altchaPow")
+  result = await solveAltchaPuzzle(input.challenge)
+} else if (input.task === "friendly-captcha") {
+  const { solveFriendlyCaptchaNative } = await import("../solvers/friendlyCaptchaPow")
+  result = solveFriendlyCaptchaNative(input.puzzle, !input.nativeOnly)?.response
+} else {
+  result =
+    input.algorithm === -1
+      ? solveTextSha256(input.data, input.bits)
+      : solveBytes(input.algorithm, Buffer.from(input.data, "hex"), input.bits)
+}
 process.stdout.write(JSON.stringify(result ?? null))

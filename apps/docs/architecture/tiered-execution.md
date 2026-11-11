@@ -15,6 +15,7 @@ Request
   ▼
 Tier 1: HTTP Fetch ───────── success ──→ return
   │ optional cached clearance + saved browser identity
+  │ bounded Anubis/NCBI/ALTCHA/Friendly v1 access-wall solving
   │ blocked / needs-js
   ▼
 Tier 2: Cached Session ────── success ──→ refresh cache, return
@@ -52,13 +53,19 @@ Sec-Fetch-User: ?1
 Priority: u=0, i
 ```
 
-**Succeeds for:** sites that serve the requested content without a browser challenge, and supported NCBI or Anubis proof-of-work walls.
+**Succeeds for:** sites that serve the requested content without a browser challenge, supported NCBI or Anubis proof-of-work walls, and supported ALTCHA or Friendly Captcha v1 access forms.
 
 For GET requests, Tier 1 can solve NCBI identity PoW and Anubis `fast`, `slow`,
 `sha256`, `argon2id`, `hashx`, `preact` and `metarefresh` without opening a browser.
 Standard and baseline images bundle the Rust solver. Local source runs can use a
 JavaScript fallback for text SHA-256; the other hash algorithms require the library
 at `/opt/powsolve/libpowsolve.so` (or an operator-supplied `POWSOLVE_LIB` path).
+
+Supported static ALTCHA and Friendly Captcha v1 access forms use the same transport,
+cookie jar and bounded PoW process. Friendly v1 uses native Blake2b-256 when available;
+its JavaScript fallback and ALTCHA derivations run in that child process too. Ordinary
+embedded widgets, callbacks and ambiguous forms stay on the browser path; see
+[challenge support](/getting-started/challenge-support) for the form and resource limits.
 
 Hashing runs in one short-lived process with one native search thread, for at most
 one second within the request deadline. Cancellation kills that process; busy,

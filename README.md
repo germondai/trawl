@@ -9,6 +9,10 @@ Self-hosted web scraping for applications and AI agents. Get page content throug
 
 TRAWL starts with HTTP, reuses verified clearance and opens Camoufox when a browser is needed. Repeat requests fetch fresh content without repeating a full solve whenever the site accepts the saved session.
 
+`HTTP + supported PoW walls → cached browser session → fresh browser solve → residential proxy`
+
+The HTTP tier can clear supported ALTCHA and Friendly Captcha v1 access forms with bounded local computation. Ordinary embedded widgets keep their browser lifecycle. [Coverage and limits](apps/docs/getting-started/challenge-support.md).
+
 [Website](https://trawl.germondai.com) · [Documentation](https://docs.trawl.germondai.com) · [Latest release](https://github.com/germondai/trawl/releases/latest)
 
 ## Features
