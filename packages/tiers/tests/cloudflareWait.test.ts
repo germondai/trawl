@@ -33,6 +33,16 @@ test("readable content can finish within a short budget while retaining two obse
   expect(observations).toBeGreaterThanOrEqual(2)
 })
 
+test.each(["Please wait for the results", "One more step to finish setup"])(
+  "does not classify the ordinary title '%s' as a challenge",
+  async (title) => {
+    const page = pageFixture()
+    page.title = async () => title
+    page.content = async () => destination
+    expect(await waitForChallengeResolution(page as unknown as Page, 550, page.url())).toBe("ok")
+  },
+)
+
 test("a challenge appearing after the first readable observation must still clear", async () => {
   const page = pageFixture()
   let observations = 0

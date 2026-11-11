@@ -82,6 +82,11 @@ export function isExplicitChallengeRejection(status: number, html: string, heade
   )
 }
 
+export const isCloudflareChallengeTitle = (title: string): boolean =>
+  /^(?:just a moment|please wait|checking your browser(?: before accessing .*)?|attention required|verify you are human)[.!…]*(?:\s*[|-]\s*cloudflare)?$/i.test(
+    title.trim(),
+  )
+
 export function isCloudflarePage(html: string, headers: Record<string, string>): boolean {
   if (hasCloudflareChallengeHeader(headers)) return true
   if (hasDdosGuardChallenge(html)) return false
@@ -96,12 +101,7 @@ export function isCloudflarePage(html: string, headers: Record<string, string>):
     return false
   const { document } = parseHTML(html)
   const title = [...document.querySelectorAll("title")].find(isActiveElement)?.textContent?.trim() ?? ""
-  if (
-    /^(?:just a moment|please wait|checking your browser(?: before accessing .*)?|attention required|verify you are human)[.!…]*(?:\s*[|-]\s*cloudflare)?$/i.test(
-      title,
-    )
-  )
-    return true
+  if (isCloudflareChallengeTitle(title)) return true
   if (hasCloudflareChallengeScript(html, document)) return true
   for (const element of document.querySelectorAll("*")) {
     if (
