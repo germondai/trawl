@@ -47,6 +47,7 @@ describe("browserDocumentHtml", () => {
 
   test.each([
     '<img src="/image" onload="this.parentNode.textContent=\'Ready\'">中文',
+    "<svg/onload=\"document.body.textContent='Ready'\">中文</svg>",
     '<iframe src="/challenge">中文</iframe>',
   ])("keeps the rendered DOM for event handlers and embedded documents", (raw) => {
     const rendered = "<html><body>Ready</body></html>"

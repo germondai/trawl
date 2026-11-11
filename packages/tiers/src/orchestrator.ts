@@ -26,8 +26,13 @@ import { HttpSessionCookies, httpReplayProof } from "./utils/httpSessionCookies"
 import { metaRefreshTarget } from "./utils/metaRefresh"
 import { PostReplay } from "./utils/postReplay"
 import { type ProxyPool, proxyIdentity } from "./utils/proxyRotator"
-import { isHtmlContentType } from "./utils/response"
-import { RequestValidationError, requireContentTypeForBody, sanitizeHeaders } from "./utils/sanitize"
+import { isHtmlContentType, isNonHtmlTextContentType } from "./utils/response"
+import {
+  proxySanitizeHeaders,
+  RequestValidationError,
+  requireContentTypeForBody,
+  sanitizeHeaders,
+} from "./utils/sanitize"
 import { tier1UserAgent } from "./utils/tier1Transport"
 import { snapshotWafEvidence, type WafEvidence, wafUnavailable } from "./utils/waf"
 
@@ -97,6 +102,8 @@ export interface OrchestratorDeps {
   trustedProxyCa?: (proxyUrl: string) => Promise<string | undefined>
   detectWaf?: (evidence: string, timeoutMs: number, signal: AbortSignal) => Promise<WafDetection>
   wafDetectionEnabled?: boolean
+  // Internal proxy handoff; never selected by a public request field.
+  trustedProxyHeaders?: boolean
 }
 
 interface OrchestratorRunners {
@@ -117,6 +124,9 @@ const extractDomain = (url: string): string => {
 
 const hasUsablePayload = (result: { status: TierResult["status"]; html?: string; body?: Uint8Array }): boolean =>
   result.status === "success" && (result.body !== undefined || Boolean(result.html))
+
+const resultHtml = (result: InternalTierResult): string =>
+  isNonHtmlTextContentType(result.contentType) ? (result.html ?? "") : normalizeHtml(result.html ?? "")
 
 // Why a tier that did not return a page failed. A refused crossing takes precedence; a
 // "success" status without a usable payload is named as such, so a failure message never
@@ -291,8 +301,24 @@ async function scrapeWithinBudget(
     mhtml: req.mhtml,
   }
 
-  const sanitizedHeaders = sanitizeHeaders(req.headers)
+  const sanitizedHeaders = deps.trustedProxyHeaders ? proxySanitizeHeaders(req.headers) : sanitizeHeaders(req.headers)
+  if (deps.trustedProxyHeaders && sanitizedHeaders) {
+    delete sanitizedHeaders.host
+    delete sanitizedHeaders["content-length"]
+  }
   requireContentTypeForBody(sanitizedHeaders, Boolean(req.body))
+  const proxyAuthorization = deps.trustedProxyHeaders ? sanitizedHeaders?.authorization : undefined
+  const privateRequest =
+    importedCookies || Boolean(deps.trustedProxyHeaders && (sanitizedHeaders?.cookie || proxyAuthorization))
+  const browserHeaders = deps.trustedProxyHeaders ? sanitizeHeaders(req.headers) : sanitizedHeaders
+  if (deps.trustedProxyHeaders && sanitizedHeaders?.cookie) {
+    const secure = new URL(req.url).protocol === "https:"
+    capture.cookies = sanitizedHeaders.cookie.split(";").flatMap((pair) => {
+      const separator = pair.indexOf("=")
+      const name = pair.slice(0, separator).trim()
+      return separator > 0 && name ? [{ name, value: pair.slice(separator + 1).trim(), secure }] : []
+    })
+  }
 
   const emit = (r: InternalTierResult) => {
     observeResponse?.(r)
@@ -357,6 +383,8 @@ async function scrapeWithinBudget(
     )
 
   if (req.sessionId) {
+    if (proxyAuthorization)
+      throw failure("Proxy Authorization is supported by HTTP forwarding only; use cookies for browser requests")
     if (maxTier < 3) throw new RequestValidationError("Browser sessions require maxTier >= 3", 400)
     if (minTier === 4 && !namedSession?.proxy)
       throw new RequestValidationError("Minimum tier 4 requires a proxy set on session creation", 400)
@@ -380,7 +408,7 @@ async function scrapeWithinBudget(
                 handle,
                 budget.remaining(),
                 req.proxy as string,
-                sanitizedHeaders,
+                browserHeaders,
                 req.method,
                 req.body,
                 deps.validateOutboundUrl,
@@ -393,7 +421,7 @@ async function scrapeWithinBudget(
                 handle,
                 budget.remaining(),
                 namedSession?.proxy,
-                sanitizedHeaders,
+                browserHeaders,
                 req.method,
                 req.body,
                 deps.validateOutboundUrl,
@@ -408,7 +436,7 @@ async function scrapeWithinBudget(
         if (!hasUsablePayload(result) || crossed) throw failure(result.reason ?? "Session scrape failed")
         return {
           url: result.effectiveUrl ?? req.url,
-          html: normalizeHtml(result.html ?? ""),
+          html: resultHtml(result),
           cookies: result.cookies ?? [],
           userAgent: result.userAgent ?? handle.fingerprint.userAgent,
           statusCode: result.statusCode ?? 200,
@@ -437,7 +465,7 @@ async function scrapeWithinBudget(
 
   // Tier 1 is the only look at the wall that happens before a browser is checked out, so
   // it is also the only chance to pick the right kind of browser for the tiers below.
-  let session = minTier <= 2 && !explicitProxy ? await deps.loadSession(domain) : undefined
+  let session = minTier <= 2 && !explicitProxy && !privateRequest ? await deps.loadSession(domain) : undefined
   const sessionProxy = session?.proxyId
     ? (deps.proxyPool?.resolve(session.proxyId) ?? deps.residentialProxyPool?.resolve(session.proxyId))
     : undefined
@@ -476,7 +504,10 @@ async function scrapeWithinBudget(
     // Tier 1 has no browser handle, so select its identity up front and use the
     // same UA for both the outbound request and the public result.
     const tier1Fingerprint = FINGERPRINT_POOL[Math.floor(Math.random() * FINGERPRINT_POOL.length)] ?? FINGERPRINT
-    const httpUserAgent = httpSession && session ? session.userAgent : tier1UserAgent(tier1Fingerprint.userAgent)
+    const httpUserAgent =
+      httpSession && session
+        ? session.userAgent
+        : (deps.trustedProxyHeaders && sanitizedHeaders?.["user-agent"]) || tier1UserAgent(tier1Fingerprint.userAgent)
     const boundedReplay = Boolean(httpSession) && !httpReplayPost
     const httpTimeout = boundedReplay
       ? Math.max(1, Math.min(5000, Math.floor(budget.remaining() / 3)))
@@ -543,7 +574,7 @@ async function scrapeWithinBudget(
       }
       return {
         url: t1.effectiveUrl ?? req.url,
-        html: normalizeHtml(t1.html ?? ""),
+        html: resultHtml(t1),
         cookies: t1.cookies ?? [],
         userAgent: httpUserAgent,
         statusCode: t1.statusCode ?? 200,
@@ -565,6 +596,9 @@ async function scrapeWithinBudget(
   if (maxTier < 2) {
     throw failure("Max tier reached without success")
   }
+  // Browser header overrides persist through redirects, unlike HTTP credential stripping.
+  if (proxyAuthorization)
+    throw failure("Proxy Authorization is supported by HTTP forwarding only; use cookies for browser requests")
 
   budget.check()
   // Acquire browser for tiers 2-4
@@ -624,7 +658,7 @@ async function scrapeWithinBudget(
         handle,
         session,
         remaining,
-        sanitizedHeaders,
+        browserHeaders,
         req.method,
         req.body,
         deps.validateOutboundUrl,
@@ -641,7 +675,7 @@ async function scrapeWithinBudget(
           handle,
           session,
           maxTimeout - (Date.now() - totalStart),
-          sanitizedHeaders,
+          browserHeaders,
           req.method,
           req.body,
           deps.validateOutboundUrl,
@@ -672,7 +706,7 @@ async function scrapeWithinBudget(
         }
         return {
           url: t2.effectiveUrl ?? req.url,
-          html: normalizeHtml(t2.html ?? ""),
+          html: resultHtml(t2),
           cookies: t2.cookies ?? [],
           userAgent: session.userAgent,
           statusCode: t2.statusCode ?? 200,
@@ -728,7 +762,7 @@ async function scrapeWithinBudget(
           handle,
           remaining3,
           proxy3,
-          sanitizedHeaders,
+          browserHeaders,
           req.method,
           req.body,
           deps.validateOutboundUrl,
@@ -745,7 +779,7 @@ async function scrapeWithinBudget(
             handle,
             maxTimeout - (Date.now() - totalStart),
             proxy3,
-            sanitizedHeaders,
+            browserHeaders,
             req.method,
             req.body,
             deps.validateOutboundUrl,
@@ -774,7 +808,7 @@ async function scrapeWithinBudget(
       emit(crossed3 ? crossedTiming(t3, crossed3) : t3)
       if (hasUsablePayload(t3) && !crossed3) {
         const cookies: Cookie[] = t3.cookies ?? []
-        if (cookies.length > 0 && !explicitProxy && !importedCookies) {
+        if (cookies.length > 0 && !explicitProxy && !privateRequest) {
           await deps.saveSession(domain, {
             cookies,
             userAgent: t3.userAgent ?? handle.fingerprint.userAgent,
@@ -789,7 +823,7 @@ async function scrapeWithinBudget(
         }
         return {
           url: t3.effectiveUrl ?? req.url,
-          html: normalizeHtml(t3.html ?? ""),
+          html: resultHtml(t3),
           cookies,
           userAgent: t3.userAgent ?? FINGERPRINT.userAgent,
           statusCode: t3.statusCode ?? 200,
@@ -844,7 +878,7 @@ async function scrapeWithinBudget(
         handle,
         remaining4,
         proxy4,
-        sanitizedHeaders,
+        browserHeaders,
         req.method,
         req.body,
         deps.validateOutboundUrl,
@@ -861,7 +895,7 @@ async function scrapeWithinBudget(
           handle,
           maxTimeout - (Date.now() - totalStart),
           proxy4,
-          sanitizedHeaders,
+          browserHeaders,
           req.method,
           req.body,
           deps.validateOutboundUrl,
@@ -887,7 +921,7 @@ async function scrapeWithinBudget(
     emit(crossed4 ? crossedTiming(t4, crossed4) : t4)
     if (hasUsablePayload(t4) && !crossed4) {
       const cookies: Cookie[] = t4.cookies ?? []
-      if (cookies.length > 0 && !explicitProxy && !importedCookies) {
+      if (cookies.length > 0 && !explicitProxy && !privateRequest) {
         await deps.saveSession(domain, {
           cookies,
           userAgent: t4.userAgent ?? handle.fingerprint.userAgent,
@@ -897,7 +931,7 @@ async function scrapeWithinBudget(
       }
       return {
         url: t4.effectiveUrl ?? req.url,
-        html: normalizeHtml(t4.html ?? ""),
+        html: resultHtml(t4),
         cookies,
         userAgent: t4.userAgent ?? FINGERPRINT.userAgent,
         statusCode: t4.statusCode ?? 200,

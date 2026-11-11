@@ -128,6 +128,7 @@ export function attachResponseCapture(page: Page, options: ResponseCaptureOption
   const timers = new Set<ReturnType<typeof setTimeout>>()
   const parts: MhtmlPart[] = []
   const archived = new Set<string>()
+  const pendingArchiveUrls = new Set<string>()
   const bodyReads = new WeakMap<object, Promise<Buffer>>()
   const omissions: MhtmlOmission[] = []
   let archiveCharsUsed = 0
@@ -213,6 +214,7 @@ export function attachResponseCapture(page: Page, options: ResponseCaptureOption
         omit(url, "body-read-failed")
       }
     } finally {
+      pendingArchiveUrls.delete(url)
       archiveInflightReads--
       archiveInflightBytes -= declared
     }
@@ -250,6 +252,7 @@ export function attachResponseCapture(page: Page, options: ResponseCaptureOption
       archiveInflightReads++
       archiveInflightBytes += declared
       archived.add(url)
+      pendingArchiveUrls.add(url)
       pending.push(readArchivePart(response, url, resourceType, declared))
     } catch {
       omit(url, "body-read-failed")
@@ -345,7 +348,10 @@ export function attachResponseCapture(page: Page, options: ResponseCaptureOption
       detach()
       const timeoutMs = Math.max(0, Math.min(BODY_TIMEOUT_MS, Number.isFinite(budgetMs) ? budgetMs : 0))
       if (pending.length > 0 && timeoutMs > 0) await Promise.race([Promise.allSettled(pending), sleep(timeoutMs)])
-      accepting = false
+      if (accepting) {
+        accepting = false
+        for (const url of pendingArchiveUrls) omit(url, "body-read-failed")
+      }
       for (const entry of entries) if (entry.body === null && !entry.error) entry.error = "body read did not complete"
       if (dropped > 0) console.log(`[capture] dropped ${dropped} matched responses past the configured caps`)
       for (const timer of timers) clearTimeout(timer)

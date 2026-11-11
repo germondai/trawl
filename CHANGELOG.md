@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Avoid detecting Cloudflare and Turnstile challenges from ordinary verification text, comments and inert HTML examples. Preserve active challenge markers and prevent POST replay from resending application replies containing examples.
+- Avoid replaying non-safe proxy requests after ambiguous upstream failures. Close upstream work on client disconnect, accept fragmented CONNECT headers, preserve HEAD/204/304 semantics and stream unknown-length responses at the existing 8 MiB threshold.
+- Preserve trusted proxy credentials in HTTP escalation and import scoped cookies for browser solving. Isolate authenticated requests from shared clearance sessions, retain native API restrictions and reject unsupported browser `Authorization` forwarding.
+- Include implicit `/v1` session setup in the request deadline. Preserve non-HTML text whitespace and rendered HTML fragments with slash-separated event attributes.
+- Use the same precise Cloudflare title classification in detection and challenge waiting. Include the first metrics interval and report unfinished MHTML resources as omitted.
+- Apply web security headers to Nginx-served pages and assets. Allow focused benchmark runs without requiring unselected competitor images.
 
 ### Changed
 - Include existing browser resource and recovery checks in release CI and optional manual runs without extending ordinary PR checks.

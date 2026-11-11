@@ -63,7 +63,12 @@ export class BrowserSessions {
       throw new Error("Browser session capacity and TTL must be positive integers")
   }
 
-  async create(options: CreateBrowserSession = {}, reuseExisting = false): Promise<BrowserSession> {
+  async create(
+    options: CreateBrowserSession = {},
+    reuseExisting = false,
+    budget?: RequestBudget,
+  ): Promise<BrowserSession> {
+    budget?.check()
     if (this.stopped) throw new RequestValidationError("Session manager is shutting down", 503)
     if (options.publicOnly && !this.deps.networkProxy)
       throw new RequestValidationError("Public-only sessions are unavailable", 503)
@@ -120,7 +125,8 @@ export class BrowserSessions {
       )
       this.timer.unref?.()
     }
-    const budget = new RequestBudget(30_000)
+    const ownsBudget = budget === undefined
+    budget ??= new RequestBudget(30_000)
     try {
       await this.use(id, "", budget, async () => {})
       return this.info(entry)
@@ -128,7 +134,7 @@ export class BrowserSessions {
       await this.remove(entry)
       throw error
     } finally {
-      budget.dispose()
+      if (ownsBudget) budget.dispose()
     }
   }
 
@@ -137,18 +143,20 @@ export class BrowserSessions {
     return [...this.entries.values()].map((entry) => this.info(entry))
   }
 
-  async ensure(id: string, maxAgeMs?: number): Promise<BrowserSession> {
+  async ensure(id: string, maxAgeMs?: number, budget?: RequestBudget): Promise<BrowserSession> {
+    budget?.check()
     validateSessionId(id)
     if (maxAgeMs !== undefined && (!Number.isFinite(maxAgeMs) || maxAgeMs <= 0))
       throw new RequestValidationError("Session maximum age must be positive", 400)
     await this.sweep()
+    budget?.check()
     const entry = this.entries.get(id)
     if (entry && maxAgeMs !== undefined && this.now() - entry.info.createdAt > maxAgeMs) {
       const options = { ...entry.options }
       await this.destroy(id)
-      return this.create({ ...options, id }, true)
+      return this.create({ ...options, id }, true, budget)
     }
-    return entry ? this.info(entry) : this.create({ id }, true)
+    return entry ? this.info(entry) : this.create({ id }, true, budget)
   }
 
   options(id: string): Readonly<CreateBrowserSession> {

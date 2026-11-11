@@ -1,11 +1,86 @@
 import { describe, expect, spyOn, test } from "bun:test"
+import { EventEmitter } from "node:events"
 import { PoolExhaustedError } from "@trawl/browser"
-import { type OrchestratorDeps, ScrapeError, type scrape } from "@trawl/tiers"
+import { BrowserSessions, type OrchestratorDeps, ScrapeError, type scrape } from "@trawl/tiers"
 import type { Cookie, ScrapeRequest, ScrapeResult } from "@trawl/types"
 import { MetricsStore } from "../metrics"
 import { v1Route } from "./v1"
 
 describe("POST /v1", () => {
+  test("bounds implicit session acquisition by the request deadline and releases a late handle", async () => {
+    let acquisitionBudget = 0
+    let released = 0
+    let scraped = false
+    const context = Object.assign(new EventEmitter(), {
+      addInitScript: async () => {},
+      pages: () => [],
+      close: async () => {},
+    })
+    const handle = {
+      id: 1,
+      lease: 1,
+      headful: false,
+      context: {},
+      browser: { newContext: async () => context },
+      fingerprint: { userAgent: "fixture", platform: "Win32", locale: "en-US", timezone: "UTC" },
+    }
+    const sessions = new BrowserSessions({
+      acquireBrowser: async (_domain, budget) => {
+        acquisitionBudget = budget
+        await Bun.sleep(80)
+        return handle as never
+      },
+      releaseBrowser: () => {
+        released++
+      },
+    })
+    const metrics = new MetricsStore()
+    const app = v1Route({
+      poolReady: () => true,
+      cookieFallback: false,
+      orchestratorDeps: () => ({ sessions }) as OrchestratorDeps,
+      runScrape: async () => {
+        scraped = true
+        return {
+          url: "https://example.test/",
+          html: "fixture",
+          cookies: [],
+          userAgent: "fixture",
+          statusCode: 200,
+          tier: 3,
+          timings: [],
+          totalMs: 0,
+          sessionCached: false,
+        }
+      },
+      metricsStore: metrics,
+    })
+    try {
+      const response = await app.handle(
+        new Request("http://localhost/v1", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            cmd: "request.get",
+            url: "https://example.test/",
+            session: "implicit",
+            maxTimeout: 20,
+          }),
+        }),
+      )
+      expect(response.status).toBe(500)
+      expect((await response.json()).message).toContain("deadline exceeded")
+      expect(acquisitionBudget).toBeLessThanOrEqual(20)
+      expect(scraped).toBe(false)
+      expect(await sessions.list()).toEqual([])
+      await Bun.sleep(100)
+      expect(released).toBe(1)
+    } finally {
+      await sessions.shutdown()
+      metrics.close()
+    }
+  })
+
   test("returns a FlareSolverr error envelope when an explicit proxy fails", async () => {
     const metricsStore = new MetricsStore()
     const app = v1Route({

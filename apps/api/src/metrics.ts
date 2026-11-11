@@ -365,7 +365,7 @@ export class MetricsStore {
       if (row.severity) bySeverity[row.severity] += row.count
     }
     const end = Math.floor(now / step) * step
-    const size = Math.ceil((range * 60_000) / step)
+    const size = Math.ceil((range * 60_000) / step) + 1
     const bins = new Map<
       number,
       {

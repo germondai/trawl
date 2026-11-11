@@ -45,6 +45,78 @@ function runners(status: TierResult["status"], reason?: string) {
   }
 }
 
+test.each([1, 2, 3, 4] as const)("Tier %i preserves non-HTML text through the public scrape result", async (tier) => {
+  const text = "  alpha\r\n\r\n\r\nbeta  \n"
+  const result = await scrape({ url: "https://example.test/", maxTier: tier }, dependencies(tier, []), {
+    ...runners("success"),
+    [`tier${tier}`]: async () => ({
+      ...payload,
+      tier,
+      html: text,
+      contentType: "text/plain",
+      status: "success",
+      durationMs: 1,
+    }),
+  })
+  expect(result.html).toBe(text)
+})
+
+test("trusted proxy cookies use a private browser context without shared cache state", async () => {
+  let reads = 0
+  let writes = 0
+  let browserHeaders: unknown
+  let imported: unknown
+  const result = await scrape(
+    {
+      url: "https://example.test/",
+      headers: { Cookie: "session=hello%20world; token=a=b", "User-Agent": "caller" },
+      skipHttp: true,
+    },
+    {
+      ...dependencies(1, []),
+      trustedProxyHeaders: true,
+      loadSession: async () => {
+        reads++
+        return undefined
+      },
+      saveSession: async () => {
+        writes++
+      },
+    },
+    {
+      tier3: async (_url, _handle, _timeout, _proxy, headers, _method, _body, _validate, _screenshot, capture) => {
+        browserHeaders = headers
+        imported = capture?.cookies
+        return {
+          ...payload,
+          tier: 3,
+          status: "success",
+          durationMs: 1,
+          cookies: [
+            {
+              name: "session",
+              value: "private",
+              domain: "example.test",
+              path: "/",
+              expires: -1,
+              httpOnly: true,
+              secure: true,
+            },
+          ],
+        }
+      },
+    },
+  )
+  expect(result.statusCode).toBe(200)
+  expect(browserHeaders).toBeUndefined()
+  expect(imported).toEqual([
+    { name: "session", value: "hello%20world", secure: true },
+    { name: "token", value: "a=b", secure: true },
+  ])
+  expect(reads).toBe(0)
+  expect(writes).toBe(0)
+})
+
 test.each([
   { method: "GET" as const, maxTier: 3 as const, limited: true },
   { method: "HEAD" as const, maxTier: 3 as const, limited: true },

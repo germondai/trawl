@@ -76,7 +76,7 @@ export const isCharsetLessUtf8HtmlFragment = (
   }
   if (!hasNonAscii(markup) || !/<[a-z][a-z0-9-]*(?=[\s/>])/i.test(markup)) return false
   if (/<(?:html|head|body|title|meta|base|frameset|iframe|frame|object|embed)(?=[\s/>])/i.test(markup)) return false
-  if (/<!doctype\b|<script(?=[\s/>])|\son[a-z]+\s*=/i.test(markup)) {
+  if (/<!doctype\b|<script(?=[\s/>])|[\s/]on[a-z]+\s*=/i.test(markup)) {
     if (pageHtml === undefined) return false
     // Passive injected scripts may leave only Firefox's fallback decoding different.
     const rendered = fragmentContent(pageHtml)
