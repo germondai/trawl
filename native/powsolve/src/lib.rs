@@ -158,7 +158,7 @@ pub fn solve_bytes(algo: u32, data: &[u8], bits: u32, threads: u32) -> Option<(u
 /// Hash input: 128 bytes padded with puzzle at start, [index, 0, 0, 0, nonce_le] at bytes 120-127.
 /// Returns solutions as a Vec of (solution_index, nonce) pairs.
 pub fn solve_friendly_captcha(puzzle: &[u8], threads: u32) -> Vec<(u8, u32)> {
-    if puzzle.len() < 16 || puzzle.len() > 128 {
+    if puzzle.len() < 32 || puzzle.len() > 64 || puzzle[14] == 0 {
         return vec![];
     }
 
@@ -251,7 +251,7 @@ pub unsafe extern "C" fn pow_bytes(algo: u32, data: *const u8, len: usize, bits:
 /// [solution_index:1][nonce:4 LE] to `out_solutions`.
 ///
 /// # Safety
-/// `puzzle` points to `puzzle_len` readable bytes (must be >= 16).
+/// `puzzle` points to `puzzle_len` readable bytes (32 through 64).
 /// `out_solutions` points to at least `n_solutions * 5` writable bytes.
 #[no_mangle]
 pub unsafe extern "C" fn pow_friendly_captcha(
@@ -260,7 +260,7 @@ pub unsafe extern "C" fn pow_friendly_captcha(
     threads: u32,
     out_solutions: *mut u8,
 ) -> i32 {
-    if puzzle_len < 16 {
+    if puzzle.is_null() || puzzle_len < 32 || puzzle_len > 64 {
         return 0;
     }
     let puzzle = std::slice::from_raw_parts(puzzle, puzzle_len);
@@ -345,5 +345,9 @@ mod tests {
             let hash_val = u32::from_le_bytes([hash[0], hash[1], hash[2], hash[3]]);
             assert!(hash_val < threshold, "hash_val={} should be < {}", hash_val, threshold);
         }
+
+        puzzle[15] = 0;
+        assert_eq!(solve_friendly_captcha(&puzzle, 1).len(), 2);
+        assert!(solve_friendly_captcha(&puzzle[..16], 1).is_empty());
     }
 }

@@ -1,135 +1,65 @@
-import { describe, expect, test } from "bun:test"
+import { expect, test } from "bun:test"
 import { createHash } from "node:crypto"
-import { planAltcha, planFriendlyCaptcha, planPowCaptcha } from "../src/utils/powCaptchaPlan"
+import { planPowCaptcha } from "../src/utils/powCaptchaPlan"
 
-describe("PoW CAPTCHA planners", () => {
-  describe("planFriendlyCaptcha", () => {
-    test("extracts sitekey and plans solution", async () => {
-      const html = `
-        <html>
-        <form action="/submit" method="POST">
-          <div class="frc-captcha" data-sitekey="FCTEST123"></div>
-          <input type="hidden" name="frc-captcha-solution" value="">
-          <button type="submit">Submit</button>
-        </form>
-        </html>
-      `
+const challenge = {
+  algorithm: "SHA-256",
+  salt: "fixture",
+  signature: "server-signature",
+  challenge: createHash("sha256").update("fixture0").digest("hex"),
+}
+const widget = `<altcha-widget challengejson='${JSON.stringify(challenge)}'></altcha-widget>`
+const wall = (content = widget, action = "/verify") => `<html><head><title>Captcha</title></head><body>
+  <form id="altcha-form" method="post" action="${action}"><input type="hidden" name="csrf" value="csrf&amp;token">${content}</form></body></html>`
 
-      const plan = planFriendlyCaptcha(html, "https://example.com")
-      expect(plan).toBeDefined()
-      expect(plan?.kind).toBe("friendly-captcha-v1")
-    })
+test("parses reordered attributes and carries hidden fields with the proof", async () => {
+  const plan = planPowCaptcha(wall(), "https://example.com/challenge")
+  expect(plan).toBeDefined()
+  const submission = await plan?.submit(1000)
+  expect(submission?.url).toBe("https://example.com/verify")
+  expect(new URLSearchParams(submission?.body).get("csrf")).toBe("csrf&token")
+  expect(JSON.parse(atob(new URLSearchParams(submission?.body).get("altcha") ?? ""))).toMatchObject(challenge)
+})
 
-    test("extracts embedded puzzle", async () => {
-      const html = `
-        <form action="/submit" method="POST">
-          <div class="frc-captcha" data-puzzle="sig.AAAAAAAAAA"></div>
-          <input name="frc-captcha-solution">
-        </form>
-      `
+test("fetches URL-backed ALTCHA through the supplied request path", async () => {
+  const urls: string[] = []
+  const plan = planPowCaptcha(
+    wall('<altcha-widget challengeurl="/challenge.json"></altcha-widget>'),
+    "https://example.com/",
+    403,
+    async (url) => {
+      urls.push(url)
+      return challenge
+    },
+  )
+  expect(await plan?.submit(1000)).toBeDefined()
+  expect(urls).toEqual(["https://example.com/challenge.json"])
+})
 
-      const plan = planFriendlyCaptcha(html, "https://example.com")
-      expect(plan).toBeDefined()
-      expect(plan?.kind).toBe("friendly-captcha-v1")
-    })
-
-    test("skips pages with callback (needs JS)", () => {
-      const html = `
-        <div class="frc-captcha" data-sitekey="TEST" data-callback="onSolved"></div>
-        <input name="frc-captcha-solution">
-      `
-
-      const plan = planFriendlyCaptcha(html, "https://example.com")
-      expect(plan).toBeUndefined()
-    })
-
-    test("skips pages without form input", () => {
-      const html = `
-        <div class="frc-captcha" data-sitekey="TEST"></div>
-      `
-
-      const plan = planFriendlyCaptcha(html, "https://example.com")
-      expect(plan).toBeUndefined()
-    })
-  })
-
-  describe("planAltcha", () => {
-    test("extracts challenge JSON and plans solution", async () => {
-      const salt = "testsalt123"
-      const targetCounter = 42
-      const challengeHash = createHash("sha256").update(`${salt}${targetCounter}`).digest("hex")
-
-      const challenge = {
-        algorithm: "SHA-256",
-        salt,
-        challenge: challengeHash,
-      }
-      const html = `
-        <form action="/verify" method="POST">
-          <altcha-widget challengejson='${JSON.stringify(challenge)}'></altcha-widget>
-          <input type="hidden" name="altcha" value="">
-        </form>
-      `
-
-      const plan = planAltcha(html, "https://example.com")
-      expect(plan).toBeDefined()
-      expect(plan?.kind).toBe("altcha")
-
-      const result = await plan?.submit(5000)
-      expect(result).toBeDefined()
-      expect(result?.fieldName).toBe("altcha")
-      expect(result?.fieldValue.length).toBeGreaterThan(0)
-    })
-
-    test("skips pages with callback", () => {
-      const html = `
-        <altcha-widget challengejson='{"algorithm":"SHA-256","salt":"x"}' onverified="callback()"></altcha-widget>
-      `
-
-      const plan = planAltcha(html, "https://example.com")
-      expect(plan).toBeUndefined()
-    })
-
-    test("skips invalid challenge JSON", () => {
-      const html = `
-        <altcha-widget challengejson='invalid-json'></altcha-widget>
-        <input name="altcha">
-      `
-
-      const plan = planAltcha(html, "https://example.com")
-      expect(plan).toBeUndefined()
-    })
-  })
-
-  describe("planPowCaptcha", () => {
-    test("returns undefined for pages without captcha", () => {
-      const html = "<html><body>Hello World</body></html>"
-      const plan = planPowCaptcha(html, "https://example.com")
-      expect(plan).toBeUndefined()
-    })
-
-    test("returns undefined for oversized pages", () => {
-      const html = "x".repeat(300_000)
-      const plan = planPowCaptcha(html, "https://example.com")
-      expect(plan).toBeUndefined()
-    })
-
-    test("detects friendly captcha", () => {
-      const html = `
-        <div class="frc-captcha" data-sitekey="TEST"></div>
-        <input name="frc-captcha-solution">
-      `
-      const plan = planPowCaptcha(html, "https://example.com")
-      expect(plan?.kind).toBe("friendly-captcha-v1")
-    })
-
-    test("detects altcha", () => {
-      const html = `
-        <altcha-widget challengejson='{"algorithm":"SHA-256","salt":"x","challenge":"y"}'></altcha-widget>
-        <input name="altcha">
-      `
-      const plan = planPowCaptcha(html, "https://example.com")
-      expect(plan?.kind).toBe("altcha")
-    })
-  })
+test("keeps application forms, callbacks, inert markup and ambiguous forms on the browser path", () => {
+  const examples = [
+    wall().replace("Captcha", "Checkout"),
+    wall().replace("<altcha-widget", '<altcha-widget onverified="submitOrder()"'),
+    wall().replace("<altcha-widget", '<altcha-widget data-callback="submitOrder"'),
+    wall().replace('id="altcha-form"', 'id="altcha-form" onsubmit="return false"'),
+    wall().replace(widget, `${widget}<button onclick="submitOrder()">Continue</button>`),
+    wall().replace('id="altcha-form"', 'id="checkout-form"'),
+    wall('<div class="frc-captcha" data-sitekey="fixture"><input type="hidden" name="frc-captcha-response"></div>'),
+    wall(
+      '<script src="https://cdn.jsdelivr.net/npm/@friendlycaptcha/sdk/site.min.js"></script><div class="frc-captcha" data-sitekey="fixture"><input type="hidden" name="frc-captcha-solution"></div>',
+    ),
+    wall().replace(widget, `<template>${widget}</template>`),
+    wall().replace(widget, `<!-- ${widget} -->`),
+    wall().replace(widget, `<pre>${widget}</pre>`),
+    wall().replace(widget, `${widget}${widget}`),
+    wall().replace(widget, `<input name="email">${widget}`),
+    wall().replace(widget, `<textarea name="message"></textarea>${widget}`),
+    wall().replace(widget, `${widget}<button name="purchase" value="yes">Pay</button>`),
+    wall().replace("</body>", '<form action="/other"></form></body>'),
+    wall().replace('method="post"', 'method="get"'),
+    wall().replace("</head>", '<base href="https://other.example"></head>'),
+    wall(widget, "https://other.example/verify"),
+    wall(widget, "https://user:secret@example.com/verify"),
+  ]
+  for (const html of examples) expect(planPowCaptcha(html, "https://example.com/", 403)).toBeUndefined()
 })

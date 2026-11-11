@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
-import { fileURLToPath } from "node:url"
 import { parseHTML } from "linkedom"
 import { detectAnubisPage } from "./anubis"
+import { runPowProcess } from "./powProcess"
 
 export interface PowPlan {
   kind: string
@@ -18,9 +18,6 @@ export function looksLikePowWall(html: string): boolean {
 }
 
 const ALGO = { sha256: 0, argon2id: 1, hashx: 2 } as const
-let solving = false
-
-// One short-lived process bounds native CPU work and can be killed during FFI.
 async function solve(
   algorithm: number,
   data: string,
@@ -28,92 +25,19 @@ async function solve(
   timeoutMs = 1000,
   signal?: AbortSignal,
 ): Promise<{ nonce: number; hash: string } | undefined> {
-  if (solving || signal?.aborted || timeoutMs <= 0) return
-  solving = true
-  let child: ReturnType<typeof Bun.spawn<"pipe", "pipe", "ignore">> | undefined
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const abort = () => child?.kill("SIGKILL")
-  try {
-    child = Bun.spawn(
-      [process.execPath, "--no-env-file", fileURLToPath(new URL("./nativePowSolver.ts", import.meta.url))],
-      {
-        stdin: "pipe",
-        stdout: "pipe",
-        stderr: "ignore",
-        env: { PATH: process.env.PATH, POWSOLVE_LIB: process.env.POWSOLVE_LIB },
-      },
-    )
-    timer = setTimeout(abort, Math.min(timeoutMs, 1000))
-    signal?.addEventListener("abort", abort, { once: true })
-    if (signal?.aborted) abort()
-    child.stdin.write(JSON.stringify({ algorithm, data, bits }))
-    child.stdin.end()
-    const output = await new Response(child.stdout).text()
-    if ((await child.exited) !== 0 || signal?.aborted) return
-    const result = JSON.parse(output)
-    if (
-      result &&
-      Number.isInteger(result.nonce) &&
-      result.nonce >= 0 &&
-      result.nonce <= 0xffffffff &&
-      /^[a-f0-9]{64}$/.test(result.hash)
-    )
-      return result
-  } catch {
-    return
-  } finally {
-    clearTimeout(timer)
-    signal?.removeEventListener("abort", abort)
-    if (child) {
-      child.kill("SIGKILL")
-      await child.exited
-    }
-    solving = false
-  }
-}
-
-let solvingFC = false
-
-export async function solveNativeFriendlyCaptcha(
-  puzzleBase64: string,
-  timeoutMs = 60000,
-  signal?: AbortSignal,
-): Promise<Array<{ index: number; nonce: number }> | undefined> {
-  if (solvingFC || signal?.aborted || timeoutMs <= 0) return
-  solvingFC = true
-  let child: ReturnType<typeof Bun.spawn<"pipe", "pipe", "ignore">> | undefined
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const abort = () => child?.kill("SIGKILL")
-  try {
-    child = Bun.spawn(
-      [process.execPath, "--no-env-file", fileURLToPath(new URL("./nativePowSolver.ts", import.meta.url))],
-      {
-        stdin: "pipe",
-        stdout: "pipe",
-        stderr: "ignore",
-        env: { PATH: process.env.PATH, POWSOLVE_LIB: process.env.POWSOLVE_LIB },
-      },
-    )
-    timer = setTimeout(abort, timeoutMs)
-    signal?.addEventListener("abort", abort, { once: true })
-    if (signal?.aborted) abort()
-    child.stdin.write(JSON.stringify({ friendlyCaptcha: true, puzzle: puzzleBase64 }))
-    child.stdin.end()
-    const output = await new Response(child.stdout).text()
-    if ((await child.exited) !== 0 || signal?.aborted) return
-    const result = JSON.parse(output)
-    if (Array.isArray(result) && result.every((s) => typeof s.index === "number" && typeof s.nonce === "number"))
-      return result
-  } catch {
-    return
-  } finally {
-    clearTimeout(timer)
-    signal?.removeEventListener("abort", abort)
-    if (child) {
-      child.kill("SIGKILL")
-      await child.exited
-    }
-    solvingFC = false
+  const result = (await runPowProcess({ algorithm, data, bits }, timeoutMs, signal)) as
+    | { nonce?: unknown; hash?: unknown }
+    | undefined
+  if (
+    result &&
+    typeof result.nonce === "number" &&
+    Number.isInteger(result.nonce) &&
+    result.nonce >= 0 &&
+    result.nonce <= 0xffffffff &&
+    typeof result.hash === "string" &&
+    /^[a-f0-9]{64}$/.test(result.hash)
+  ) {
+    return { nonce: result.nonce, hash: result.hash }
   }
 }
 
@@ -127,6 +51,14 @@ export async function verifyNativePow(): Promise<void> {
       if (result.hash !== expected) throw new Error("Native SHA-256 proof does not match the protocol")
     }
   }
+  const puzzle = Buffer.alloc(32)
+  puzzle[12] = 1
+  puzzle[14] = 1
+  puzzle[15] = 1
+  const input = `native-check.${puzzle.toString("base64")}`
+  const proof = await runPowProcess({ task: "friendly-captcha", puzzle: input, nativeOnly: true })
+  if (typeof proof !== "string" || !proof.startsWith(`${input}.`))
+    throw new Error("Native Friendly Captcha solver unavailable")
 }
 
 const jsonScript = (document: ReturnType<typeof parseHTML>["document"], id: string): unknown => {

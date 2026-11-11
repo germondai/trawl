@@ -57,7 +57,7 @@ export interface Tier1Result extends TierResult {
 // (tunneling verb), TRACE/GET/HEAD/OPTIONS excluded (no body semantics).
 const METHODS_WITH_BODY = new Set(["POST", "PUT", "PATCH", "DELETE", "QUERY"])
 
-const decodeResponseBody = (body: Uint8Array, contentEncoding?: string): Uint8Array => {
+const decodeResponseBody = (body: Uint8Array, contentEncoding?: string, maxOutputLength?: number): Uint8Array => {
   const encodings = (contentEncoding ?? "")
     .split(",")
     .map((encoding) => encoding.trim().toLowerCase())
@@ -68,10 +68,11 @@ const decodeResponseBody = (body: Uint8Array, contentEncoding?: string): Uint8Ar
   try {
     let decoded = Buffer.from(body)
     for (const encoding of encodings.reverse()) {
-      if (encoding === "gzip" || encoding === "x-gzip") decoded = gunzipSync(decoded)
-      else if (encoding === "deflate") decoded = inflateSync(decoded)
-      else if (encoding === "br") decoded = brotliDecompressSync(decoded)
-      else if (encoding === "zstd") decoded = zstdDecompressSync(decoded)
+      const options = maxOutputLength === undefined ? undefined : { maxOutputLength }
+      if (encoding === "gzip" || encoding === "x-gzip") decoded = gunzipSync(decoded, options)
+      else if (encoding === "deflate") decoded = inflateSync(decoded, options)
+      else if (encoding === "br") decoded = brotliDecompressSync(decoded, options)
+      else if (encoding === "zstd") decoded = zstdDecompressSync(decoded, options)
       else return body
     }
     return decoded
@@ -101,7 +102,12 @@ export async function runTier1(
   const start = Date.now()
   const deadline = start + timeoutMs
   let budgetSignal = signal
-  const once = (target: string, headers: Record<string, string> | undefined, cookies = sessionCookies) =>
+  const once = (
+    target: string,
+    headers: Record<string, string> | undefined,
+    cookies: HttpSessionCookies | null | undefined = sessionCookies,
+    maxResponseBytes?: number,
+  ) =>
     runTier1Once(
       target,
       headers,
@@ -112,11 +118,12 @@ export async function runTier1(
       ignoreCertificateErrors,
       trustedProxyCa,
       budgetSignal,
-      cookies,
+      cookies ?? undefined,
       Math.max(0, deadline - Date.now()),
       headersTimeoutMs,
       observeResponse,
       networkProxy,
+      maxResponseBytes,
     )
   const first = await once(url, extraHeaders)
   if (
@@ -129,198 +136,121 @@ export async function runTier1(
   const html =
     first.html ?? new TextDecoder().decode(decodeResponseBody(first.body, first.responseHeaders?.["content-encoding"]))
   const pageUrl = first.effectiveUrl ?? url
-  const plan = planPowWall(html, pageUrl)
-  const captchaPlan = !plan ? planPowCaptcha(html, pageUrl) : undefined
-  if (!plan && !captchaPlan) return first
+  const fetchJson = async (target: string): Promise<unknown> => {
+    const sameOrigin = new URL(target).origin === new URL(pageUrl).origin
+    const headers: Record<string, string> = sameOrigin
+      ? { ...proofHeaders }
+      : { "user-agent": proofHeaders["user-agent"] ?? tier1UserAgent(FINGERPRINT.userAgent) }
+    headers.accept = "application/json"
+    headers["accept-encoding"] = "identity"
+    const result = await once(target, headers, sameOrigin ? proofCookies : null, 16_384)
+    if (result.statusCode !== 200 || !result.body || result.body.length > 16_384 || budgetSignal?.aborted) return
+    return JSON.parse(
+      new TextDecoder().decode(decodeResponseBody(result.body, result.responseHeaders?.["content-encoding"], 16_384)),
+    )
+  }
+  let proofHeaders: Record<string, string> = {}
+  let proofCookies: HttpSessionCookies | undefined
+  const plan = planPowWall(html, pageUrl) ?? planPowCaptcha(html, pageUrl, first.statusCode, fetchJson)
+  if (!plan) return first
   // A wall is never successful content, including when its native fast path fails.
   first.status = "needs-js"
-  first.reason ??= plan ? "proof-of-work-challenge" : `${captchaPlan?.kind}-challenge`
+  first.reason ??= "proof-of-work-challenge"
   if ((method ?? "GET").toUpperCase() !== "GET" || signal?.aborted || deadline <= Date.now()) return first
   budgetSignal = AbortSignal.any([AbortSignal.timeout(Math.ceil(deadline - Date.now())), ...(signal ? [signal] : [])])
 
   try {
-    // Anubis/NCBI PoW wall solving
-    if (plan) {
-      if (plan.waitMs >= deadline - Date.now()) return first
-      if (plan.waitMs > 0) await sleep(plan.waitMs, budgetSignal)
-      const submit = await plan.submit(deadline - Date.now(), budgetSignal)
-      if (!submit || budgetSignal.aborted || new URL(submit.url).origin !== new URL(pageUrl).origin) return first
-      const headers: Record<string, string> = {}
-      for (const [name, value] of Object.entries(extraHeaders ?? {})) headers[name.toLowerCase()] = value
-      if (new URL(pageUrl).origin !== new URL(url).origin) {
-        for (const name of ["authorization", "cookie", "proxy-authorization", "host"]) delete headers[name]
-      }
-      const cookies =
-        sessionCookies ??
-        new HttpSessionCookies(
-          new URL(pageUrl).origin,
-          (headers.cookie ?? "").split(";").flatMap((pair) => {
-            const eq = pair.indexOf("=")
-            if (eq <= 0) return []
-            return [
-              {
-                name: pair.slice(0, eq).trim(),
-                value: pair.slice(eq + 1).trim(),
-                domain: new URL(pageUrl).hostname,
-                path: "/",
-                expires: -1,
-                httpOnly: false,
-                secure: new URL(pageUrl).protocol === "https:",
-                sameSite: "Lax" as const,
-              },
-            ]
-          }),
-        )
-      if (!sessionCookies) {
-        const responseCookies = new Headers()
-        for (const raw of first.responseHeaders?.["set-cookie"]?.split("\n") ?? [])
-          responseCookies.append("set-cookie", raw)
-        cookies.update(responseCookies, pageUrl)
-      }
-      for (const name of ["cookie", "host", "content-length", "content-type", "content-encoding", "transfer-encoding"])
-        delete headers[name]
-      await validateOutboundUrl?.(submit.url)
-      budgetSignal.throwIfAborted()
-      const res = await tier1Transport.fetch(submit.url, {
-        timeoutMs: deadline - Date.now(),
-        signal: budgetSignal,
-        method: submit.method,
-        body: submit.body,
-        redirect: "manual",
-        headers: {
-          "user-agent": tier1UserAgent(FINGERPRINT.userAgent),
-          accept: "*/*",
-          "accept-language": "en-US,en;q=0.9",
-          ...headers,
-          referer: pageUrl,
-          ...(submit.method === "POST" ? { origin: new URL(pageUrl).origin } : {}),
-          ...(submit.contentType ? { "content-type": submit.contentType } : {}),
-          cookie: cookies.header(submit.url),
-        },
-        ...(networkProxy || proxy ? { proxy: networkProxy ?? proxy } : {}),
-        ...(trustedProxyCa ? { tls: { ca: [...rootCertificates, trustedProxyCa] } } : {}),
-        ...(ignoreCertificateErrors ? { tls: { rejectUnauthorized: false } } : {}),
-      })
-      await res.body?.cancel()
-      if (res.status < 200 || res.status >= 400 || budgetSignal.aborted) return first
-      cookies.update(res.headers, submit.url)
-      const location = res.headers.get("location")
-      const retryUrl =
-        [301, 302, 303, 307, 308].includes(res.status) && location ? new URL(location, submit.url).href : pageUrl
-      if (new URL(retryUrl).origin !== new URL(pageUrl).origin || !cookies.header(retryUrl)) return first
-      const second = await once(retryUrl, headers, cookies)
-      const secondHtml = second.body
-        ? new TextDecoder().decode(decodeResponseBody(second.body, second.responseHeaders?.["content-encoding"]))
-        : ""
-      if (planPowWall(secondHtml, second.effectiveUrl ?? pageUrl)) return first
-      if (second.responseHeaders) {
-        const setCookie = [
-          first.responseHeaders?.["set-cookie"],
-          ...res.headers.getSetCookie(),
-          second.responseHeaders["set-cookie"],
-        ]
-          .filter(Boolean)
-          .join("\n")
-        if (setCookie) second.responseHeaders["set-cookie"] = setCookie
-      }
-      second.durationMs = Date.now() - start
-      second.certificateError ??= first.certificateError
-      return second
+    const headers: Record<string, string> = {}
+    for (const [name, value] of Object.entries(extraHeaders ?? {})) headers[name.toLowerCase()] = value
+    if (new URL(pageUrl).origin !== new URL(url).origin) {
+      for (const name of ["authorization", "cookie", "proxy-authorization", "host"]) delete headers[name]
     }
-
-    // Friendly Captcha / ALTCHA PoW solving
-    if (captchaPlan) {
-      const solution = await captchaPlan.submit(deadline - Date.now(), budgetSignal)
-      if (!solution || budgetSignal.aborted) return first
-
-      const formAction = solution.formAction ? new URL(solution.formAction, pageUrl).href : pageUrl
-      if (new URL(formAction).origin !== new URL(pageUrl).origin) return first
-
-      const headers: Record<string, string> = {}
-      for (const [name, value] of Object.entries(extraHeaders ?? {})) headers[name.toLowerCase()] = value
-      const cookies =
-        sessionCookies ??
-        new HttpSessionCookies(
-          new URL(pageUrl).origin,
-          (headers.cookie ?? "").split(";").flatMap((pair) => {
-            const eq = pair.indexOf("=")
-            if (eq <= 0) return []
-            return [
-              {
-                name: pair.slice(0, eq).trim(),
-                value: pair.slice(eq + 1).trim(),
-                domain: new URL(pageUrl).hostname,
-                path: "/",
-                expires: -1,
-                httpOnly: false,
-                secure: new URL(pageUrl).protocol === "https:",
-                sameSite: "Lax" as const,
-              },
-            ]
-          }),
-        )
-      if (!sessionCookies) {
-        const responseCookies = new Headers()
-        for (const raw of first.responseHeaders?.["set-cookie"]?.split("\n") ?? [])
-          responseCookies.append("set-cookie", raw)
-        cookies.update(responseCookies, pageUrl)
-      }
-      for (const name of ["cookie", "host", "content-length", "content-type", "content-encoding", "transfer-encoding"])
-        delete headers[name]
-
-      const formBody = new URLSearchParams()
-      formBody.set(solution.fieldName, solution.fieldValue)
-
-      await validateOutboundUrl?.(formAction)
-      budgetSignal.throwIfAborted()
-      const res = await tier1Transport.fetch(formAction, {
-        timeoutMs: deadline - Date.now(),
-        signal: budgetSignal,
-        method: solution.formMethod ?? "POST",
-        body: formBody.toString(),
-        redirect: "manual",
-        headers: {
-          "user-agent": tier1UserAgent(FINGERPRINT.userAgent),
-          accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "accept-language": "en-US,en;q=0.9",
-          ...headers,
-          referer: pageUrl,
-          origin: new URL(pageUrl).origin,
-          "content-type": "application/x-www-form-urlencoded",
-          cookie: cookies.header(formAction),
-        },
-        ...(networkProxy || proxy ? { proxy: networkProxy ?? proxy } : {}),
-        ...(trustedProxyCa ? { tls: { ca: [...rootCertificates, trustedProxyCa] } } : {}),
-        ...(ignoreCertificateErrors ? { tls: { rejectUnauthorized: false } } : {}),
-      })
-      await res.body?.cancel()
-      if (res.status < 200 || res.status >= 400 || budgetSignal.aborted) return first
-      cookies.update(res.headers, formAction)
-      const location = res.headers.get("location")
-      const retryUrl =
-        [301, 302, 303, 307, 308].includes(res.status) && location ? new URL(location, formAction).href : pageUrl
-      if (new URL(retryUrl).origin !== new URL(pageUrl).origin) return first
-      const second = await once(retryUrl, headers, cookies)
-      const secondHtml = second.body
-        ? new TextDecoder().decode(decodeResponseBody(second.body, second.responseHeaders?.["content-encoding"]))
-        : ""
-      if (planPowCaptcha(secondHtml, second.effectiveUrl ?? pageUrl)) return first
-      if (second.responseHeaders) {
-        const setCookie = [
-          first.responseHeaders?.["set-cookie"],
-          ...res.headers.getSetCookie(),
-          second.responseHeaders["set-cookie"],
-        ]
-          .filter(Boolean)
-          .join("\n")
-        if (setCookie) second.responseHeaders["set-cookie"] = setCookie
-      }
-      second.durationMs = Date.now() - start
-      second.certificateError ??= first.certificateError
-      return second
+    const cookies =
+      sessionCookies ??
+      new HttpSessionCookies(
+        new URL(pageUrl).origin,
+        (headers.cookie ?? "").split(";").flatMap((pair) => {
+          const eq = pair.indexOf("=")
+          if (eq <= 0) return []
+          return [
+            {
+              name: pair.slice(0, eq).trim(),
+              value: pair.slice(eq + 1).trim(),
+              domain: new URL(pageUrl).hostname,
+              path: "/",
+              expires: -1,
+              httpOnly: false,
+              secure: new URL(pageUrl).protocol === "https:",
+              sameSite: "Lax" as const,
+            },
+          ]
+        }),
+      )
+    if (!sessionCookies) {
+      const responseCookies = new Headers()
+      for (const raw of first.responseHeaders?.["set-cookie"]?.split("\n") ?? [])
+        responseCookies.append("set-cookie", raw)
+      cookies.update(responseCookies, pageUrl)
     }
-
-    return first
+    for (const name of ["cookie", "host", "content-length", "content-type", "content-encoding", "transfer-encoding"])
+      delete headers[name]
+    proofHeaders = headers
+    proofCookies = cookies
+    if (plan.waitMs >= deadline - Date.now()) return first
+    if (plan.waitMs > 0) await sleep(plan.waitMs, budgetSignal)
+    const submit = await plan.submit(deadline - Date.now(), budgetSignal)
+    if (!submit || budgetSignal.aborted || new URL(submit.url).origin !== new URL(pageUrl).origin) return first
+    await validateOutboundUrl?.(submit.url)
+    budgetSignal.throwIfAborted()
+    const res = await tier1Transport.fetch(submit.url, {
+      timeoutMs: deadline - Date.now(),
+      signal: budgetSignal,
+      method: submit.method,
+      body: submit.body,
+      redirect: "manual",
+      headers: {
+        "user-agent": tier1UserAgent(FINGERPRINT.userAgent),
+        accept: "*/*",
+        "accept-language": "en-US,en;q=0.9",
+        ...headers,
+        referer: pageUrl,
+        ...(submit.method === "POST" ? { origin: new URL(pageUrl).origin } : {}),
+        ...(submit.contentType ? { "content-type": submit.contentType } : {}),
+        cookie: cookies.header(submit.url),
+      },
+      ...(networkProxy || proxy ? { proxy: networkProxy ?? proxy } : {}),
+      ...(trustedProxyCa ? { tls: { ca: [...rootCertificates, trustedProxyCa] } } : {}),
+      ...(ignoreCertificateErrors ? { tls: { rejectUnauthorized: false } } : {}),
+    })
+    await res.body?.cancel()
+    if (res.status < 200 || res.status >= 400 || budgetSignal.aborted) return first
+    cookies.update(res.headers, submit.url)
+    const location = res.headers.get("location")
+    const retryUrl =
+      [301, 302, 303, 307, 308].includes(res.status) && location ? new URL(location, submit.url).href : pageUrl
+    if (new URL(retryUrl).origin !== new URL(pageUrl).origin || !cookies.header(retryUrl)) return first
+    const second = await once(retryUrl, headers, cookies)
+    const secondHtml = second.body
+      ? new TextDecoder().decode(decodeResponseBody(second.body, second.responseHeaders?.["content-encoding"]))
+      : ""
+    if (
+      planPowWall(secondHtml, second.effectiveUrl ?? pageUrl) ||
+      planPowCaptcha(secondHtml, second.effectiveUrl ?? pageUrl, second.statusCode, fetchJson)
+    )
+      return first
+    if (second.responseHeaders) {
+      const setCookie = [
+        first.responseHeaders?.["set-cookie"],
+        ...res.headers.getSetCookie(),
+        second.responseHeaders["set-cookie"],
+      ]
+        .filter(Boolean)
+        .join("\n")
+      if (setCookie) second.responseHeaders["set-cookie"] = setCookie
+    }
+    second.durationMs = Date.now() - start
+    second.certificateError ??= first.certificateError
+    return second
   } catch {
     return first
   } finally {
@@ -343,6 +273,7 @@ async function runTier1Once(
   headersTimeoutMs?: number,
   observeResponse?: (evidence: WafEvidence) => void,
   networkProxy?: string,
+  maxResponseBytes?: number,
 ): Promise<Tier1Result> {
   const start = Date.now()
   const headersAbort = headersTimeoutMs === undefined ? undefined : new AbortController()
@@ -510,8 +441,26 @@ async function runTier1Once(
     // Preserve encoded representation bytes for the MITM proxy and binary
     // content. Decode a separate view for challenge inspection and `/scrape`'s
     // text-only `html` field without invalidating the upstream response headers.
-    const rawBytes = new Uint8Array(await res.arrayBuffer())
-    const decodedBytes = decodeResponseBody(rawBytes, responseHeaders["content-encoding"])
+    let rawBytes: Uint8Array
+    if (maxResponseBytes !== undefined) {
+      const reader = res.body?.getReader()
+      const chunks: Uint8Array[] = []
+      let length = 0
+      while (reader) {
+        const { value, done } = await reader.read()
+        if (done) break
+        length += value.length
+        if (length > maxResponseBytes) {
+          await reader.cancel()
+          throw new Error("pow-challenge-too-large")
+        }
+        chunks.push(value)
+      }
+      rawBytes = new Uint8Array(Buffer.concat(chunks))
+    } else {
+      rawBytes = new Uint8Array(await res.arrayBuffer())
+    }
+    const decodedBytes = decodeResponseBody(rawBytes, responseHeaders["content-encoding"], maxResponseBytes)
 
     // Decode a bounded text preview losslessly. `fatal: false` replaces invalid
     // sequences with U+FFFD so detection helpers don't throw on non-UTF8 data.
@@ -645,6 +594,7 @@ async function runTier1Once(
         durationMs: Date.now() - start,
         reason: "altcha-shell",
         challenge: "altcha",
+        effectiveUrl: currentUrl,
         responseHeaders,
         contentType,
         body: rawBytes,
@@ -659,6 +609,7 @@ async function runTier1Once(
         durationMs: Date.now() - start,
         reason: "friendly-captcha-shell",
         challenge: "friendly-captcha",
+        effectiveUrl: currentUrl,
         responseHeaders,
         contentType,
         body: rawBytes,

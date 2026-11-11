@@ -1,18 +1,6 @@
+import { dlopen, FFIType } from "bun:ffi"
 import { blake2b } from "@noble/hashes/blake2b"
-import { solveNativeFriendlyCaptcha } from "../utils/nativePow"
-
-export interface FriendlyCaptchaPuzzle {
-  signature: string
-  puzzle: Uint8Array
-  timestamp: number
-  accountId: number
-  appId: number
-  version: number
-  expiry: number
-  nSolutions: number
-  difficulty: number
-  nonce: Uint8Array
-}
+import { runPowProcess } from "../utils/powProcess"
 
 export interface FriendlyCaptchaSolution {
   response: string
@@ -23,25 +11,19 @@ function difficultyToThreshold(difficulty: number): number {
   return Math.floor(2 ** ((255.999 - Math.min(255, Math.max(0, difficulty))) / 8))
 }
 
-function decodePuzzle(puzzleBase64: string): FriendlyCaptchaPuzzle | undefined {
+function decodePuzzle(
+  puzzleBase64: string,
+): { puzzle: Uint8Array; nSolutions: number; difficulty: number } | undefined {
   try {
     const puzzle = Uint8Array.from(atob(puzzleBase64), (c) => c.charCodeAt(0))
     if (puzzle.length < 32 || puzzle.length > 64) return undefined
 
-    const view = new DataView(puzzle.buffer, puzzle.byteOffset, puzzle.byteLength)
-    const timestamp = view.getUint32(0, false)
-    const accountId = view.getUint32(4, false)
-    const appId = view.getUint32(8, false)
-    const version = puzzle[12]
-    const expiry = puzzle[13]
     const nSolutions = puzzle[14]
     const difficulty = puzzle[15]
-    const nonce = puzzle.slice(24, 32)
 
     if (nSolutions < 1 || nSolutions > 255) return undefined
-    if (difficulty < 1 || difficulty > 255) return undefined
 
-    return { signature: "", puzzle, timestamp, accountId, appId, version, expiry, nSolutions, difficulty, nonce }
+    return { puzzle, nSolutions, difficulty }
   } catch {
     return undefined
   }
@@ -96,13 +78,14 @@ function buildResponse(signature: string, puzzle: Uint8Array, solutions: Uint8Ar
   return `${signature}.${puzzleB64}.${solutionsB64}.${diagnosticsB64}`
 }
 
-export function solveFriendlyCaptchaV1(
+export function solveFriendlyCaptchaPuzzle(
   puzzleInput: string,
   maxIterations = 2 ** 26,
 ): FriendlyCaptchaSolution | undefined {
   const start = Date.now()
+  if (puzzleInput.length > 2048) return
   const parts = puzzleInput.split(".")
-  if (parts.length !== 2) return undefined
+  if (parts.length !== 2 || !parts[0]) return undefined
 
   const [signature, puzzleBase64] = parts
   const decoded = decodePuzzle(puzzleBase64)
@@ -117,99 +100,68 @@ export function solveFriendlyCaptchaV1(
   return { response, elapsedMs }
 }
 
-export async function solveFriendlyCaptchaV1Native(
+export async function solveFriendlyCaptchaV1(
   puzzleInput: string,
-  timeoutMs = 60000,
+  timeoutMs = 1000,
   signal?: AbortSignal,
 ): Promise<FriendlyCaptchaSolution | undefined> {
   const start = Date.now()
-  const parts = puzzleInput.split(".")
-  if (parts.length !== 2) return undefined
-
-  const [signature, puzzleBase64] = parts
-  const decoded = decodePuzzle(puzzleBase64)
-  if (!decoded) return undefined
-
-  const nativeSolutions = await solveNativeFriendlyCaptcha(puzzleBase64, timeoutMs, signal)
-  if (!nativeSolutions || nativeSolutions.length !== decoded.nSolutions) return undefined
-
-  const solutions = new Uint8Array(decoded.nSolutions * 8)
-  for (const sol of nativeSolutions) {
-    const offset = sol.index * 8
-    solutions[offset] = sol.index
-    // bytes 1-3 stay 0
-    solutions[offset + 4] = sol.nonce & 0xff
-    solutions[offset + 5] = (sol.nonce >> 8) & 0xff
-    solutions[offset + 6] = (sol.nonce >> 16) & 0xff
-    solutions[offset + 7] = (sol.nonce >> 24) & 0xff
+  if (puzzleInput.length > 2048) return
+  const result = await runPowProcess({ task: "friendly-captcha", puzzle: puzzleInput }, timeoutMs, signal)
+  if (typeof result === "string" && result.startsWith(`${puzzleInput}.`) && result.length <= 8192) {
+    return { response: result, elapsedMs: Date.now() - start }
   }
+}
 
-  const elapsedMs = Date.now() - start
-  const response = buildResponse(signature, decoded.puzzle, solutions, elapsedMs)
-
-  return { response, elapsedMs }
+// Runs only inside the bounded child, with one native thread or a JS fallback.
+export function solveFriendlyCaptchaNative(
+  puzzleInput: string,
+  allowFallback = true,
+): FriendlyCaptchaSolution | undefined {
+  const start = Date.now()
+  const parts = puzzleInput.split(".")
+  if (parts.length !== 2 || !parts[0]) return
+  const decoded = decodePuzzle(parts[1])
+  if (!decoded) return
+  let close: (() => void) | undefined
+  try {
+    const lib = dlopen(process.env.POWSOLVE_LIB ?? "/opt/powsolve/libpowsolve.so", {
+      pow_friendly_captcha: {
+        args: [FFIType.ptr, FFIType.u64, FFIType.u32, FFIType.ptr],
+        returns: FFIType.i32,
+      },
+    })
+    close = () => lib.close()
+    const out = new Uint8Array(decoded.nSolutions * 5)
+    const count = lib.symbols.pow_friendly_captcha(decoded.puzzle, decoded.puzzle.length, 1, out)
+    if (count !== decoded.nSolutions) return
+    const solutions = new Uint8Array(decoded.nSolutions * 8)
+    for (let i = 0; i < count; i++) {
+      if (out[i * 5] !== i) return
+      solutions[i * 8] = i
+      solutions.set(out.subarray(i * 5 + 1, i * 5 + 5), i * 8 + 4)
+    }
+    const elapsedMs = Date.now() - start
+    return { response: buildResponse(parts[0], decoded.puzzle, solutions, elapsedMs), elapsedMs }
+  } catch {
+    return allowFallback ? solveFriendlyCaptchaPuzzle(puzzleInput) : undefined
+  } finally {
+    close?.()
+  }
 }
 
 export async function fetchAndSolveFriendlyCaptcha(
   sitekey: string,
+  fetchJson: (url: string) => Promise<unknown>,
+  timeoutMs = 1000,
   signal?: AbortSignal,
-  useNative = true,
+  endpoint = "https://api.friendlycaptcha.com/api/v1/puzzle",
 ): Promise<FriendlyCaptchaSolution | undefined> {
-  try {
-    const response = await fetch(`https://api.friendlycaptcha.com/api/v1/puzzle?sitekey=${sitekey}`, {
-      headers: { "x-frc-client": "trawl" },
-      signal,
-    })
-    if (!response.ok) return undefined
-
-    const data = (await response.json()) as { puzzle?: string }
-    if (typeof data.puzzle !== "string") return undefined
-
-    if (useNative) {
-      const nativeResult = await solveFriendlyCaptchaV1Native(data.puzzle, 60000, signal)
-      if (nativeResult) return nativeResult
-    }
-
-    return solveFriendlyCaptchaV1(data.puzzle)
-  } catch {
-    return undefined
-  }
-}
-
-export function verifyFriendlyCaptchaSolution(puzzleInput: string, solution: string): boolean {
-  const parts = solution.split(".")
-  if (parts.length !== 4) return false
-
-  const [signature, puzzleB64, solutionsB64] = parts
-  if (signature !== puzzleInput.split(".")[0]) return false
-
-  try {
-    const puzzle = Uint8Array.from(atob(puzzleB64), (c) => c.charCodeAt(0))
-    const solutions = Uint8Array.from(atob(solutionsB64), (c) => c.charCodeAt(0))
-    const decoded = decodePuzzle(puzzleB64)
-    if (!decoded) return false
-
-    if (solutions.length !== decoded.nSolutions * 8) return false
-
-    const threshold = difficultyToThreshold(decoded.difficulty)
-    const padded = new Uint8Array(128)
-    padded.set(puzzle)
-
-    const seen = new Set<string>()
-    for (let i = 0; i < decoded.nSolutions; i++) {
-      const sol = solutions.slice(i * 8, (i + 1) * 8)
-      const key = Array.from(sol).join(",")
-      if (seen.has(key)) return false
-      seen.add(key)
-
-      padded.set(sol, 120)
-      const hash = blake2b(padded, { dkLen: 32 })
-      const hashValue = (hash[0] | (hash[1] << 8) | (hash[2] << 16) | (hash[3] << 24)) >>> 0
-      if (hashValue >= threshold) return false
-    }
-
-    return true
-  } catch {
-    return false
-  }
+  const deadline = Date.now() + timeoutMs
+  if (signal?.aborted || timeoutMs <= 0 || !sitekey || sitekey.length > 256) return
+  const url = new URL(endpoint)
+  url.searchParams.set("sitekey", sitekey)
+  const result = (await fetchJson(url.href)) as { data?: { puzzle?: unknown } } | undefined
+  if (typeof result?.data?.puzzle !== "string") return
+  return solveFriendlyCaptchaV1(result.data.puzzle, deadline - Date.now(), signal)
 }
