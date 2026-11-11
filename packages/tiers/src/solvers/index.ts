@@ -7,6 +7,7 @@ import {
   hasAltcha as hasAltchaMarkup,
   hasCapChallenge,
   hasFriendlyCaptcha as hasFriendlyCaptchaMarkup,
+  hasShumei as hasShumeiMarkup,
 } from "../utils/detect"
 import { hasAltchaWidget, solveAltcha } from "./altcha"
 import { hasCapWidget, solveCap } from "./cap"
@@ -15,6 +16,7 @@ import { hasFriendlyCaptchaWidget, solveFriendlyCaptcha } from "./friendlyCaptch
 import { hasGeetestSlide, solveGeetestSlide } from "./geetest"
 import { hasHcaptchaWidget, solveHcaptcha } from "./hcaptcha"
 import { hasRecaptchaV2, solveRecaptchaV2 } from "./recaptcha"
+import { hasShumeiWidget, solveShumei } from "./shumei"
 import { solveTurnstile } from "./turnstile"
 import { embeddedWidgetHints } from "./widgetMarkup"
 
@@ -112,6 +114,7 @@ export async function solvePageCaptchas(
   const mightHaveAltcha = hasAltchaMarkup(html)
   const mightHaveCap = hasCapChallenge(html)
   const mightHaveFriendlyCaptcha = hasFriendlyCaptchaMarkup(html)
+  const mightHaveShumei = hasShumeiMarkup(html)
 
   if (
     !mightHaveTurnstile &&
@@ -121,6 +124,7 @@ export async function solvePageCaptchas(
     !mightHaveAltcha &&
     !mightHaveFriendlyCaptcha &&
     !mightHaveCap &&
+    !mightHaveShumei &&
     !externalProfiles.length
   ) {
     return { attempted: [], solved: [] }
@@ -153,7 +157,7 @@ export async function solvePageCaptchas(
       : "recaptcha-v2"
   const externalRecaptcha =
     mightHaveRecaptcha && !signal?.aborted && (await external?.canSolve(page, recaptchaKind, proxy))
-  const [hasTurnstile, hasHcaptcha, hasRecaptchaFrame, hasGeetest, hasAltcha, hasFriendlyCaptcha, hasCap] =
+  const [hasTurnstile, hasHcaptcha, hasRecaptchaFrame, hasGeetest, hasAltcha, hasFriendlyCaptcha, hasCap, hasShumei] =
     await Promise.all([
       mightHaveTurnstile ? detectTurnstile(page, DETECT_MS, signal) : Promise.resolve(false),
       mightHaveHcaptcha ? hasHcaptchaWidget(page, DETECT_MS) : Promise.resolve(false),
@@ -168,12 +172,20 @@ export async function solvePageCaptchas(
       mightHaveAltcha ? hasAltchaWidget(page, DETECT_MS) : Promise.resolve(false),
       mightHaveFriendlyCaptcha ? hasFriendlyCaptchaWidget(page, DETECT_MS) : Promise.resolve(false),
       mightHaveCap ? hasCapWidget(page, DETECT_MS, signal) : Promise.resolve(false),
+      mightHaveShumei ? hasShumeiWidget(page, DETECT_MS, signal) : Promise.resolve(false),
     ])
 
   const hasRecaptcha = hasRecaptchaFrame || Boolean(externalRecaptcha)
-  const count = [hasTurnstile, hasHcaptcha, hasRecaptcha, hasGeetest, hasAltcha, hasFriendlyCaptcha, hasCap].filter(
-    Boolean,
-  ).length
+  const count = [
+    hasTurnstile,
+    hasHcaptcha,
+    hasRecaptcha,
+    hasGeetest,
+    hasAltcha,
+    hasFriendlyCaptcha,
+    hasCap,
+    hasShumei,
+  ].filter(Boolean).length
   if (count === 0 && !externalProfiles.length) {
     console.log(
       `[solvers] markers found in HTML but no interactive widgets detected (${[
@@ -184,6 +196,7 @@ export async function solvePageCaptchas(
         mightHaveAltcha && "altcha",
         mightHaveFriendlyCaptcha && "friendly-captcha",
         mightHaveCap && "cap",
+        mightHaveShumei && "shumei",
       ]
         .filter(Boolean)
         .join(",")})`,
@@ -245,6 +258,11 @@ export async function solvePageCaptchas(
   if (hasCap && !signal?.aborted && remaining() > 0) {
     attempted.push("cap")
     if (await solveCap(page, remaining(), signal).catch(() => false)) solved.push("cap")
+  }
+
+  if (hasShumei && !signal?.aborted && remaining() > 0) {
+    attempted.push("shumei")
+    if (await solveShumei(page, remaining(), signal).catch(() => false)) solved.push("shumei")
   }
 
   for (const kind of externalProfiles) {

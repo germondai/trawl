@@ -207,6 +207,10 @@ export function hasFriendlyCaptcha(html: string): boolean {
   )
 }
 
+export function hasShumei(html: string): boolean {
+  return /shumei_captcha|smCaptcha|sm-captcha|sm-button|sm-slider|fengkongcloud\.(?:cn|com)|ishumei\.com/i.test(html)
+}
+
 // CDN identity and cookie names can appear on ordinary pages and in documentation.
 // Require an active resource frame, a sensor-only shell, or an Imperva error response.
 export function hasImpervaChallenge(html: string, headers: Record<string, string> = {}, status?: number): boolean {

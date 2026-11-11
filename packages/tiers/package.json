@@ -12,11 +12,14 @@
     "@trawl/types": "workspace:*",
     "@trawl/browser": "workspace:*",
     "hash-wasm": "^4.13.0",
+    "jpeg-js": "^0.4.4",
     "linkedom": "^0.18.15",
-    "node-wreq": "3.2.1"
+    "node-wreq": "3.2.1",
+    "pngjs": "^7.0.0"
   },
   "devDependencies": {
     "@types/bun": "^1.4.4",
+    "@types/pngjs": "^6.0.5",
     "typescript": "^7.0.2",
     "patchright": "^1.64.3"
   }
