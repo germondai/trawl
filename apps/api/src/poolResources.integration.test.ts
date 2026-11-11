@@ -259,14 +259,15 @@ describe.skipIf(process.env.TRAWL_POOL_RESOURCE_TESTS !== "1")("API browser reso
       const response = await post("/scrape", {
         url: url(i % 3 === 0 ? "/start" : "/final"),
         skipHttp: true,
-        minTier: 3,
+        cookies: [{ name: "fixture", value: "recycle" }],
         followMetaRefresh: true,
         maxTier: 3,
         maxTimeout: 15000,
       })
-      const result = (await response.json()) as { html: string }
+      const result = (await response.json()) as { html: string; tier: number }
       expect(response.status, JSON.stringify(result)).toBe(200)
       expect(result.html).toContain("Verified destination")
+      expect(result.tier).toBe(3)
     }
     await ready()
     expect(getPool()?.getStats().restarts).toBeGreaterThan(0)
