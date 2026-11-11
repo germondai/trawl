@@ -20,7 +20,7 @@ For security issues, **do not open a public issue** - see [SECURITY.md](SECURITY
 Requirements depend on the workspace:
 
 - **API and shared packages:** Bun 1.4.4 is the runtime and package manager.
-- **Web and docs:** Node.js 26.13.0 runs the Nuxt and VitePress build tools; Bun installs dependencies.
+- **Web and docs:** Node.js 26.13.1 runs the Nuxt and VitePress build tools; Bun installs dependencies.
 - **Integration tests:** Docker provides Redis and the Linux browser environment.
 
 The scraper service runs on Bun. Its Docker runtime does not require Node.js.
@@ -34,7 +34,7 @@ this Camoufox build. The web workspace uses TypeScript 6.0.3 because vue-tsc
 needs its JavaScript compiler API; the API and shared packages use TypeScript 7.
 
 Docker builds the native PoW solver with Rust 1.99.1 and checks its protocol vectors
-and runtime ABI. It builds the offline WAF worker with Go 1.27.3. Rod requires `got/lib/lcs`,
+and runtime ABI. It builds the offline WAF worker with Go 1.27.4. Rod requires `got/lib/lcs`,
 removed in `got` 0.43.0, and the constructor API removed in `fetchup` 0.4.0; keep
 `got` at 0.42.4 and `fetchup` at 0.3.0. The module retains Go 1.26 as its minimum
 language version.
