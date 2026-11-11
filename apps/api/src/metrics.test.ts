@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite"
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -20,6 +20,26 @@ const waf = {
 }
 
 describe("local metrics", () => {
+  test("includes the first partial bucket in the selected range", () => {
+    const now = Date.parse("2026-11-11T12:34:30Z")
+    const clock = spyOn(Date, "now").mockReturnValue(now)
+    const store = new MetricsStore()
+    try {
+      clock.mockReturnValue(now - 60 * 60_000 + 15_000)
+      store.record({ source: "native", url: "https://example.test/", statusCode: 200, durationMs: 1 })
+      clock.mockReturnValue(now)
+      store.record({ source: "native", url: "https://example.test/", statusCode: 200, durationMs: 2 })
+      const snapshot = store.snapshot(60)
+      expect(snapshot.requests).toBe(2)
+      expect(snapshot.timeline[0]).toMatchObject({ minute: "2026-11-11T11:34:00.000Z", requests: 1 })
+      expect(snapshot.timeline.reduce((sum, bucket) => sum + bucket.requests, 0)).toBe(snapshot.requests)
+      expect(snapshot.timeline.at(-1)?.requests).toBe(1)
+    } finally {
+      store.close()
+      clock.mockRestore()
+    }
+  })
+
   test("keeps bounded WAF counters without enabling history storage", () => {
     const store = new MetricsStore(false)
     store.record({ source: "native", url: "https://example.com/private", durationMs: 4, statusCode: 200, waf })
@@ -188,7 +208,7 @@ describe("local metrics", () => {
     expect(snapshot.bySeverity.error).toBe(120)
     expect(snapshot.recentFailures[0]).toMatchObject({ tier: 0, tierStatus: null, statusCode: 503 })
     expect(snapshot.recentFailures).toHaveLength(50)
-    expect(snapshot.lastHour).toHaveLength(60)
+    expect(snapshot.lastHour).toHaveLength(61)
     expect(snapshot.lastHour[0]?.requests).toBe(0)
     expect(snapshot.domains).toHaveLength(20)
     expect(snapshot.domains.some((entry) => entry.domain === "ok.example")).toBe(false)
