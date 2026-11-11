@@ -169,7 +169,9 @@ def main():
     root = args.output.resolve()
     root.mkdir(parents=True, exist_ok=False)
     targets = json.loads(args.targets.read_text())
-    images = {"trawl": args.trawl_image, "flaresolverr": FLARESOLVERR, "byparr": BYPARR}
+    images = {product: image for product, image in
+              {"trawl": args.trawl_image, "flaresolverr": FLARESOLVERR, "byparr": BYPARR}.items()
+              if product in args.products or product == "trawl"}
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     prefix = "trawl-compare-" + stamp
     redis = prefix + "-redis"
