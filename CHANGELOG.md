@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.11.1] - 2026-11-11
+## [1.11.1] - 2026-11-12
 
 ### Added
 - Solve supported smallest-color Shumei spatial puzzles in the existing browser widget, preserving the page's SDK callbacks and network identity. Bound image processing and retries, and require the SDK's accepted state before reporting a solve (#280).
