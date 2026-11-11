@@ -121,6 +121,13 @@ both API routes, persistent clearance, a stalled recovery navigation and context
 TRAWL_CLOUDFLARE_FALLBACK_TESTS=1 CAMOUFOX_INSTALL_DIR=/path/to/camoufox bun test apps/api/src/cloudflareFallback.integration.test.ts
 ```
 
+Shumei browser tests cover SDK acceptance/rejection, puzzle replacement, cancellation,
+image limits and both API routes with direct and proxied browser requests:
+
+```bash
+TRAWL_SHUMEI_TESTS=1 CAMOUFOX_INSTALL_DIR=/path/to/camoufox bun test apps/api/src/shumei.integration.test.ts
+```
+
 Raw text browser integration tests use owned HTTP fixtures and a local forward proxy:
 
 ```bash

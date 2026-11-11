@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Solve supported smallest-color Shumei spatial puzzles in the existing browser widget, preserving the page's SDK callbacks and network identity. Bound image processing and retries, and require the SDK's accepted state before reporting a solve (#280).
 - Clear supported ALTCHA and Friendly Captcha v1 access forms in the HTTP tier. Preserve signed proofs, hidden fields, proxy/TLS policy and cookie scope; share one cancellable PoW process with existing solvers. Ordinary embedded forms and unsupported flows retain browser handling (#279).
 - Include matched wafmeow rule references, incomplete product evaluations and diagnostic codes in native/SDK/MCP results and metric history, while retaining existing profiles and solver routing (#258).
 

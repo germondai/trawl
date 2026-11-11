@@ -16,6 +16,7 @@ export type ChallengeType =
   | "anubis"
   | "altcha"
   | "friendly-captcha"
+  | "shumei"
   | "none"
 
 export function isCloudflareErrorUrl(url: string): boolean {
@@ -204,6 +205,20 @@ export function hasFriendlyCaptcha(html: string): boolean {
   if (/<input\b[^>]*\bname\s*=\s*["']frc-captcha-(?:solution|response)["']/i.test(html)) return true
   return /<iframe\b[^>]*\bsrc\s*=\s*["'][^"']*(?:frcapi\.com|friendlycaptcha\.[^/"']+)[^"']*\/(?:captcha\/)?widget\b/i.test(
     html,
+  )
+}
+
+export function hasShumei(html: string): boolean {
+  if (!/shumei_captcha_wrapper|smCaptcha|sm-captcha|smcp|initSMCaptcha/i.test(html)) return false
+  const { document } = parseHTML(html)
+  return (
+    [...document.querySelectorAll(".shumei_captcha_wrapper, .smCaptcha, .sm-captcha")].some(isActiveElement) ||
+    [...document.querySelectorAll("script")].some(
+      (script) =>
+        isActiveScript(script) &&
+        (/\/smcp(?:\.min)?\.js(?:[?#]|$)/i.test(htmlAttribute(script, "src") ?? "") ||
+          /\binitSMCaptcha\s*\(/.test(script.textContent ?? "")),
+    )
   )
 }
 
@@ -402,6 +417,7 @@ export function detectChallengeType(
   if (hasHcaptcha(html)) return "hcaptcha"
   if (hasRecaptcha(html)) return "recaptcha"
   if (hasCapChallenge(html)) return "cap"
+  if (hasShumei(html)) return "shumei"
   return "none"
 }
 
@@ -428,7 +444,8 @@ export function needsJs(html: string, headers: Record<string, string>): boolean 
     hasAnubisChallenge(html) ||
     hasAltcha(html) ||
     hasFriendlyCaptcha(html) ||
-    hasCapChallenge(html)
+    hasCapChallenge(html) ||
+    hasShumei(html)
   )
 }
 

@@ -19,6 +19,7 @@ import {
   hasFriendlyCaptcha,
   hasHcaptcha,
   hasRecaptcha,
+  hasShumei,
   hasTurnstile,
   isBlocked,
   isCloudflarePage,
@@ -609,6 +610,21 @@ async function runTier1Once(
         durationMs: Date.now() - start,
         reason: "friendly-captcha-shell",
         challenge: "friendly-captcha",
+        effectiveUrl: currentUrl,
+        responseHeaders,
+        contentType,
+        body: rawBytes,
+        statusCode: res.status,
+      }
+    }
+    if (hasShumei(previewText)) {
+      return {
+        tier: 1,
+        certificateError,
+        status: "needs-js",
+        durationMs: Date.now() - start,
+        reason: "shumei-shell",
+        challenge: "shumei",
         effectiveUrl: currentUrl,
         responseHeaders,
         contentType,
