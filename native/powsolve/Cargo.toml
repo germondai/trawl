@@ -10,6 +10,7 @@ crate-type = ["cdylib", "rlib"]
 sha2 = "0.11"
 argon2 = "0.6"
 hashx = "0.10"
+blake2 = "0.11"
 
 [profile.release]
 opt-level = 3

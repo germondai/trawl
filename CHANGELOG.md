@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Add native TypeScript PoW solvers for Friendly Captcha v1 (blake2b-256) and ALTCHA (SHA-256/384/512, PBKDF2, Scrypt). Solve PoW-based challenges in Tier 1 HTTP without browser escalation when the page uses form submission instead of JS callbacks.
 - Include matched wafmeow rule references, incomplete product evaluations and diagnostic codes in native/SDK/MCP results and metric history, while retaining existing profiles and solver routing (#258).
 
 ### Fixed

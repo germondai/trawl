@@ -72,6 +72,51 @@ async function solve(
   }
 }
 
+let solvingFC = false
+
+export async function solveNativeFriendlyCaptcha(
+  puzzleBase64: string,
+  timeoutMs = 60000,
+  signal?: AbortSignal,
+): Promise<Array<{ index: number; nonce: number }> | undefined> {
+  if (solvingFC || signal?.aborted || timeoutMs <= 0) return
+  solvingFC = true
+  let child: ReturnType<typeof Bun.spawn<"pipe", "pipe", "ignore">> | undefined
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const abort = () => child?.kill("SIGKILL")
+  try {
+    child = Bun.spawn(
+      [process.execPath, "--no-env-file", fileURLToPath(new URL("./nativePowSolver.ts", import.meta.url))],
+      {
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "ignore",
+        env: { PATH: process.env.PATH, POWSOLVE_LIB: process.env.POWSOLVE_LIB },
+      },
+    )
+    timer = setTimeout(abort, timeoutMs)
+    signal?.addEventListener("abort", abort, { once: true })
+    if (signal?.aborted) abort()
+    child.stdin.write(JSON.stringify({ friendlyCaptcha: true, puzzle: puzzleBase64 }))
+    child.stdin.end()
+    const output = await new Response(child.stdout).text()
+    if ((await child.exited) !== 0 || signal?.aborted) return
+    const result = JSON.parse(output)
+    if (Array.isArray(result) && result.every((s) => typeof s.index === "number" && typeof s.nonce === "number"))
+      return result
+  } catch {
+    return
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener("abort", abort)
+    if (child) {
+      child.kill("SIGKILL")
+      await child.exited
+    }
+    solvingFC = false
+  }
+}
+
 /** Image builds must exercise the native ABI rather than silently using JS. */
 export async function verifyNativePow(): Promise<void> {
   for (const algorithm of [0, 1, 2]) {

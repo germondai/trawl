@@ -29,6 +29,7 @@ import { normalizeHtml } from "../utils/html"
 import { HttpSessionCookies } from "../utils/httpSessionCookies"
 import { planPowWall } from "../utils/nativePow"
 import type { OutboundUrlValidator } from "../utils/outboundPolicy"
+import { planPowCaptcha } from "../utils/powCaptchaPlan"
 import { normalizeProxyError, proxyResponseFailure } from "../utils/proxyFailure"
 import { decodeTextBody, isHtmlContentType, isTextContentType } from "../utils/response"
 import { tier1Transport, tier1UserAgent } from "../utils/tier1Transport"
@@ -129,99 +130,197 @@ export async function runTier1(
     first.html ?? new TextDecoder().decode(decodeResponseBody(first.body, first.responseHeaders?.["content-encoding"]))
   const pageUrl = first.effectiveUrl ?? url
   const plan = planPowWall(html, pageUrl)
-  if (!plan) return first
+  const captchaPlan = !plan ? planPowCaptcha(html, pageUrl) : undefined
+  if (!plan && !captchaPlan) return first
   // A wall is never successful content, including when its native fast path fails.
   first.status = "needs-js"
-  first.reason ??= "proof-of-work-challenge"
+  first.reason ??= plan ? "proof-of-work-challenge" : `${captchaPlan?.kind}-challenge`
   if ((method ?? "GET").toUpperCase() !== "GET" || signal?.aborted || deadline <= Date.now()) return first
   budgetSignal = AbortSignal.any([AbortSignal.timeout(Math.ceil(deadline - Date.now())), ...(signal ? [signal] : [])])
 
   try {
-    if (plan.waitMs >= deadline - Date.now()) return first
-    if (plan.waitMs > 0) await sleep(plan.waitMs, budgetSignal)
-    const submit = await plan.submit(deadline - Date.now(), budgetSignal)
-    if (!submit || budgetSignal.aborted || new URL(submit.url).origin !== new URL(pageUrl).origin) return first
-    const headers: Record<string, string> = {}
-    for (const [name, value] of Object.entries(extraHeaders ?? {})) headers[name.toLowerCase()] = value
-    if (new URL(pageUrl).origin !== new URL(url).origin) {
-      for (const name of ["authorization", "cookie", "proxy-authorization", "host"]) delete headers[name]
+    // Anubis/NCBI PoW wall solving
+    if (plan) {
+      if (plan.waitMs >= deadline - Date.now()) return first
+      if (plan.waitMs > 0) await sleep(plan.waitMs, budgetSignal)
+      const submit = await plan.submit(deadline - Date.now(), budgetSignal)
+      if (!submit || budgetSignal.aborted || new URL(submit.url).origin !== new URL(pageUrl).origin) return first
+      const headers: Record<string, string> = {}
+      for (const [name, value] of Object.entries(extraHeaders ?? {})) headers[name.toLowerCase()] = value
+      if (new URL(pageUrl).origin !== new URL(url).origin) {
+        for (const name of ["authorization", "cookie", "proxy-authorization", "host"]) delete headers[name]
+      }
+      const cookies =
+        sessionCookies ??
+        new HttpSessionCookies(
+          new URL(pageUrl).origin,
+          (headers.cookie ?? "").split(";").flatMap((pair) => {
+            const eq = pair.indexOf("=")
+            if (eq <= 0) return []
+            return [
+              {
+                name: pair.slice(0, eq).trim(),
+                value: pair.slice(eq + 1).trim(),
+                domain: new URL(pageUrl).hostname,
+                path: "/",
+                expires: -1,
+                httpOnly: false,
+                secure: new URL(pageUrl).protocol === "https:",
+                sameSite: "Lax" as const,
+              },
+            ]
+          }),
+        )
+      if (!sessionCookies) {
+        const responseCookies = new Headers()
+        for (const raw of first.responseHeaders?.["set-cookie"]?.split("\n") ?? [])
+          responseCookies.append("set-cookie", raw)
+        cookies.update(responseCookies, pageUrl)
+      }
+      for (const name of ["cookie", "host", "content-length", "content-type", "content-encoding", "transfer-encoding"])
+        delete headers[name]
+      await validateOutboundUrl?.(submit.url)
+      budgetSignal.throwIfAborted()
+      const res = await tier1Transport.fetch(submit.url, {
+        timeoutMs: deadline - Date.now(),
+        signal: budgetSignal,
+        method: submit.method,
+        body: submit.body,
+        redirect: "manual",
+        headers: {
+          "user-agent": tier1UserAgent(FINGERPRINT.userAgent),
+          accept: "*/*",
+          "accept-language": "en-US,en;q=0.9",
+          ...headers,
+          referer: pageUrl,
+          ...(submit.method === "POST" ? { origin: new URL(pageUrl).origin } : {}),
+          ...(submit.contentType ? { "content-type": submit.contentType } : {}),
+          cookie: cookies.header(submit.url),
+        },
+        ...(networkProxy || proxy ? { proxy: networkProxy ?? proxy } : {}),
+        ...(trustedProxyCa ? { tls: { ca: [...rootCertificates, trustedProxyCa] } } : {}),
+        ...(ignoreCertificateErrors ? { tls: { rejectUnauthorized: false } } : {}),
+      })
+      await res.body?.cancel()
+      if (res.status < 200 || res.status >= 400 || budgetSignal.aborted) return first
+      cookies.update(res.headers, submit.url)
+      const location = res.headers.get("location")
+      const retryUrl =
+        [301, 302, 303, 307, 308].includes(res.status) && location ? new URL(location, submit.url).href : pageUrl
+      if (new URL(retryUrl).origin !== new URL(pageUrl).origin || !cookies.header(retryUrl)) return first
+      const second = await once(retryUrl, headers, cookies)
+      const secondHtml = second.body
+        ? new TextDecoder().decode(decodeResponseBody(second.body, second.responseHeaders?.["content-encoding"]))
+        : ""
+      if (planPowWall(secondHtml, second.effectiveUrl ?? pageUrl)) return first
+      if (second.responseHeaders) {
+        const setCookie = [
+          first.responseHeaders?.["set-cookie"],
+          ...res.headers.getSetCookie(),
+          second.responseHeaders["set-cookie"],
+        ]
+          .filter(Boolean)
+          .join("\n")
+        if (setCookie) second.responseHeaders["set-cookie"] = setCookie
+      }
+      second.durationMs = Date.now() - start
+      second.certificateError ??= first.certificateError
+      return second
     }
-    const cookies =
-      sessionCookies ??
-      new HttpSessionCookies(
-        new URL(pageUrl).origin,
-        (headers.cookie ?? "").split(";").flatMap((pair) => {
-          const eq = pair.indexOf("=")
-          if (eq <= 0) return []
-          return [
-            {
-              name: pair.slice(0, eq).trim(),
-              value: pair.slice(eq + 1).trim(),
-              domain: new URL(pageUrl).hostname,
-              path: "/",
-              expires: -1,
-              httpOnly: false,
-              secure: new URL(pageUrl).protocol === "https:",
-              sameSite: "Lax" as const,
-            },
-          ]
-        }),
-      )
-    if (!sessionCookies) {
-      const responseCookies = new Headers()
-      for (const raw of first.responseHeaders?.["set-cookie"]?.split("\n") ?? [])
-        responseCookies.append("set-cookie", raw)
-      cookies.update(responseCookies, pageUrl)
+
+    // Friendly Captcha / ALTCHA PoW solving
+    if (captchaPlan) {
+      const solution = await captchaPlan.submit(deadline - Date.now(), budgetSignal)
+      if (!solution || budgetSignal.aborted) return first
+
+      const formAction = solution.formAction ? new URL(solution.formAction, pageUrl).href : pageUrl
+      if (new URL(formAction).origin !== new URL(pageUrl).origin) return first
+
+      const headers: Record<string, string> = {}
+      for (const [name, value] of Object.entries(extraHeaders ?? {})) headers[name.toLowerCase()] = value
+      const cookies =
+        sessionCookies ??
+        new HttpSessionCookies(
+          new URL(pageUrl).origin,
+          (headers.cookie ?? "").split(";").flatMap((pair) => {
+            const eq = pair.indexOf("=")
+            if (eq <= 0) return []
+            return [
+              {
+                name: pair.slice(0, eq).trim(),
+                value: pair.slice(eq + 1).trim(),
+                domain: new URL(pageUrl).hostname,
+                path: "/",
+                expires: -1,
+                httpOnly: false,
+                secure: new URL(pageUrl).protocol === "https:",
+                sameSite: "Lax" as const,
+              },
+            ]
+          }),
+        )
+      if (!sessionCookies) {
+        const responseCookies = new Headers()
+        for (const raw of first.responseHeaders?.["set-cookie"]?.split("\n") ?? [])
+          responseCookies.append("set-cookie", raw)
+        cookies.update(responseCookies, pageUrl)
+      }
+      for (const name of ["cookie", "host", "content-length", "content-type", "content-encoding", "transfer-encoding"])
+        delete headers[name]
+
+      const formBody = new URLSearchParams()
+      formBody.set(solution.fieldName, solution.fieldValue)
+
+      await validateOutboundUrl?.(formAction)
+      budgetSignal.throwIfAborted()
+      const res = await tier1Transport.fetch(formAction, {
+        timeoutMs: deadline - Date.now(),
+        signal: budgetSignal,
+        method: solution.formMethod ?? "POST",
+        body: formBody.toString(),
+        redirect: "manual",
+        headers: {
+          "user-agent": tier1UserAgent(FINGERPRINT.userAgent),
+          accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "accept-language": "en-US,en;q=0.9",
+          ...headers,
+          referer: pageUrl,
+          origin: new URL(pageUrl).origin,
+          "content-type": "application/x-www-form-urlencoded",
+          cookie: cookies.header(formAction),
+        },
+        ...(networkProxy || proxy ? { proxy: networkProxy ?? proxy } : {}),
+        ...(trustedProxyCa ? { tls: { ca: [...rootCertificates, trustedProxyCa] } } : {}),
+        ...(ignoreCertificateErrors ? { tls: { rejectUnauthorized: false } } : {}),
+      })
+      await res.body?.cancel()
+      if (res.status < 200 || res.status >= 400 || budgetSignal.aborted) return first
+      cookies.update(res.headers, formAction)
+      const location = res.headers.get("location")
+      const retryUrl =
+        [301, 302, 303, 307, 308].includes(res.status) && location ? new URL(location, formAction).href : pageUrl
+      if (new URL(retryUrl).origin !== new URL(pageUrl).origin) return first
+      const second = await once(retryUrl, headers, cookies)
+      const secondHtml = second.body
+        ? new TextDecoder().decode(decodeResponseBody(second.body, second.responseHeaders?.["content-encoding"]))
+        : ""
+      if (planPowCaptcha(secondHtml, second.effectiveUrl ?? pageUrl)) return first
+      if (second.responseHeaders) {
+        const setCookie = [
+          first.responseHeaders?.["set-cookie"],
+          ...res.headers.getSetCookie(),
+          second.responseHeaders["set-cookie"],
+        ]
+          .filter(Boolean)
+          .join("\n")
+        if (setCookie) second.responseHeaders["set-cookie"] = setCookie
+      }
+      second.durationMs = Date.now() - start
+      second.certificateError ??= first.certificateError
+      return second
     }
-    for (const name of ["cookie", "host", "content-length", "content-type", "content-encoding", "transfer-encoding"])
-      delete headers[name]
-    await validateOutboundUrl?.(submit.url)
-    budgetSignal.throwIfAborted()
-    const res = await tier1Transport.fetch(submit.url, {
-      timeoutMs: deadline - Date.now(),
-      signal: budgetSignal,
-      method: submit.method,
-      body: submit.body,
-      redirect: "manual",
-      headers: {
-        "user-agent": tier1UserAgent(FINGERPRINT.userAgent),
-        accept: "*/*",
-        "accept-language": "en-US,en;q=0.9",
-        ...headers,
-        referer: pageUrl,
-        ...(submit.method === "POST" ? { origin: new URL(pageUrl).origin } : {}),
-        ...(submit.contentType ? { "content-type": submit.contentType } : {}),
-        cookie: cookies.header(submit.url),
-      },
-      ...(networkProxy || proxy ? { proxy: networkProxy ?? proxy } : {}),
-      ...(trustedProxyCa ? { tls: { ca: [...rootCertificates, trustedProxyCa] } } : {}),
-      ...(ignoreCertificateErrors ? { tls: { rejectUnauthorized: false } } : {}),
-    })
-    await res.body?.cancel()
-    if (res.status < 200 || res.status >= 400 || budgetSignal.aborted) return first
-    cookies.update(res.headers, submit.url)
-    const location = res.headers.get("location")
-    const retryUrl =
-      [301, 302, 303, 307, 308].includes(res.status) && location ? new URL(location, submit.url).href : pageUrl
-    if (new URL(retryUrl).origin !== new URL(pageUrl).origin || !cookies.header(retryUrl)) return first
-    const second = await once(retryUrl, headers, cookies)
-    const secondHtml = second.body
-      ? new TextDecoder().decode(decodeResponseBody(second.body, second.responseHeaders?.["content-encoding"]))
-      : ""
-    if (planPowWall(secondHtml, second.effectiveUrl ?? pageUrl)) return first
-    if (second.responseHeaders) {
-      const setCookie = [
-        first.responseHeaders?.["set-cookie"],
-        ...res.headers.getSetCookie(),
-        second.responseHeaders["set-cookie"],
-      ]
-        .filter(Boolean)
-        .join("\n")
-      if (setCookie) second.responseHeaders["set-cookie"] = setCookie
-    }
-    second.durationMs = Date.now() - start
-    second.certificateError ??= first.certificateError
-    return second
+
+    return first
   } catch {
     return first
   } finally {

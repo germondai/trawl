@@ -12,10 +12,13 @@
 //! space across `threads` OS threads, and return the nonce (or -1) plus the digest.
 
 use argon2::Argon2;
+use blake2::{digest::consts::U32, Blake2b, Digest as Blake2Digest};
 use hashx::HashX;
-use sha2::{Digest, Sha256};
-use std::sync::atomic::{AtomicBool, Ordering};
+use sha2::Sha256;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
+
+type Blake2b256 = Blake2b<U32>;
 
 fn leading_zero_bits_ok(hash: &[u8], bits: u32) -> bool {
     let mut remaining = bits;
@@ -150,6 +153,70 @@ pub fn solve_bytes(algo: u32, data: &[u8], bits: u32, threads: u32) -> Option<(u
     }
 }
 
+/// Solves a Friendly Captcha v1 puzzle using Blake2b-256.
+/// Puzzle buffer layout: [timestamp:4][accountId:4][appId:4][version:1][expiry:1][nSolutions:1][difficulty:1]...
+/// Hash input: 128 bytes padded with puzzle at start, [index, 0, 0, 0, nonce_le] at bytes 120-127.
+/// Returns solutions as a Vec of (solution_index, nonce) pairs.
+pub fn solve_friendly_captcha(puzzle: &[u8], threads: u32) -> Vec<(u8, u32)> {
+    if puzzle.len() < 16 || puzzle.len() > 128 {
+        return vec![];
+    }
+
+    let n_solutions = puzzle[14] as usize;
+    let difficulty = puzzle[15];
+    let threshold = (2.0_f64).powf((255.999 - difficulty as f64) / 8.0).floor() as u32;
+
+    let threads = threads.clamp(1, 64);
+    let mut solutions = Vec::with_capacity(n_solutions);
+
+    for sol_idx in 0..n_solutions {
+        let found = AtomicBool::new(false);
+        let result_nonce = AtomicU32::new(0);
+
+        std::thread::scope(|scope| {
+            for t in 0..threads {
+                let (found, result_nonce) = (&found, &result_nonce);
+                let puzzle = puzzle;
+                scope.spawn(move || {
+                    let mut nonce = t;
+                    let mut iter_count: u32 = 0;
+                    let mut padded = [0u8; 128];
+                    padded[..puzzle.len()].copy_from_slice(puzzle);
+                    padded[120] = sol_idx as u8;
+                    // bytes 121-123 stay 0
+                    loop {
+                        padded[124..128].copy_from_slice(&nonce.to_le_bytes());
+                        let hash: [u8; 32] = Blake2b256::digest(&padded).into();
+                        let hash_val = u32::from_le_bytes([hash[0], hash[1], hash[2], hash[3]]);
+
+                        if hash_val < threshold {
+                            if !found.swap(true, Ordering::AcqRel) {
+                                result_nonce.store(nonce, Ordering::Release);
+                            }
+                            return;
+                        }
+
+                        iter_count = iter_count.wrapping_add(1);
+                        if iter_count & 0x3FF == 0 && found.load(Ordering::Acquire) {
+                            return;
+                        }
+                        match nonce.checked_add(threads) {
+                            Some(n) => nonce = n,
+                            None => return,
+                        }
+                    }
+                });
+            }
+        });
+
+        if found.load(Ordering::Acquire) {
+            solutions.push((sol_idx as u8, result_nonce.load(Ordering::Acquire)));
+        }
+    }
+
+    solutions
+}
+
 fn finish(result: Option<(u32, [u8; 32])>, out_hash: *mut u8) -> i64 {
     match result {
         Some((nonce, hash)) => {
@@ -177,6 +244,38 @@ pub unsafe extern "C" fn pow_text_sha256(prefix: *const u8, len: usize, bits: u3
 pub unsafe extern "C" fn pow_bytes(algo: u32, data: *const u8, len: usize, bits: u32, threads: u32, out_hash: *mut u8) -> i64 {
     let data = if len == 0 { &[][..] } else { std::slice::from_raw_parts(data, len) };
     finish(solve_bytes(algo, data, bits, threads), out_hash)
+}
+
+/// Solves a Friendly Captcha v1 puzzle using Blake2b-256.
+/// Returns the number of solutions found. Each solution is written as 5 bytes:
+/// [solution_index:1][nonce:4 LE] to `out_solutions`.
+///
+/// # Safety
+/// `puzzle` points to `puzzle_len` readable bytes (must be >= 16).
+/// `out_solutions` points to at least `n_solutions * 5` writable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn pow_friendly_captcha(
+    puzzle: *const u8,
+    puzzle_len: usize,
+    threads: u32,
+    out_solutions: *mut u8,
+) -> i32 {
+    if puzzle_len < 16 {
+        return 0;
+    }
+    let puzzle = std::slice::from_raw_parts(puzzle, puzzle_len);
+    let solutions = solve_friendly_captcha(puzzle, threads);
+
+    if !out_solutions.is_null() {
+        for (i, (sol_idx, nonce)) in solutions.iter().enumerate() {
+            let offset = i * 5;
+            *out_solutions.add(offset) = *sol_idx;
+            let nonce_bytes = nonce.to_le_bytes();
+            std::ptr::copy_nonoverlapping(nonce_bytes.as_ptr(), out_solutions.add(offset + 1), 4);
+        }
+    }
+
+    solutions.len() as i32
 }
 
 #[cfg(test)]
@@ -221,6 +320,30 @@ mod tests {
             let result = solve_bytes(algo, &decode(data), bits, 1).unwrap();
             assert_eq!(result.0, nonce);
             assert_eq!(result.1.as_slice(), decode(hash).as_slice());
+        }
+    }
+
+    #[test]
+    fn friendly_captcha_solves_low_difficulty() {
+        // Puzzle: 32 bytes with n_solutions=2 at byte 14, difficulty=120 at byte 15
+        // threshold = floor(2^((255.999-120)/8)) as u32, so hash_val must be < threshold
+        let mut puzzle = [0u8; 32];
+        puzzle[14] = 2; // n_solutions
+        puzzle[15] = 120; // difficulty (low, easy to solve)
+
+        let solutions = solve_friendly_captcha(&puzzle, 4);
+        assert_eq!(solutions.len(), 2);
+
+        // Verify each solution produces a valid hash using 128-byte padded format
+        let threshold = (2.0_f64).powf((255.999 - 120.0) / 8.0).floor() as u32;
+        for (sol_idx, nonce) in &solutions {
+            let mut padded = [0u8; 128];
+            padded[..32].copy_from_slice(&puzzle);
+            padded[120] = *sol_idx;
+            padded[124..128].copy_from_slice(&nonce.to_le_bytes());
+            let hash: [u8; 32] = Blake2b256::digest(&padded).into();
+            let hash_val = u32::from_le_bytes([hash[0], hash[1], hash[2], hash[3]]);
+            assert!(hash_val < threshold, "hash_val={} should be < {}", hash_val, threshold);
         }
     }
 }
