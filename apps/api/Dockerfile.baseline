@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS wafmeow
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine AS wafmeow
 WORKDIR /build
 COPY tools/wafmeow/ ./
 ARG TARGETARCH

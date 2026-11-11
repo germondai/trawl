@@ -1,5 +1,5 @@
 # Nuxt's build tooling requires Node APIs that Bun does not implement yet.
-FROM node:26.13.0-alpine AS builder
+FROM node:26.13.1-alpine AS builder
 COPY --from=oven/bun:1.4.4-alpine /usr/local/bin/bun /usr/local/bin/bun
 
 WORKDIR /app
@@ -22,6 +22,7 @@ FROM nginx:1.31.8-alpine AS runner
 
 COPY --from=builder /app/apps/web/.output/public /usr/share/nginx/html
 COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
+COPY apps/web/security-headers.conf /etc/nginx/security-headers.conf
 
 EXPOSE 80
 

@@ -9,11 +9,15 @@ Self-hosted web scraping for applications and AI agents. Get page content throug
 
 TRAWL starts with HTTP, reuses verified clearance and opens Camoufox when a browser is needed. Repeat requests fetch fresh content without repeating a full solve whenever the site accepts the saved session.
 
+`HTTP + supported PoW walls → cached browser session → fresh browser solve → residential proxy`
+
+The HTTP tier can clear supported ALTCHA and Friendly Captcha v1 access forms with bounded local computation. Ordinary embedded widgets keep their browser lifecycle. [Coverage and limits](apps/docs/getting-started/challenge-support.md).
+
 [Website](https://trawl.germondai.com) · [Documentation](https://docs.trawl.germondai.com) · [Latest release](https://github.com/germondai/trawl/releases/latest)
 
 ## Features
 
-- **Challenge handling:** Cloudflare, Anubis, NCBI proof of work, Akamai, Imperva, DDoS-Guard and supported AWS WAF and DataDome flows. Built-in CAPTCHA paths include Turnstile, reCAPTCHA v2, hCaptcha, GeeTest Slide, ALTCHA, Friendly Captcha and CAP. [Coverage and limits](apps/docs/getting-started/challenge-support.md).
+- **Challenge handling:** Cloudflare, Anubis, NCBI proof of work, Akamai, Imperva, DDoS-Guard and supported AWS WAF and DataDome flows. Built-in CAPTCHA paths include Turnstile, reCAPTCHA v2, hCaptcha, GeeTest Slide, ALTCHA, Friendly Captcha, CAP and supported Shumei spatial puzzles. [Coverage and limits](apps/docs/getting-started/challenge-support.md).
 - **Fast repeat requests:** automatic HTTP clearance reuse, Redis or in-memory caching, and browser fallback when required. No named session is needed for shared clearance reuse.
 - **MCP for agents:** read Markdown, scrape HTML, extract structured JSON, capture screenshots and inspect browser activity from known URLs.
 - **Isolated browser sessions:** retain cookies, localStorage, sessionStorage and browser identity. Scrape within a session, keep a page open for JavaScript eval and read cookies. [Session API](apps/docs/api-reference/browser-sessions.md).
@@ -111,14 +115,14 @@ docker run -d --name trawl \
   -e MCP_ENABLED=true \
   -e METRICS_DASHBOARD_ENABLED=true \
   -v trawl_metrics:/data/metrics \
-  ghcr.io/germondai/trawl:1.11.0
+  ghcr.io/germondai/trawl:1.11.1
 
 curl http://localhost:8191/health
 ```
 
 Open [the local dashboard](http://localhost:8191/dashboard). Keep the API and MCP endpoint on a trusted network; dashboard history survives container recreation through the mounted volume.
 
-For Redis and Compose deployments, see the [quick-start guide](apps/docs/getting-started/quick-start.md) and [Compose examples](apps/docs/deployment/docker-compose.md). Use `:1.11.0-baseline` on older CPUs or NAS hardware.
+For Redis and Compose deployments, see the [quick-start guide](apps/docs/getting-started/quick-start.md) and [Compose examples](apps/docs/deployment/docker-compose.md). Use `:1.11.1-baseline` on older CPUs or NAS hardware.
 
 <details>
 <summary>Dashboard preview</summary>
@@ -176,14 +180,16 @@ curl -X POST http://localhost:8191/sessions \
   -H 'Content-Type: application/json' \
   -d '{"id":"research"}'
 
-curl -X POST http://localhost:8191/scrape \
+curl -X POST http://localhost:8191/sessions/research/scrape \
   -H 'Content-Type: application/json' \
-  -d '{"url":"https://nopecha.com/demo/cloudflare","sessionId":"research","solveEmbeddedCaptchas":false}'
+  -d '{"url":"https://nopecha.com/demo/cloudflare","solveEmbeddedCaptchas":false}'
 
 curl -X DELETE http://localhost:8191/sessions/research
 ```
 
-Sessions preserve browser storage between requests and keep login state out of the shared clearance cache. Requests within one session are sequential. Sessions expire when idle and do not survive an API restart; open tabs are closed after each request.
+Sessions preserve browser storage between requests and keep login state out of the shared clearance cache. Requests within one session are sequential. `/scrape` with `sessionId` remains equivalent to `/sessions/:id/scrape`.
+
+By default, request pages close after each operation. Create a session with `"keepPage": true` to retain one main page and use `/sessions/:id/eval` to run JavaScript in it. Sessions expire when idle and do not survive an API restart.
 
 [Session API, authentication and lifecycle](apps/docs/api-reference/browser-sessions.md)
 
@@ -207,8 +213,8 @@ Enable `MITM_ENABLED=true` and point your HTTP-compatible client at port `8192`.
 
 | Tags                             | Use case                             |
 | -------------------------------- | ------------------------------------ |
-| `:latest`, `:1.11.0`             | Standard release for modern hardware |
-| `:baseline`, `:1.11.0-baseline`   | Older x86 CPUs and NAS kernels       |
+| `:latest`, `:1.11.1`             | Standard release for modern hardware |
+| `:baseline`, `:1.11.1-baseline`   | Older x86 CPUs and NAS kernels       |
 | `:nightly`, `:nightly-<dev-sha>`  | Development builds from `dev`        |
 
 All tags use `ghcr.io/germondai/trawl`. Both release variants are published for Linux AMD64 and ARM64. [Standalone containers and source builds](apps/docs/deployment/standalone.md).

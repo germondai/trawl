@@ -5,17 +5,24 @@ repo_root=$(cd -- "$(dirname -- "$0")/.." && pwd)
 image=${1:-trawl-smoke}
 
 # Separate processes keep each suite's browser and Bun memory independent.
-for suite in \
-  apps/api/src/shutdown.integration.test.ts \
-  apps/api/src/browserSessions.integration.test.ts \
-  apps/api/src/proxySessions.integration.test.ts \
-  apps/api/src/httpReplay.integration.test.ts \
-  apps/api/src/turnstile.integration.test.ts \
-  apps/api/src/cloudflareFallback.integration.test.ts \
-  apps/api/src/externalCaptcha.integration.test.ts \
-  packages/browser/tests/metaRefresh.integration.test.ts \
-  packages/browser/tests/rawText.integration.test.ts \
+suites=(
+  apps/api/src/shutdown.integration.test.ts
+  apps/api/src/browserSessions.integration.test.ts
+  apps/api/src/proxySessions.integration.test.ts
+  apps/api/src/httpReplay.integration.test.ts
+  apps/api/src/turnstile.integration.test.ts
+  apps/api/src/shumei.integration.test.ts
+  apps/api/src/cloudflareFallback.integration.test.ts
+  apps/api/src/externalCaptcha.integration.test.ts
+  packages/browser/tests/metaRefresh.integration.test.ts
+  packages/browser/tests/rawText.integration.test.ts
   packages/browser/tests/readiness.integration.test.ts
+)
+if [[ "${TRAWL_POOL_RESOURCE_TESTS:-0}" == "1" ]]; then
+  suites+=(apps/api/src/poolResources.integration.test.ts)
+fi
+
+for suite in "${suites[@]}"
 do
   memory_limit=1g
   runtime_user=0:0
@@ -38,16 +45,20 @@ do
     -e TRAWL_PROXY_SESSION_TESTS=1 \
     -e TRAWL_HTTP_REPLAY_TESTS=1 \
     -e TRAWL_TURNSTILE_TESTS=1 \
+    -e TRAWL_SHUMEI_TESTS=1 \
     -e TRAWL_CLOUDFLARE_FALLBACK_TESTS=1 \
     -e TRAWL_EXTERNAL_CAPTCHA_TESTS=1 \
     -e TRAWL_SHUTDOWN_TESTS=1 \
+    -e TRAWL_POOL_RESOURCE_TESTS="${TRAWL_POOL_RESOURCE_TESTS:-0}" \
     -v "$repo_root/packages/browser/tests:/app/packages/browser/tests:ro" \
     -v "$repo_root/apps/api/src/browserSessions.integration.test.ts:/app/apps/api/src/browserSessions.integration.test.ts:ro" \
     -v "$repo_root/apps/api/src/shutdown.integration.test.ts:/app/apps/api/src/shutdown.integration.test.ts:ro" \
     -v "$repo_root/apps/api/src/proxySessions.integration.test.ts:/app/apps/api/src/proxySessions.integration.test.ts:ro" \
     -v "$repo_root/apps/api/src/httpReplay.integration.test.ts:/app/apps/api/src/httpReplay.integration.test.ts:ro" \
     -v "$repo_root/apps/api/src/turnstile.integration.test.ts:/app/apps/api/src/turnstile.integration.test.ts:ro" \
+    -v "$repo_root/apps/api/src/shumei.integration.test.ts:/app/apps/api/src/shumei.integration.test.ts:ro" \
     -v "$repo_root/apps/api/src/cloudflareFallback.integration.test.ts:/app/apps/api/src/cloudflareFallback.integration.test.ts:ro" \
     -v "$repo_root/apps/api/src/externalCaptcha.integration.test.ts:/app/apps/api/src/externalCaptcha.integration.test.ts:ro" \
+    -v "$repo_root/apps/api/src/poolResources.integration.test.ts:/app/apps/api/src/poolResources.integration.test.ts:ro" \
     --entrypoint bun "$image" test "$suite"
 done

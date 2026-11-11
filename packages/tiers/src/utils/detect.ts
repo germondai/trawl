@@ -16,6 +16,7 @@ export type ChallengeType =
   | "anubis"
   | "altcha"
   | "friendly-captcha"
+  | "shumei"
   | "none"
 
 export function isCloudflareErrorUrl(url: string): boolean {
@@ -45,15 +46,28 @@ export function getAwsWafAction(
 
 const CLOUDFLARE_CHALLENGE_MARKERS = /_cf_chl_opt|orchestrate\/chl_page/i
 
-function hasCloudflareChallengeScript(html: string): boolean {
+function htmlAttribute(element: Element, name: string): string | undefined {
+  for (const attribute of element.attributes) {
+    if (attribute.name.toLowerCase() === name) return attribute.value
+  }
+}
+
+function isActiveElement(element: Element): boolean {
+  return !element.closest("template,noscript,textarea,style")
+}
+
+function isActiveScript(script: Element): boolean {
+  const type = htmlAttribute(script, "type")?.trim().toLowerCase()
+  return isActiveElement(script) && (!type || /^(?:module|(?:text|application)\/(?:java|ecma)script)$/.test(type))
+}
+
+function hasCloudflareChallengeScript(html: string, document?: Document): boolean {
   if (!CLOUDFLARE_CHALLENGE_MARKERS.test(html)) return false
-  const { document } = parseHTML(html)
-  return [...document.querySelectorAll("script")].some((script) => {
-    if (script.closest("template,noscript,textarea,style")) return false
-    const type = script.getAttribute("type")?.trim().toLowerCase()
-    if (type && !/^(?:module|(?:text|application)\/(?:java|ecma)script)$/.test(type)) return false
+  const root = document ?? parseHTML(html).document
+  return [...root.querySelectorAll("script")].some((script) => {
+    if (!isActiveScript(script)) return false
     return (
-      /\/cdn-cgi\/challenge-platform\/.*orchestrate\/chl_page/i.test(script.getAttribute("src") ?? "") ||
+      /\/cdn-cgi\/challenge-platform\/.*orchestrate\/chl_page/i.test(htmlAttribute(script, "src") ?? "") ||
       /(?:^|[;{}])\s*(?:window\.)?_cf_chl_opt\s*=\s*\{/i.test(script.textContent ?? "")
     )
   })
@@ -68,29 +82,36 @@ export function isExplicitChallengeRejection(status: number, html: string, heade
   )
 }
 
+export const isCloudflareChallengeTitle = (title: string): boolean =>
+  /^(?:just a moment|please wait|checking your browser(?: before accessing .*)?|attention required|verify you are human)[.!…]*(?:\s*[|-]\s*cloudflare)?$/i.test(
+    title.trim(),
+  )
+
 export function isCloudflarePage(html: string, headers: Record<string, string>): boolean {
   if (hasCloudflareChallengeHeader(headers)) return true
   if (hasDdosGuardChallenge(html)) return false
   if (hasDuckDuckGoChallenge(html) || hasAnubisChallenge(html)) return false
   if (hasAltcha(html) || hasFriendlyCaptcha(html)) return false
-  if (/<title>[^<]*(just a moment|please wait|checking|attention required)[^<]*<\/title>/i.test(html)) return true
-  if (/checking your browser/i.test(html)) return true
-  if (/enable javascript and cookies to continue/i.test(html)) return true
-  if (/verify you are human/i.test(html)) return true
-  // id-based checks: specific to CF challenge DOM, not present in real pages
-  if (/id="challenge-running"/i.test(html)) return true
-  if (/id="cf-challenge-running"/i.test(html)) return true
-  // CF Turnstile interstitial wrapper
-  if (/id="turnstile-wrapper"/i.test(html)) return true
-  // Active challenge orchestration markers. Unlike the passive telemetry markers
-  // below, these only occur while Cloudflare is serving an interstitial.
-  if (CLOUDFLARE_CHALLENGE_MARKERS.test(html)) return true
-  if (/id=["']challenge-form["']/i.test(html)) return true
-  // CF firewall/WAF deny page (error 1020 and friends) - static "blocked" page, not a
-  // solvable JS challenge, but still needs to be recognized as CF so the orchestrator
-  // reports tier failure and escalates instead of returning the block page as content
-  if (/id="cf-error-details"/i.test(html)) return true
-  if (/you have been blocked/i.test(html)) return true
+  if (
+    !CLOUDFLARE_CHALLENGE_MARKERS.test(html) &&
+    !/just a moment|please wait|checking your browser|attention required|verify you are human|(?:cf-)?challenge-running|turnstile-wrapper|challenge-form|cf-error-details|__CF\$cv\$params|\/cdn-cgi\/challenge-platform\//i.test(
+      html,
+    )
+  )
+    return false
+  const { document } = parseHTML(html)
+  const title = [...document.querySelectorAll("title")].find(isActiveElement)?.textContent?.trim() ?? ""
+  if (isCloudflareChallengeTitle(title)) return true
+  if (hasCloudflareChallengeScript(html, document)) return true
+  for (const element of document.querySelectorAll("*")) {
+    if (
+      /^(?:challenge-running|cf-challenge-running|turnstile-wrapper|challenge-form|cf-error-details)$/i.test(
+        htmlAttribute(element, "id") ?? "",
+      ) &&
+      isActiveElement(element)
+    )
+      return true
+  }
   // Lean CF challenge stub - blank title/body, just the challenge-platform bootstrap
   // script. No human-readable text at all, so none of the checks above catch it.
   //
@@ -99,8 +120,13 @@ export function isCloudflarePage(html: string, headers: Record<string, string>):
   // bot-management telemetry. Matching on the marker alone flags real pages as blocked.
   // The actual challenge stub is always near-empty (nothing else can render before the
   // challenge resolves), so gate on page size too.
-  if (html.length < 3000 && /__CF\$cv\$params|\/cdn-cgi\/challenge-platform\/[^"']*jsd\/main\.js/i.test(html))
-    return true
+  if (html.length < 3000)
+    return [...document.querySelectorAll("script")].some(
+      (script) =>
+        isActiveScript(script) &&
+        (/__CF\$cv\$params/.test(script.textContent ?? "") ||
+          /\/cdn-cgi\/challenge-platform\/[^"']*jsd\/main\.js/i.test(htmlAttribute(script, "src") ?? "")),
+    )
   return false
 }
 
@@ -116,11 +142,27 @@ export function isBrowserErrorPage(html: string): boolean {
 }
 
 export function hasTurnstile(html: string): boolean {
-  return (
-    /class="cf-turnstile"/i.test(html) ||
-    /challenges\.cloudflare\.com\/turnstile/i.test(html) ||
-    /cdn-cgi\/challenge-platform[^"']*turnstile/i.test(html)
-  )
+  if (!/cf-turnstile|challenges\.cloudflare\.com\/turnstile|cdn-cgi\/challenge-platform[^"']*turnstile/i.test(html))
+    return false
+  const { document } = parseHTML(html)
+  for (const element of document.querySelectorAll("*")) {
+    if (!isActiveElement(element)) continue
+    if (/(?:^|\s)cf-turnstile(?:\s|$)/.test(htmlAttribute(element, "class") ?? "")) return true
+    if (element.localName !== "script" && element.localName !== "iframe") continue
+    if (element.localName === "script" && !isActiveScript(element)) continue
+    try {
+      const url = new URL(htmlAttribute(element, "src") ?? "", "https://example.test/")
+      if (
+        /^https?:$/.test(url.protocol) &&
+        ((url.hostname === "challenges.cloudflare.com" && url.pathname.startsWith("/turnstile/")) ||
+          /^\/cdn-cgi\/challenge-platform\/.*turnstile/i.test(url.pathname))
+      )
+        return true
+    } catch {
+      // Malformed references do not establish the presence of a widget.
+    }
+  }
+  return false
 }
 
 export function hasHcaptcha(html: string): boolean {
@@ -166,6 +208,20 @@ export function hasFriendlyCaptcha(html: string): boolean {
   )
 }
 
+export function hasShumei(html: string): boolean {
+  if (!/shumei_captcha_wrapper|smCaptcha|sm-captcha|smcp|initSMCaptcha/i.test(html)) return false
+  const { document } = parseHTML(html)
+  return (
+    [...document.querySelectorAll(".shumei_captcha_wrapper, .smCaptcha, .sm-captcha")].some(isActiveElement) ||
+    [...document.querySelectorAll("script")].some(
+      (script) =>
+        isActiveScript(script) &&
+        (/\/smcp(?:\.min)?\.js(?:[?#]|$)/i.test(htmlAttribute(script, "src") ?? "") ||
+          /\binitSMCaptcha\s*\(/.test(script.textContent ?? "")),
+    )
+  )
+}
+
 // CDN identity and cookie names can appear on ordinary pages and in documentation.
 // Require an active resource frame, a sensor-only shell, or an Imperva error response.
 export function hasImpervaChallenge(html: string, headers: Record<string, string> = {}, status?: number): boolean {
@@ -180,8 +236,6 @@ export function hasImpervaChallenge(html: string, headers: Record<string, string
     return false
 
   const { document } = parseHTML(html)
-  const attribute = (element: Element, name: string): string | undefined =>
-    Array.from(element.attributes).find((attr) => attr.name.toLowerCase() === name)?.value
   const isResource = (src: string | undefined): boolean => {
     if (!src) return false
     try {
@@ -193,7 +247,7 @@ export function hasImpervaChallenge(html: string, headers: Record<string, string
   }
   const isActive = (element: Element): boolean => !element.closest("template, noscript")
   for (const frame of document.querySelectorAll("iframe")) {
-    if (isActive(frame) && isResource(attribute(frame, "src"))) return true
+    if (isActive(frame) && isResource(htmlAttribute(frame, "src"))) return true
   }
 
   if (
@@ -203,11 +257,11 @@ export function hasImpervaChallenge(html: string, headers: Record<string, string
     return true
 
   const scripts = [...document.querySelectorAll("script")].filter((script) => {
-    const type = attribute(script, "type")?.trim().toLowerCase()
+    const type = htmlAttribute(script, "type")?.trim().toLowerCase()
     return isActive(script) && (!type || /^(?:module|(?:text|application)\/(?:java|ecma)script)$/.test(type))
   })
   const hasSensor = scripts.some((script) => {
-    if (isResource(attribute(script, "src"))) return true
+    if (isResource(htmlAttribute(script, "src"))) return true
     const code = script.textContent ?? ""
     return (
       /\b(?:window\.)?reese84\s*=/i.test(code) ||
@@ -363,6 +417,7 @@ export function detectChallengeType(
   if (hasHcaptcha(html)) return "hcaptcha"
   if (hasRecaptcha(html)) return "recaptcha"
   if (hasCapChallenge(html)) return "cap"
+  if (hasShumei(html)) return "shumei"
   return "none"
 }
 
@@ -389,7 +444,8 @@ export function needsJs(html: string, headers: Record<string, string>): boolean 
     hasAnubisChallenge(html) ||
     hasAltcha(html) ||
     hasFriendlyCaptcha(html) ||
-    hasCapChallenge(html)
+    hasCapChallenge(html) ||
+    hasShumei(html)
   )
 }
 

@@ -631,8 +631,16 @@ describe("subresource archiving", () => {
     release()
     await Promise.resolve()
 
-    const { parts } = parseArchive(capture.archive("https://example.com/", PAGE_HTML) as string)
-    expect(parts.map((part) => part.headers["content-location"])).toEqual(["https://example.com/"])
+    const archive = capture.archive("https://example.com/", PAGE_HTML) as string
+    const { parts } = parseArchive(archive)
+    expect(parts.some((part) => part.headers["content-location"] === "https://example.com/late.css")).toBe(false)
+    expect(archive).toContain("X-Trawl-Omitted-Resources: 1")
+    expect(fromQuotedPrintable(parts.at(-1)?.content as string).toString()).toContain(
+      "body-read-failed https://example.com/late.css",
+    )
+    await capture.drain(0)
+    const repeated = parseArchive(capture.archive("https://example.com/", PAGE_HTML) as string)
+    expect(repeated.headers["x-trawl-omitted-resources"]).toBe("1")
   })
 })
 

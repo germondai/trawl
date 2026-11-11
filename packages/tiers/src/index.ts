@@ -34,6 +34,7 @@ export {
   hasHcaptcha,
   hasImpervaChallenge,
   hasRecaptcha,
+  hasShumei,
   hasTurnstile,
   isBlocked,
   isBrowserErrorPage,
@@ -57,4 +58,4 @@ export {
   sanitizeHeaders,
 } from "./utils/sanitize"
 export { TIER1_TRANSPORT, verifyTier1Transport } from "./utils/tier1Transport"
-export { WafDetector } from "./utils/waf"
+export { sanitizeWafDetails, WafDetector } from "./utils/waf"

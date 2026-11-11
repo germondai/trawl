@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.1] - 2026-11-12
+
+### Added
+- Solve supported smallest-color Shumei spatial puzzles in the existing browser widget, preserving the page's SDK callbacks and network identity. Bound image processing and retries, and require the SDK's accepted state before reporting a solve (#280).
+- Clear supported ALTCHA and Friendly Captcha v1 access forms in the HTTP tier. Preserve signed proofs, hidden fields, proxy/TLS policy and cookie scope; share one cancellable PoW process with existing solvers. Ordinary embedded forms and unsupported flows retain browser handling (#279).
+- Include matched wafmeow rule references, incomplete product evaluations and diagnostic codes in native/SDK/MCP results and metric history, while retaining existing profiles and solver routing (#258, #277).
+
+### Fixed
+- Preserve pool-exhaustion responses when acquisition and the request deadline expire together.
+- Avoid detecting Cloudflare and Turnstile challenges from ordinary verification text, comments and inert HTML examples. Preserve active challenge markers and prevent POST replay from resending application replies containing examples (#278).
+- Avoid replaying non-safe proxy requests after ambiguous upstream failures. Close upstream work on client disconnect, accept fragmented CONNECT headers, preserve HEAD/204/304 semantics and stream unknown-length responses at the existing 8 MiB threshold.
+- Preserve trusted proxy credentials in HTTP escalation and import scoped cookies for browser solving. Isolate authenticated requests from shared clearance sessions, retain native API restrictions and reject unsupported browser `Authorization` forwarding.
+- Include implicit `/v1` session setup in the request deadline. Preserve non-HTML text whitespace and rendered HTML fragments with slash-separated event attributes.
+- Use the same precise Cloudflare title classification in detection and challenge waiting. Include the first metrics interval and report unfinished MHTML resources as omitted.
+- Apply web security headers to Nginx-served pages and assets. Allow focused benchmark runs without requiring unselected competitor images (#281).
+
+### Changed
+- Refresh compatible patch dependencies: Elysia 1.4.32, Biome 2.6.7, Node.js build tooling 26.13.1, Go 1.27.4 and golang.org/x/sys 0.50.0. Retain the tested browser/runtime and compiler constraints.
+- Include existing browser resource and recovery checks in release CI and optional manual runs without extending ordinary PR checks.
+- Clarify the session scrape endpoint and opt-in `keepPage` behavior in the README.
+
+### Upgrade notes
+- No configuration or data migration is required. Recreate the container and retain existing data volumes.
+- Proxy `Authorization` is supported by HTTP tiers; requests requiring browser escalation must use cookies. Authenticated proxy requests no longer share clearance cache entries.
+- The client workspace remains at 0.1.0; this release does not publish it to npm.
+
 ## [1.11.0] - 2026-11-09
 
 ### Added

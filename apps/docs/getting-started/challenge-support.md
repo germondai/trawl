@@ -16,8 +16,9 @@ TRAWL detects supported walls, chooses the matching browser flow and checks whet
 | reCAPTCHA v3            | No built-in score solver                                                             | Site profile required                                     |
 | hCaptcha                | Checkbox auto-pass and audio where offered; no image-grid solver                     | Not included in the current external task catalogue       |
 | GeeTest                 | Slide puzzle matching and verified-state checks                                      | Site profile required                                     |
-| ALTCHA                  | Native proof-of-work widget                                                          | Site profile required                                     |
-| Friendly Captcha v1/v2  | Native widget execution and response checks                                          | Site profile required                                     |
+| Shumei                  | Visible `spatial_select` widgets with supported smallest-color puzzles; SDK acceptance checks | No catalogue entry                                 |
+| ALTCHA                  | Bounded HTTP solving for supported access forms; browser widget fallback             | Site profile required                                     |
+| Friendly Captcha v1/v2  | Bounded HTTP v1 access forms; browser v1/v2 widget execution and response checks       | Site profile required                                     |
 | CAP                     | Native proof of work; verifies every visible widget                                  | No catalogue entry                                        |
 | NCBI identity PoW       | Bounded HTTP SHA-256 solve; returns clearance cookies                                | No catalogue entry                                        |
 | Anubis                  | Bounded HTTP proof of work and wait-based flows, with browser fallback                             | No catalogue entry                                        |
@@ -29,6 +30,8 @@ TRAWL detects supported walls, chooses the matching browser flow and checks whet
 | DuckDuckGo anomaly wall | Detected and reported as requiring CAPTCHA; no built-in image-puzzle solver          | No dedicated catalogue entry                              |
 
 DataDome browser handling requires `BROWSER_HEADFUL_POOL_SIZE=1`, which adds another browser pool. IP hard blocks may require a different egress IP. Google Search `/sorry/` redirects and supported bot-wall pages are also detected; detection alone does not mean a puzzle can be solved.
+
+Shumei solving uses the page's existing widget and normal browser clicks, retaining its proxy, cookies, User-Agent and SDK callbacks. It supports one visible `spatial_select` widget with Chinese smallest-color instructions, within image-size and request-deadline limits. Slide, text/icon selection, other spatial instructions and multiple widgets are not solved. TRAWL does not open arbitrary login controls or submit application forms to expose a popup. A provider-accepted widget does not prove that an application's backend accepted a subsequent form submission.
 
 ## External task catalogue
 
@@ -46,6 +49,10 @@ Other task types require an exact-hostname profile with task inputs, response de
 
 </details>
 
-External integration is tested with local provider and widget fixtures. Real paid-service acceptance remains unverified. A widget token is not proof that a site's server accepted a form submission, and TRAWL does not submit surrounding forms automatically.
+External integration is tested with local provider and widget fixtures. Real paid-service acceptance remains unverified. A widget token is not proof that a site's server accepted a form submission. TRAWL does not submit application forms automatically.
+
+The HTTP PoW fast path supports a single ALTCHA or Friendly Captcha v1 widget in an access-challenge page with a challenge title and one POST form named `altcha-form`, `captcha-form` or `friendly-captcha-form`. Only hidden inputs and unnamed submit buttons are accepted; hidden fields such as CSRF tokens are preserved. Cross-origin form actions, custom callbacks, application inputs, multiple forms and ambiguous markup retain browser fallback. Solving an embedded application widget remains controlled by `solveEmbeddedCaptchas`; `/v1` still defaults to page delivery.
+
+ALTCHA supports signed legacy SHA-256/384/512 proofs and the prefix protocol's SHA, PBKDF2/SHA, scrypt and Argon2id variants, within local cost and memory bounds. Friendly v1 supports inline puzzles and the standard puzzle API response. Friendly v2 stays on the existing browser path. All HTTP proof calculations share one process with the existing Anubis/NCBI solvers, run for at most one second and stop on cancellation. This path returns success only after a subsequent request delivers content without the recognized wall; it does not mark an isolated puzzle response as a solved page.
 
 See [browser challenge flows](/architecture/tiered-execution#tier-3-fresh-challenge-solve) and [external solver configuration](/getting-started/configuration#optional-external-captcha-solver) for setup and limits.

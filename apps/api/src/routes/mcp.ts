@@ -69,6 +69,35 @@ const metadataSchema = {
       version: z.string(),
       state: z.enum(["complete", "incomplete", "unavailable"]),
       products: z.array(z.string()),
+      matches: z
+        .array(
+          z.object({
+            product: z.string(),
+            schema: z.number().int().positive(),
+            fingerprints: z
+              .array(z.object({ fingerprint: z.number().int().positive(), evidence: z.literal(0) }))
+              .max(16),
+          }),
+        )
+        .max(32)
+        .optional(),
+      incompleteProducts: z.array(z.string()).max(256).optional(),
+      diagnostics: z
+        .array(
+          z.object({
+            code: z.enum([
+              "body_truncated",
+              "missing_response",
+              "invalid_engine",
+              "invalid_evidence",
+              "transport_error",
+            ]),
+            evidence: z.union([z.literal(0), z.literal(-1)]),
+          }),
+        )
+        .max(16)
+        .optional(),
+      detailsTruncated: z.boolean().optional(),
       sourceTier: tierSchema.optional(),
       durationMs: z.number().nonnegative().optional(),
       reason: z.enum(["not-installed", "timeout", "busy", "failed", "no-response"]).optional(),

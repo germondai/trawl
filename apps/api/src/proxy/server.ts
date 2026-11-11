@@ -89,17 +89,32 @@ export function startMitmProxy(opts: MitmProxyOptions): MitmProxyHandle {
   }
 
   const server = net.createServer((clientSocket) => {
-    clientSocket.once("data", (first) => {
-      const firstLine = first.toString("latin1").split("\r\n", 1)[0] ?? ""
+    const chunks: Buffer[] = []
+    let total = 0
+    const onData = (chunk: Buffer) => {
+      chunks.push(chunk)
+      total += chunk.length
+      const first = Buffer.concat(chunks, total)
+      const headerEnd = first.indexOf("\r\n\r\n")
+      if (headerEnd < 0) {
+        if (total > MAX_HEADER_BYTES) clientSocket.destroy()
+        return
+      }
+      clientSocket.off("data", onData)
+      if (headerEnd + 4 > MAX_HEADER_BYTES) {
+        clientSocket.destroy()
+        return
+      }
+      const firstLine = first.subarray(0, headerEnd).toString("latin1").split("\r\n", 1)[0] ?? ""
       const [method, target] = firstLine.split(" ")
 
       if (method === "CONNECT") {
-        void handleConnect(clientSocket, target ?? "", tlsPortFor)
+        void handleConnect(clientSocket, target ?? "", tlsPortFor, first.subarray(headerEnd + 4))
       } else {
-        const initial = Buffer.isBuffer(first) ? first : Buffer.from(first)
-        handlePlainHttp(clientSocket, initial, opts).catch(() => clientSocket.destroy())
+        handlePlainHttp(clientSocket, first, opts).catch(() => clientSocket.destroy())
       }
-    })
+    }
+    clientSocket.on("data", onData)
     clientSocket.on("error", () => clientSocket.destroy())
   })
 
@@ -140,6 +155,7 @@ async function handleConnect(
   clientSocket: net.Socket,
   target: string,
   tlsPortFor: (host: string) => Promise<number>,
+  initial: Buffer,
 ): Promise<void> {
   const host = target.split(":")[0] ?? ""
   if (!host) {
@@ -156,11 +172,14 @@ async function handleConnect(
   }
   clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n", () => {
     const upstream = net.connect(port, "127.0.0.1", () => {
+      if (initial.length) upstream.write(initial)
       clientSocket.pipe(upstream)
       upstream.pipe(clientSocket)
     })
     upstream.on("error", () => clientSocket.destroy())
     clientSocket.on("error", () => upstream.destroy())
+    clientSocket.once("close", () => upstream.destroy())
+    upstream.once("close", () => clientSocket.destroy())
   })
 }
 
@@ -325,6 +344,7 @@ async function proxyRequest(
   body: Buffer | undefined,
   opts: MitmProxyOptions,
 ): Promise<void> {
+  if (stream.destroyed) return
   let domain: string
   try {
     domain = new URL(url).hostname
@@ -349,6 +369,9 @@ async function proxyRequest(
   let tier0: ForwardResult
   const tier0Started = Date.now()
   metrics.recordTierZeroAttempt()
+  const controller = new AbortController()
+  const disconnect = () => controller.abort()
+  stream.once("close", disconnect)
   try {
     if (useHttps) {
       const parsed = new URL(url)
@@ -360,6 +383,7 @@ async function proxyRequest(
         headers: sanitized,
         body,
         skipChallengeDetection: false,
+        signal: controller.signal,
       })
     } else {
       tier0 = await directForwardHttp({
@@ -368,14 +392,32 @@ async function proxyRequest(
         headers: sanitized,
         body,
         skipChallengeDetection: false,
+        signal: controller.signal,
       })
     }
   } catch (err) {
     tier0 = { mode: "error", error: err instanceof Error ? err : new Error(String(err)) }
+  } finally {
+    stream.off("close", disconnect)
+  }
+  if (stream.destroyed) {
+    if (tier0.mode === "stream") tier0.socket.destroy()
+    return
   }
 
   if (tier0.mode === "error") {
     if (opts.debug) console.log(`[proxy] Tier 0 error for ${safeUrl(url)}: ${tier0.error.message}`)
+    if (tier0.requestSent !== false && !["GET", "HEAD", "OPTIONS", "TRACE", "QUERY"].includes(method)) {
+      writeResponseFromBuffer(
+        stream,
+        502,
+        { "content-type": "text/plain; charset=utf-8", "proxy-status": "trawl; error=http_protocol_error" },
+        Buffer.from("Upstream request failed; request was not replayed"),
+        "text/plain; charset=utf-8",
+        method,
+      )
+      return
+    }
     return await serveViaScrape(stream, url, method, clientHeaders, body, opts)
   }
 
@@ -402,6 +444,7 @@ async function proxyRequest(
       tier0.contentType,
       body?.length ?? 0,
       tier0.prefix,
+      method,
     )
     return
   }
@@ -414,7 +457,7 @@ async function proxyRequest(
 
   challengeCache.set(domain, "direct")
   metrics.record({ source: "proxy", url, durationMs: Date.now() - tier0Started, tier: 0, statusCode: tier0.status })
-  writeResponseFromBuffer(stream, tier0.status, tier0.headers, tier0.body, tier0.contentType)
+  writeResponseFromBuffer(stream, tier0.status, tier0.headers, tier0.body, tier0.contentType, method)
 }
 
 // Tier 1+ fallback: reissue through the existing browser-backed scrape pipeline.
@@ -439,9 +482,10 @@ function writeOriginalResponse(
   stream: net.Socket,
   response: ForwardResultBuffered | ForwardResultStream,
   requestBodyLength: number,
+  method: string,
 ): void {
   if (response.mode === "buffer") {
-    writeResponseFromBuffer(stream, response.status, response.headers, response.body, response.contentType)
+    writeResponseFromBuffer(stream, response.status, response.headers, response.body, response.contentType, method)
   } else {
     writeResponseFromStream(
       stream,
@@ -451,6 +495,7 @@ function writeOriginalResponse(
       response.contentType,
       requestBodyLength,
       response.prefix,
+      method,
     )
     response.socket.resume()
   }
@@ -481,11 +526,11 @@ export async function serveViaScrape(
         maxTimeout: opts.maxTimeout,
         blockedEvidence: true,
       },
-      opts.deps,
+      { ...opts.deps, trustedProxyHeaders: true },
       scrape,
     )
     if (rateLimitResponse && scrapeResult.statusCode >= 400) {
-      writeOriginalResponse(stream, rateLimitResponse, body?.length ?? 0)
+      writeOriginalResponse(stream, rateLimitResponse, body?.length ?? 0, method)
       return
     }
     if (rateLimitResponse?.mode === "stream") rateLimitResponse.socket.destroy()
@@ -515,12 +560,13 @@ export async function serveViaScrape(
       response.headers,
       response.body,
       response.contentType,
+      method,
     )
   } catch (err) {
     if (rateLimitResponse) {
       if (opts.debug)
         console.log(`[proxy] HTTP 429 fallback failed for ${safeUrl(url)} -> preserving original response`)
-      writeOriginalResponse(stream, rateLimitResponse, body?.length ?? 0)
+      writeOriginalResponse(stream, rateLimitResponse, body?.length ?? 0, method)
       return
     }
     const evidence = err instanceof ScrapeError ? terminalBlockedEvidence(err) : undefined
@@ -531,7 +577,14 @@ export async function serveViaScrape(
           `[proxy] scrape() caught terminal challenge for ${url} (reason: ${evidence.reason}) -> passing through blocked evidence (${response.statusCode})`,
         )
       }
-      writeResponseFromBuffer(stream, response.statusCode, response.headers, response.body, response.contentType)
+      writeResponseFromBuffer(
+        stream,
+        response.statusCode,
+        response.headers,
+        response.body,
+        response.contentType,
+        method,
+      )
       return
     }
 
@@ -542,6 +595,7 @@ export async function serveViaScrape(
       { "Content-Type": "text/plain; charset=utf-8", "Proxy-Status": "trawl; error=proxy_internal_error" },
       Buffer.from(`TRAWL proxy error: ${err instanceof Error ? err.message : String(err)}`),
       "text/plain; charset=utf-8",
+      method,
     )
   }
 }

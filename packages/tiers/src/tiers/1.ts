@@ -19,6 +19,7 @@ import {
   hasFriendlyCaptcha,
   hasHcaptcha,
   hasRecaptcha,
+  hasShumei,
   hasTurnstile,
   isBlocked,
   isCloudflarePage,
@@ -29,6 +30,7 @@ import { normalizeHtml } from "../utils/html"
 import { HttpSessionCookies } from "../utils/httpSessionCookies"
 import { planPowWall } from "../utils/nativePow"
 import type { OutboundUrlValidator } from "../utils/outboundPolicy"
+import { planPowCaptcha } from "../utils/powCaptchaPlan"
 import { normalizeProxyError, proxyResponseFailure } from "../utils/proxyFailure"
 import { decodeTextBody, isHtmlContentType, isTextContentType } from "../utils/response"
 import { tier1Transport, tier1UserAgent } from "../utils/tier1Transport"
@@ -56,7 +58,7 @@ export interface Tier1Result extends TierResult {
 // (tunneling verb), TRACE/GET/HEAD/OPTIONS excluded (no body semantics).
 const METHODS_WITH_BODY = new Set(["POST", "PUT", "PATCH", "DELETE", "QUERY"])
 
-const decodeResponseBody = (body: Uint8Array, contentEncoding?: string): Uint8Array => {
+const decodeResponseBody = (body: Uint8Array, contentEncoding?: string, maxOutputLength?: number): Uint8Array => {
   const encodings = (contentEncoding ?? "")
     .split(",")
     .map((encoding) => encoding.trim().toLowerCase())
@@ -67,10 +69,11 @@ const decodeResponseBody = (body: Uint8Array, contentEncoding?: string): Uint8Ar
   try {
     let decoded = Buffer.from(body)
     for (const encoding of encodings.reverse()) {
-      if (encoding === "gzip" || encoding === "x-gzip") decoded = gunzipSync(decoded)
-      else if (encoding === "deflate") decoded = inflateSync(decoded)
-      else if (encoding === "br") decoded = brotliDecompressSync(decoded)
-      else if (encoding === "zstd") decoded = zstdDecompressSync(decoded)
+      const options = maxOutputLength === undefined ? undefined : { maxOutputLength }
+      if (encoding === "gzip" || encoding === "x-gzip") decoded = gunzipSync(decoded, options)
+      else if (encoding === "deflate") decoded = inflateSync(decoded, options)
+      else if (encoding === "br") decoded = brotliDecompressSync(decoded, options)
+      else if (encoding === "zstd") decoded = zstdDecompressSync(decoded, options)
       else return body
     }
     return decoded
@@ -100,7 +103,12 @@ export async function runTier1(
   const start = Date.now()
   const deadline = start + timeoutMs
   let budgetSignal = signal
-  const once = (target: string, headers: Record<string, string> | undefined, cookies = sessionCookies) =>
+  const once = (
+    target: string,
+    headers: Record<string, string> | undefined,
+    cookies: HttpSessionCookies | null | undefined = sessionCookies,
+    maxResponseBytes?: number,
+  ) =>
     runTier1Once(
       target,
       headers,
@@ -111,11 +119,12 @@ export async function runTier1(
       ignoreCertificateErrors,
       trustedProxyCa,
       budgetSignal,
-      cookies,
+      cookies ?? undefined,
       Math.max(0, deadline - Date.now()),
       headersTimeoutMs,
       observeResponse,
       networkProxy,
+      maxResponseBytes,
     )
   const first = await once(url, extraHeaders)
   if (
@@ -128,7 +137,22 @@ export async function runTier1(
   const html =
     first.html ?? new TextDecoder().decode(decodeResponseBody(first.body, first.responseHeaders?.["content-encoding"]))
   const pageUrl = first.effectiveUrl ?? url
-  const plan = planPowWall(html, pageUrl)
+  const fetchJson = async (target: string): Promise<unknown> => {
+    const sameOrigin = new URL(target).origin === new URL(pageUrl).origin
+    const headers: Record<string, string> = sameOrigin
+      ? { ...proofHeaders }
+      : { "user-agent": proofHeaders["user-agent"] ?? tier1UserAgent(FINGERPRINT.userAgent) }
+    headers.accept = "application/json"
+    headers["accept-encoding"] = "identity"
+    const result = await once(target, headers, sameOrigin ? proofCookies : null, 16_384)
+    if (result.statusCode !== 200 || !result.body || result.body.length > 16_384 || budgetSignal?.aborted) return
+    return JSON.parse(
+      new TextDecoder().decode(decodeResponseBody(result.body, result.responseHeaders?.["content-encoding"], 16_384)),
+    )
+  }
+  let proofHeaders: Record<string, string> = {}
+  let proofCookies: HttpSessionCookies | undefined
+  const plan = planPowWall(html, pageUrl) ?? planPowCaptcha(html, pageUrl, first.statusCode, fetchJson)
   if (!plan) return first
   // A wall is never successful content, including when its native fast path fails.
   first.status = "needs-js"
@@ -137,10 +161,6 @@ export async function runTier1(
   budgetSignal = AbortSignal.any([AbortSignal.timeout(Math.ceil(deadline - Date.now())), ...(signal ? [signal] : [])])
 
   try {
-    if (plan.waitMs >= deadline - Date.now()) return first
-    if (plan.waitMs > 0) await sleep(plan.waitMs, budgetSignal)
-    const submit = await plan.submit(deadline - Date.now(), budgetSignal)
-    if (!submit || budgetSignal.aborted || new URL(submit.url).origin !== new URL(pageUrl).origin) return first
     const headers: Record<string, string> = {}
     for (const [name, value] of Object.entries(extraHeaders ?? {})) headers[name.toLowerCase()] = value
     if (new URL(pageUrl).origin !== new URL(url).origin) {
@@ -175,6 +195,12 @@ export async function runTier1(
     }
     for (const name of ["cookie", "host", "content-length", "content-type", "content-encoding", "transfer-encoding"])
       delete headers[name]
+    proofHeaders = headers
+    proofCookies = cookies
+    if (plan.waitMs >= deadline - Date.now()) return first
+    if (plan.waitMs > 0) await sleep(plan.waitMs, budgetSignal)
+    const submit = await plan.submit(deadline - Date.now(), budgetSignal)
+    if (!submit || budgetSignal.aborted || new URL(submit.url).origin !== new URL(pageUrl).origin) return first
     await validateOutboundUrl?.(submit.url)
     budgetSignal.throwIfAborted()
     const res = await tier1Transport.fetch(submit.url, {
@@ -208,7 +234,11 @@ export async function runTier1(
     const secondHtml = second.body
       ? new TextDecoder().decode(decodeResponseBody(second.body, second.responseHeaders?.["content-encoding"]))
       : ""
-    if (planPowWall(secondHtml, second.effectiveUrl ?? pageUrl)) return first
+    if (
+      planPowWall(secondHtml, second.effectiveUrl ?? pageUrl) ||
+      planPowCaptcha(secondHtml, second.effectiveUrl ?? pageUrl, second.statusCode, fetchJson)
+    )
+      return first
     if (second.responseHeaders) {
       const setCookie = [
         first.responseHeaders?.["set-cookie"],
@@ -244,6 +274,7 @@ async function runTier1Once(
   headersTimeoutMs?: number,
   observeResponse?: (evidence: WafEvidence) => void,
   networkProxy?: string,
+  maxResponseBytes?: number,
 ): Promise<Tier1Result> {
   const start = Date.now()
   const headersAbort = headersTimeoutMs === undefined ? undefined : new AbortController()
@@ -411,8 +442,26 @@ async function runTier1Once(
     // Preserve encoded representation bytes for the MITM proxy and binary
     // content. Decode a separate view for challenge inspection and `/scrape`'s
     // text-only `html` field without invalidating the upstream response headers.
-    const rawBytes = new Uint8Array(await res.arrayBuffer())
-    const decodedBytes = decodeResponseBody(rawBytes, responseHeaders["content-encoding"])
+    let rawBytes: Uint8Array
+    if (maxResponseBytes !== undefined) {
+      const reader = res.body?.getReader()
+      const chunks: Uint8Array[] = []
+      let length = 0
+      while (reader) {
+        const { value, done } = await reader.read()
+        if (done) break
+        length += value.length
+        if (length > maxResponseBytes) {
+          await reader.cancel()
+          throw new Error("pow-challenge-too-large")
+        }
+        chunks.push(value)
+      }
+      rawBytes = new Uint8Array(Buffer.concat(chunks))
+    } else {
+      rawBytes = new Uint8Array(await res.arrayBuffer())
+    }
+    const decodedBytes = decodeResponseBody(rawBytes, responseHeaders["content-encoding"], maxResponseBytes)
 
     // Decode a bounded text preview losslessly. `fatal: false` replaces invalid
     // sequences with U+FFFD so detection helpers don't throw on non-UTF8 data.
@@ -546,6 +595,7 @@ async function runTier1Once(
         durationMs: Date.now() - start,
         reason: "altcha-shell",
         challenge: "altcha",
+        effectiveUrl: currentUrl,
         responseHeaders,
         contentType,
         body: rawBytes,
@@ -560,6 +610,22 @@ async function runTier1Once(
         durationMs: Date.now() - start,
         reason: "friendly-captcha-shell",
         challenge: "friendly-captcha",
+        effectiveUrl: currentUrl,
+        responseHeaders,
+        contentType,
+        body: rawBytes,
+        statusCode: res.status,
+      }
+    }
+    if (hasShumei(previewText)) {
+      return {
+        tier: 1,
+        certificateError,
+        status: "needs-js",
+        durationMs: Date.now() - start,
+        reason: "shumei-shell",
+        challenge: "shumei",
+        effectiveUrl: currentUrl,
         responseHeaders,
         contentType,
         body: rawBytes,

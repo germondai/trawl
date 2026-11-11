@@ -36,6 +36,8 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/ci.yml
+    with:
+      resource_tests: true
 
   build:
     needs: verify

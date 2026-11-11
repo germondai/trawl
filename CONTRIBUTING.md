@@ -20,7 +20,7 @@ For security issues, **do not open a public issue** - see [SECURITY.md](SECURITY
 Requirements depend on the workspace:
 
 - **API and shared packages:** Bun 1.4.4 is the runtime and package manager.
-- **Web and docs:** Node.js 26.13.0 runs the Nuxt and VitePress build tools; Bun installs dependencies.
+- **Web and docs:** Node.js 26.13.1 runs the Nuxt and VitePress build tools; Bun installs dependencies.
 - **Integration tests:** Docker provides Redis and the Linux browser environment.
 
 The scraper service runs on Bun. Its Docker runtime does not require Node.js.
@@ -34,7 +34,7 @@ this Camoufox build. The web workspace uses TypeScript 6.0.3 because vue-tsc
 needs its JavaScript compiler API; the API and shared packages use TypeScript 7.
 
 Docker builds the native PoW solver with Rust 1.99.1 and checks its protocol vectors
-and runtime ABI. It builds the offline WAF worker with Go 1.27.3. Rod requires `got/lib/lcs`,
+and runtime ABI. It builds the offline WAF worker with Go 1.27.4. Rod requires `got/lib/lcs`,
 removed in `got` 0.43.0, and the constructor API removed in `fetchup` 0.4.0; keep
 `got` at 0.42.4 and `fetchup` at 0.3.0. The module retains Go 1.26 as its minimum
 language version.
@@ -121,6 +121,13 @@ both API routes, persistent clearance, a stalled recovery navigation and context
 TRAWL_CLOUDFLARE_FALLBACK_TESTS=1 CAMOUFOX_INSTALL_DIR=/path/to/camoufox bun test apps/api/src/cloudflareFallback.integration.test.ts
 ```
 
+Shumei browser tests cover SDK acceptance/rejection, puzzle replacement, cancellation,
+image limits and both API routes with direct and proxied browser requests:
+
+```bash
+TRAWL_SHUMEI_TESTS=1 CAMOUFOX_INSTALL_DIR=/path/to/camoufox bun test apps/api/src/shumei.integration.test.ts
+```
+
 Raw text browser integration tests use owned HTTP fixtures and a local forward proxy:
 
 ```bash
@@ -149,6 +156,13 @@ TRAWL_POOL_RESOURCE_TESTS=1 BROWSER_BLOCK_ADS=false BROWSER_HARDWARE_CONCURRENCY
 
 The fixtures simulate a challenge page; they do not establish live CAPTCHA
 success rates. Heavy browser workloads may require a larger memory limit.
+
+Release PRs from `dev` to `main` and release publishing include this resource
+suite in browser smoke checks. Regular PRs keep the shorter suite. Run the CI
+workflow manually with `resource_tests` enabled for the same checks before
+preparing a release, or use `TRAWL_POOL_RESOURCE_TESTS=1 bash scripts/browser-smoke.sh trawl-smoke`
+with an already built image. The resource suite runs with a 1 GiB memory/swap
+limit; session and shutdown suites retain their existing 2 GiB limit.
 
 External CAPTCHA integration tests use owned widgets, a local provider API fixture
 and real Camoufox. They never submit a paid task:

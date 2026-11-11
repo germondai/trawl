@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite"
 import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { PoolExhaustedError } from "@trawl/browser"
-import { ScrapeError } from "@trawl/tiers"
+import { ScrapeError, sanitizeWafDetails } from "@trawl/tiers"
 import type { TierResult, WafDetection } from "@trawl/types"
 import { METRICS_DASHBOARD_ENABLED, METRICS_DASHBOARD_TOKEN } from "./config"
 import type { ScrapeSource } from "./requestLogging"
@@ -56,6 +56,7 @@ function storedWaf(waf: WafDetection | undefined): WafDetection | undefined {
     version: waf.version,
     state: waf.state,
     products: [...new Set(waf.products)].slice(0, 256),
+    ...sanitizeWafDetails(waf),
     sourceTier: waf.sourceTier,
     durationMs: Number.isFinite(waf.durationMs) && (waf.durationMs ?? -1) >= 0 ? waf.durationMs : undefined,
     reason: waf.reason,
@@ -364,7 +365,7 @@ export class MetricsStore {
       if (row.severity) bySeverity[row.severity] += row.count
     }
     const end = Math.floor(now / step) * step
-    const size = Math.ceil((range * 60_000) / step)
+    const size = Math.ceil((range * 60_000) / step) + 1
     const bins = new Map<
       number,
       {

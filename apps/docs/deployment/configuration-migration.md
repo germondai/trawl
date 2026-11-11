@@ -5,6 +5,23 @@ description: Upgrade notes and environment-variable changes across TRAWL release
 
 # Configuration migration
 
+## Upgrading from v1.11.0 to v1.11.1
+
+No configuration or data migration is required. Recreate the container and keep existing
+Redis data and dashboard volumes.
+
+Supported ALTCHA and Friendly Captcha v1 access forms can complete in the HTTP tier.
+Supported smallest-color Shumei puzzles use the existing browser widget and require
+its accepted state. Unsupported variants retain the existing fallback behavior.
+
+The proxy preserves client credentials during HTTP escalation and isolates authenticated
+requests from shared clearance sessions. `Authorization` is supported by HTTP tiers only;
+use cookies when authenticated requests need browser solving. See
+[challenge escalation](/proxy/overview#challenge-escalation).
+
+Implicit `/v1` session creation now counts toward the request's `maxTimeout`.
+The client workspace remains at 0.1.0 and is not published to npm by this release.
+
 ## Upgrading from v1.10.1 to v1.11.0
 
 No configuration or data migration is required. Recreate the container with the updated

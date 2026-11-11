@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite"
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -11,11 +11,35 @@ const waf = {
   version: "3.1.0",
   state: "complete" as const,
   products: ["Cloudflare", "Cloudflare"],
+  matches: [{ product: "Cloudflare", schema: 1, fingerprints: [{ fingerprint: 1, evidence: 0 }] }],
+  incompleteProducts: ["Body provider"],
+  diagnostics: [{ code: "body_truncated" as const, evidence: 0 }],
+  detailsTruncated: true,
   sourceTier: 1 as const,
   durationMs: 2.5,
 }
 
 describe("local metrics", () => {
+  test("includes the first partial bucket in the selected range", () => {
+    const now = Date.parse("2026-11-11T12:34:30Z")
+    const clock = spyOn(Date, "now").mockReturnValue(now)
+    const store = new MetricsStore()
+    try {
+      clock.mockReturnValue(now - 60 * 60_000 + 15_000)
+      store.record({ source: "native", url: "https://example.test/", statusCode: 200, durationMs: 1 })
+      clock.mockReturnValue(now)
+      store.record({ source: "native", url: "https://example.test/", statusCode: 200, durationMs: 2 })
+      const snapshot = store.snapshot(60)
+      expect(snapshot.requests).toBe(2)
+      expect(snapshot.timeline[0]).toMatchObject({ minute: "2026-11-11T11:34:00.000Z", requests: 1 })
+      expect(snapshot.timeline.reduce((sum, bucket) => sum + bucket.requests, 0)).toBe(snapshot.requests)
+      expect(snapshot.timeline.at(-1)?.requests).toBe(1)
+    } finally {
+      store.close()
+      clock.mockRestore()
+    }
+  })
+
   test("keeps bounded WAF counters without enabling history storage", () => {
     const store = new MetricsStore(false)
     store.record({ source: "native", url: "https://example.com/private", durationMs: 4, statusCode: 200, waf })
@@ -47,12 +71,24 @@ describe("local metrics", () => {
 
   test("retains provider attribution for success and failure without raw evidence", () => {
     const store = new MetricsStore()
+    const observedWaf = {
+      ...waf,
+      html: "private-html",
+      matches: [
+        {
+          ...waf.matches[0],
+          value: "private-header",
+          fingerprints: [{ ...waf.matches[0]?.fingerprints[0], value: "private-cookie" }],
+        },
+      ],
+      diagnostics: [{ ...waf.diagnostics[0], message: "private-url" }],
+    }
     store.record({
       source: "native",
       url: "https://example.com",
       statusCode: 200,
       durationMs: 10,
-      waf: { ...waf, html: "private-html" } as typeof waf,
+      waf: observedWaf,
     })
     const error = new ScrapeError("private-error", [{ tier: 1, status: "blocked", durationMs: 1 }])
     error.waf = { ...waf, state: "incomplete" }
@@ -65,6 +101,7 @@ describe("local metrics", () => {
       providers: [{ product: "Cloudflare", requests: 2, failures: 1 }],
     })
     expect(snapshot.recentFailures[0]?.waf).toMatchObject({ products: ["Cloudflare"], sourceTier: 1 })
+    expect(snapshot.recentEvents[1]?.waf).toMatchObject({ matches: waf.matches, diagnostics: waf.diagnostics })
     expect(JSON.stringify(snapshot)).not.toContain("private")
     store.close()
   })
@@ -88,6 +125,12 @@ describe("local metrics", () => {
       expect(reopened.snapshot().requests).toBe(2)
       expect(reopened.snapshot().waf.providers).toEqual([{ product: "Cloudflare", requests: 1, failures: 0 }])
       expect(reopened.snapshot().recentEvents[0]?.waf).toMatchObject({ products: ["Cloudflare"] })
+      expect(reopened.snapshot().recentEvents[0]?.waf).toMatchObject({
+        matches: waf.matches,
+        incompleteProducts: waf.incompleteProducts,
+        diagnostics: waf.diagnostics,
+        detailsTruncated: true,
+      })
       reopened.close()
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -165,7 +208,7 @@ describe("local metrics", () => {
     expect(snapshot.bySeverity.error).toBe(120)
     expect(snapshot.recentFailures[0]).toMatchObject({ tier: 0, tierStatus: null, statusCode: 503 })
     expect(snapshot.recentFailures).toHaveLength(50)
-    expect(snapshot.lastHour).toHaveLength(60)
+    expect(snapshot.lastHour).toHaveLength(61)
     expect(snapshot.lastHour[0]?.requests).toBe(0)
     expect(snapshot.domains).toHaveLength(20)
     expect(snapshot.domains.some((entry) => entry.domain === "ok.example")).toBe(false)

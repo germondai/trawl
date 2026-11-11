@@ -189,6 +189,17 @@ export interface WafDetection {
   version: string
   state: "complete" | "incomplete" | "unavailable"
   products: string[]
+  matches?: {
+    product: string
+    schema: number
+    fingerprints: { fingerprint: number; evidence: number }[]
+  }[]
+  incompleteProducts?: string[]
+  diagnostics?: {
+    code: "body_truncated" | "missing_response" | "invalid_engine" | "invalid_evidence" | "transport_error"
+    evidence: number
+  }[]
+  detailsTruncated?: boolean
   sourceTier?: 1 | 2 | 3 | 4
   durationMs?: number
   reason?: "not-installed" | "timeout" | "busy" | "failed" | "no-response"

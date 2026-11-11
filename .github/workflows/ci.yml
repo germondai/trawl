@@ -1,12 +1,24 @@
 name: CI
 
 on:
+  workflow_dispatch:
+    inputs:
+      resource_tests:
+        description: Run browser resource and recovery checks before release
+        required: false
+        type: boolean
+        default: true
   workflow_call:
     inputs:
       ref:
         description: Git ref to verify; defaults to the triggering ref
         required: false
         type: string
+      resource_tests:
+        description: Include browser resource and recovery checks
+        required: false
+        type: boolean
+        default: false
   push:
     branches: [main, dev]
   pull_request:
@@ -24,7 +36,7 @@ jobs:
           bun-version: 1.4.4
       - uses: actions/setup-node@v7
         with:
-          node-version: 26.13.0
+          node-version: 26.13.1
       - run: bun install --frozen-lockfile
       - run: python3 -m unittest discover -s packages/browser/security -p 'test_*.py'
       - run: bun run verify
@@ -79,6 +91,8 @@ jobs:
               bun test apps/api/src/mcpEgress.integration.test.ts
           done
       - name: Test owned browser fixtures
+        env:
+          TRAWL_POOL_RESOURCE_TESTS: ${{ (inputs.resource_tests || (github.event_name == 'pull_request' && github.base_ref == 'main' && github.head_ref == 'dev')) && '1' || '0' }}
         run: bash scripts/browser-smoke.sh trawl-smoke
       - name: Test native TLS transport with owned browser fixtures
         env:

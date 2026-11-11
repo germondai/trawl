@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test"
-import type { BrowserHandle } from "@trawl/browser"
+import { describe, expect, spyOn, test } from "bun:test"
+import { type BrowserHandle, PoolExhaustedError } from "@trawl/browser"
 import type { TierResult } from "@trawl/types"
 import { type OrchestratorDeps, ScrapeError, scrape } from "../src/orchestrator"
 import { ProxyPool } from "../src/utils/proxyRotator"
@@ -44,6 +44,99 @@ function runners(status: TierResult["status"], reason?: string) {
     tier4: async () => ({ ...result, tier: 4 as const }),
   }
 }
+
+test("preserves pool exhaustion at the request deadline", async () => {
+  const start = Date.now()
+  const clock = spyOn(Date, "now").mockReturnValue(start)
+  try {
+    await expect(
+      scrape(
+        { url: "https://example.test/", skipHttp: true, maxTimeout: 80 },
+        {
+          ...dependencies(3, []),
+          acquireBrowser: async () => {
+            clock.mockReturnValue(start + 81)
+            throw new PoolExhaustedError()
+          },
+        },
+      ),
+    ).rejects.toBeInstanceOf(PoolExhaustedError)
+  } finally {
+    clock.mockRestore()
+  }
+})
+
+test.each([1, 2, 3, 4] as const)("Tier %i preserves non-HTML text through the public scrape result", async (tier) => {
+  const text = "  alpha\r\n\r\n\r\nbeta  \n"
+  const result = await scrape({ url: "https://example.test/", maxTier: tier }, dependencies(tier, []), {
+    ...runners("success"),
+    [`tier${tier}`]: async () => ({
+      ...payload,
+      tier,
+      html: text,
+      contentType: "text/plain",
+      status: "success",
+      durationMs: 1,
+    }),
+  })
+  expect(result.html).toBe(text)
+})
+
+test("trusted proxy cookies use a private browser context without shared cache state", async () => {
+  let reads = 0
+  let writes = 0
+  let browserHeaders: unknown
+  let imported: unknown
+  const result = await scrape(
+    {
+      url: "https://example.test/",
+      headers: { Cookie: "session=hello%20world; token=a=b", "User-Agent": "caller" },
+      skipHttp: true,
+    },
+    {
+      ...dependencies(1, []),
+      trustedProxyHeaders: true,
+      loadSession: async () => {
+        reads++
+        return undefined
+      },
+      saveSession: async () => {
+        writes++
+      },
+    },
+    {
+      tier3: async (_url, _handle, _timeout, _proxy, headers, _method, _body, _validate, _screenshot, capture) => {
+        browserHeaders = headers
+        imported = capture?.cookies
+        return {
+          ...payload,
+          tier: 3,
+          status: "success",
+          durationMs: 1,
+          cookies: [
+            {
+              name: "session",
+              value: "private",
+              domain: "example.test",
+              path: "/",
+              expires: -1,
+              httpOnly: true,
+              secure: true,
+            },
+          ],
+        }
+      },
+    },
+  )
+  expect(result.statusCode).toBe(200)
+  expect(browserHeaders).toBeUndefined()
+  expect(imported).toEqual([
+    { name: "session", value: "hello%20world", secure: true },
+    { name: "token", value: "a=b", secure: true },
+  ])
+  expect(reads).toBe(0)
+  expect(writes).toBe(0)
+})
 
 test.each([
   { method: "GET" as const, maxTier: 3 as const, limited: true },

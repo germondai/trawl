@@ -1,5 +1,5 @@
 import { PoolExhaustedError } from "@trawl/browser"
-import { normalizeProxy, RequestValidationError, scrape, validateSessionId } from "@trawl/tiers"
+import { normalizeProxy, RequestBudget, RequestValidationError, scrape, validateSessionId } from "@trawl/tiers"
 import type { FlareSolverrRequest, FlareSolverrResponse, FlareSolverrScrapeRequest } from "@trawl/types"
 import { Elysia } from "elysia"
 import {
@@ -85,12 +85,24 @@ export function v1Route({
       const scrapeRequest = buildScrapeRequestFromFlareSolverr(req as FlareSolverrScrapeRequest)
       const deps = orchestratorDeps()
       const scrapeReq = req as FlareSolverrScrapeRequest
-      if (scrapeReq.session) {
-        if (!deps.sessions) throw new RequestValidationError("Browser sessions are unavailable", 503)
-        await deps.sessions.ensure(
-          scrapeReq.session,
-          scrapeReq.session_ttl_minutes ? scrapeReq.session_ttl_minutes * 60_000 : undefined,
-        )
+      const sessionId = scrapeReq.session
+      if (sessionId) {
+        const sessions = deps.sessions
+        if (!sessions) throw new RequestValidationError("Browser sessions are unavailable", 503)
+        const budget = new RequestBudget(scrapeRequest.maxTimeout ?? deps.defaultMaxTimeout ?? 60_000)
+        try {
+          await budget.run(() =>
+            sessions.ensure(
+              sessionId,
+              scrapeReq.session_ttl_minutes ? scrapeReq.session_ttl_minutes * 60_000 : undefined,
+              budget,
+            ),
+          )
+          budget.check()
+          scrapeRequest.maxTimeout = budget.remaining()
+        } finally {
+          budget.dispose()
+        }
       }
       scraperStarted = true
       const id = requestId()
