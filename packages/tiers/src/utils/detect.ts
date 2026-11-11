@@ -16,6 +16,7 @@ export type ChallengeType =
   | "anubis"
   | "altcha"
   | "friendly-captcha"
+  | "shumei"
   | "none"
 
 export function isCloudflareErrorUrl(url: string): boolean {
@@ -208,7 +209,17 @@ export function hasFriendlyCaptcha(html: string): boolean {
 }
 
 export function hasShumei(html: string): boolean {
-  return /shumei_captcha|smCaptcha|sm-captcha|sm-button|sm-slider|fengkongcloud\.(?:cn|com)|ishumei\.com/i.test(html)
+  if (!/shumei_captcha_wrapper|smCaptcha|sm-captcha|smcp|initSMCaptcha/i.test(html)) return false
+  const { document } = parseHTML(html)
+  return (
+    [...document.querySelectorAll(".shumei_captcha_wrapper, .smCaptcha, .sm-captcha")].some(isActiveElement) ||
+    [...document.querySelectorAll("script")].some(
+      (script) =>
+        isActiveScript(script) &&
+        (/\/smcp(?:\.min)?\.js(?:[?#]|$)/i.test(htmlAttribute(script, "src") ?? "") ||
+          /\binitSMCaptcha\s*\(/.test(script.textContent ?? "")),
+    )
+  )
 }
 
 // CDN identity and cookie names can appear on ordinary pages and in documentation.
@@ -406,6 +417,7 @@ export function detectChallengeType(
   if (hasHcaptcha(html)) return "hcaptcha"
   if (hasRecaptcha(html)) return "recaptcha"
   if (hasCapChallenge(html)) return "cap"
+  if (hasShumei(html)) return "shumei"
   return "none"
 }
 
@@ -432,7 +444,8 @@ export function needsJs(html: string, headers: Record<string, string>): boolean 
     hasAnubisChallenge(html) ||
     hasAltcha(html) ||
     hasFriendlyCaptcha(html) ||
-    hasCapChallenge(html)
+    hasCapChallenge(html) ||
+    hasShumei(html)
   )
 }
 

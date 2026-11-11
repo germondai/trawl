@@ -1,300 +1,135 @@
-import * as jpeg from "jpeg-js"
 import type { Page } from "patchright"
-import { PNG } from "pngjs"
 import { sleep } from "../utils/deadline"
-import { desEncrypt } from "./shumeiCrypto"
-import { analyzeClickCaptcha } from "./shumeiImage"
+import { analyzeClickCaptcha, MAX_SHUMEI_PIXELS } from "./shumeiImage"
 
-const UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
-const IMG_BASE = "https://castatic.fengkongcloud.cn"
-const DISP_W = 294
-const DISP_H = 147
+const WIDGET = ".shumei_captcha_wrapper"
+const IMAGE = ".shumei_captcha_loaded_img_bg"
 
-interface ShumeiConfig {
-  organization: string
-  appId: string
-  channel: string
-  domain: string
-  rversion: string
-  sdkver: string
-}
-
-const DEFAULT_CONFIG: ShumeiConfig = {
-  organization: "P9usCUBauxft8eAmUXaZ",
-  appId: "default",
-  channel: "default",
-  domain: "captcha1.fengkongcloud.cn",
-  rversion: "1.0.4",
-  sdkver: "1.1.3",
-}
-
-function newUuid(): string {
-  const now = new Date()
-  const ts =
-    now.getFullYear().toString() +
-    (now.getMonth() + 1).toString().padStart(2, "0") +
-    now.getDate().toString().padStart(2, "0") +
-    now.getHours().toString().padStart(2, "0") +
-    now.getMinutes().toString().padStart(2, "0") +
-    now.getSeconds().toString().padStart(2, "0")
-  return ts + Math.floor(10000 + Math.random() * 90000).toString()
-}
-
-function parseJsonp(text: string): unknown {
-  const m = text.match(/^\s*[\w$.]+\s*\((.*)\)\s*;?\s*$/s)
-  return JSON.parse(m ? m[1] : text)
-}
-
-async function jsonpGet(url: string, params: Record<string, string>): Promise<{ status: number; data: unknown }> {
-  const cb = `sm_${Date.now()}${Math.floor(10 + Math.random() * 90)}`
-  const qs = new URLSearchParams({ callback: cb, ...params })
-  const res = await fetch(`${url}?${qs}`, {
-    headers: { "User-Agent": UA, Referer: "https://example.com/" },
-  })
-  const text = await res.text()
-  return { status: res.status, data: parseJsonp(text) }
-}
-
-interface RegisterResponse {
-  code?: number
-  riskLevel?: string
-  detail?: {
-    rid?: string
-    bg?: string
-    order?: string[]
-    bg_width?: number
-    bg_height?: number
-  }
-}
-
-async function register(uuid: string, config: ShumeiConfig): Promise<RegisterResponse> {
-  const url = `https://${config.domain}/ca/v1/register`
-  const params = {
-    organization: config.organization,
-    lang: "zh-cn",
-    model: "spatial_select",
-    appId: config.appId,
-    rversion: config.rversion,
-    sdkver: config.sdkver,
-    captchaUuid: uuid,
-    channel: config.channel,
-  }
-  const { data } = await jsonpGet(url, params)
-  return data as RegisterResponse
-}
-
-function buildVerifyBody(
-  rid: string,
-  uuid: string,
-  selectData: [number, number, number][],
-  dt: number,
-  config: ShumeiConfig,
-): Record<string, string> {
-  return {
-    organization: config.organization,
-    vf: desEncrypt(config.appId, "3ae79dfa"),
-    ri: desEncrypt(config.channel, "fa1b1f22"),
-    cx: desEncrypt("zh-cn", "10c0600a"),
-    is: desEncrypt("11", "53cda785"),
-    rid,
-    rversion: config.rversion,
-    sdkver: config.sdkver,
-    protocol: "210",
-    ostype: "web",
-    pe: desEncrypt(selectData, "e1024477"),
-    yc: desEncrypt(selectData, "803d9d10"),
-    xt: desEncrypt(dt, "e6c8d743"),
-    qf: desEncrypt(DISP_W, "d809f47c"),
-    qs: desEncrypt(DISP_H, "210a5a6d"),
-    "act.os": "web",
-    pr: desEncrypt("console", "f2858cfa"),
-    vn: desEncrypt(false, "df29aa2d"),
-    kh: desEncrypt(-1, "9728245c"),
-    captchaUuid: uuid,
-  }
-}
-
-interface VerifyResponse {
-  code?: number
-  riskLevel?: string
-}
-
-async function verify(body: Record<string, string>, config: ShumeiConfig): Promise<VerifyResponse> {
-  const url = `https://${config.domain}/ca/v2/fverify`
-  const { data } = await jsonpGet(url, body)
-  return data as VerifyResponse
-}
-
-async function fetchImage(bgPath: string): Promise<{ pixels: Uint8Array; width: number; height: number } | undefined> {
-  try {
-    const res = await fetch(IMG_BASE + bgPath, { headers: { "User-Agent": UA } })
-    if (!res.ok) return undefined
-    const buf = Buffer.from(await res.arrayBuffer())
-
-    if (bgPath.endsWith(".jpg") || bgPath.endsWith(".jpeg")) {
-      const img = jpeg.decode(buf, { useTArray: true })
-      return { pixels: new Uint8Array(img.data), width: img.width, height: img.height }
-    } else {
-      const png = PNG.sync.read(buf)
-      return { pixels: new Uint8Array(png.data), width: png.width, height: png.height }
-    }
-  } catch {
-    return undefined
-  }
-}
-
-export interface SolveShumeiResult {
-  ok: boolean
-  rid?: string
-  uuid?: string
-  attempts: number
-  elapsed: number
-  order?: string
-}
-
-export async function solveShumeiHttp(
-  config: Partial<ShumeiConfig> = {},
-  batch = 4,
-  rounds = 3,
-  sleepMs = 300,
-): Promise<SolveShumeiResult> {
-  const cfg = { ...DEFAULT_CONFIG, ...config }
-  const t0 = Date.now()
-  let attempts = 0
-
-  for (let rnd = 0; rnd < rounds; rnd++) {
-    const uuids = Array.from({ length: batch }, () => newUuid())
-    const tasks = await Promise.all(
-      uuids.map(async (uuid) => {
-        const reg = await register(uuid, cfg).catch(() => ({}) as RegisterResponse)
-        const detail = reg.detail
-        if (!detail?.rid || !detail?.bg) return undefined
-        const img = await fetchImage(detail.bg)
-        if (!img) return undefined
-        return { uuid, rid: detail.rid, img, order: detail.order ?? [] }
-      }),
-    )
-
-    const valid = tasks.filter((t): t is NonNullable<typeof t> => Boolean(t))
-    if (valid.length === 0) continue
-
-    const plans = valid
-      .map((t) => {
-        const analysis = analyzeClickCaptcha(t.img.pixels, t.img.width, t.img.height, t.order)
-        if (!analysis.target) return undefined
+async function widgetState(page: Page) {
+  return page
+    .evaluate(
+      ({ widget, image }) => {
+        const roots = [...document.querySelectorAll<HTMLElement>(widget)].filter(
+          (el) => !el.closest("template,noscript"),
+        )
+        if (roots.length !== 1) return
+        const root = roots[0]
+        if (!root.classList.contains("mode-spatial_select")) return
+        const visible = root.getBoundingClientRect().width > 0 && getComputedStyle(root).visibility !== "hidden"
+        const img = root.querySelector<HTMLImageElement>(image)
+        const box = img?.getBoundingClientRect()
         return {
-          ...t,
-          px: analysis.target.bx,
-          py: analysis.target.by,
-          W: analysis.width,
-          H: analysis.height,
-          orderText: t.order.join(" "),
+          id: root.id,
+          visible,
+          verified: Boolean(root.querySelector(".shumei_captcha_slide_wrapper.select_success")),
+          src: img?.currentSrc || img?.src,
+          width: box?.width ?? 0,
+          height: box?.height ?? 0,
+          x: box?.x ?? 0,
+          y: box?.y ?? 0,
+          loaded: Boolean(img?.complete && img.naturalWidth > 0),
+          prompt: root.querySelector(".shumei_captcha_slide_tips")?.textContent?.trim() ?? "",
         }
-      })
-      .filter((p): p is NonNullable<typeof p> => Boolean(p))
-
-    for (const p of plans) {
-      attempts++
-      const now = Date.now()
-      const xr = p.px / p.W
-      const yr = p.py / p.H
-      const selectData: [number, number, number][] = [[Math.round(xr * 1e6) / 1e6, Math.round(yr * 1e6) / 1e6, now]]
-      const dt = Math.floor(800 + Math.random() * 19200)
-
-      try {
-        const body = buildVerifyBody(p.rid, p.uuid, selectData, dt, cfg)
-        const resp = await verify(body, cfg)
-        if (resp.riskLevel === "PASS") {
-          return {
-            ok: true,
-            rid: p.rid,
-            uuid: p.uuid,
-            attempts,
-            elapsed: Math.round((Date.now() - t0) / 100) / 10,
-            order: p.orderText,
-          }
-        }
-      } catch {}
-
-      await sleep(sleepMs)
-    }
-  }
-
-  return { ok: false, attempts, elapsed: Math.round((Date.now() - t0) / 100) / 10 }
+      },
+      { widget: WIDGET, image: IMAGE },
+    )
+    .catch(() => undefined)
 }
 
 export async function hasShumeiWidget(page: Page, timeoutMs = 3000, signal?: AbortSignal): Promise<boolean> {
   const deadline = Date.now() + Math.max(0, timeoutMs)
-  const POLL_INTERVAL = 300
-
   do {
-    const detected = await page
-      .evaluate(() => {
-        return Boolean(document.querySelector(".shumei_captcha_wrapper.mode-spatial_select"))
-      })
+    if (signal?.aborted) return false
+    const state = await widgetState(page)
+    if (state?.visible) return true
+    const initializing = await page
+      .evaluate((widget) => {
+        const roots = [...document.querySelectorAll(widget)]
+        if (
+          roots.length > 1 ||
+          roots.some((root) => /\bmode-(?:slide|auto_slide|select|icon_select|seq_select)\b/.test(root.className))
+        )
+          return false
+        return [...document.scripts].some(
+          (script) =>
+            /\/smcp(?:\.min)?\.js(?:[?#]|$)/i.test(script.src) || /\binitSMCaptcha\s*\(/.test(script.textContent ?? ""),
+        )
+      }, WIDGET)
       .catch(() => false)
-    if (detected) return true
-
-    const remaining = deadline - Date.now()
-    if (remaining <= 0) break
-    await sleep(Math.min(POLL_INTERVAL, remaining), signal)
+    if (!initializing || Date.now() >= deadline) return false
+    await sleep(Math.min(150, deadline - Date.now()), signal).catch(() => {})
   } while (Date.now() < deadline)
-
   return false
-}
-
-async function extractShumeiConfig(page: Page): Promise<Partial<ShumeiConfig>> {
-  return page
-    .evaluate(() => {
-      const config: Record<string, string> = {}
-      const scripts = document.querySelectorAll("script")
-      for (const s of scripts) {
-        const text = s.textContent ?? ""
-        const orgExpr = text.match(/organization\s*[=:]\s*([^,;}\n]+)/)?.[1]
-        const orgKeys = orgExpr?.match(/["'][A-Za-z0-9]{20}["']/g)
-        if (orgKeys) config.organization = orgKeys[orgKeys.length - 1].slice(1, -1)
-        const appMatch = text.match(/appId\s*[=:]\s*["']([^"']+)["']/)
-        if (appMatch) config.appId = appMatch[1]
-        const channelMatch = text.match(/channel\s*[=:]\s*["']([^"']+)["']/)
-        if (channelMatch) config.channel = channelMatch[1]
-      }
-      return config
-    })
-    .catch(() => ({}))
 }
 
 export async function solveShumei(page: Page, timeoutMs = 30_000, signal?: AbortSignal): Promise<boolean> {
   if (timeoutMs <= 0 || signal?.aborted) return false
+  signal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, timeoutMs))])
+    : AbortSignal.timeout(Math.max(1, timeoutMs))
   const deadline = Date.now() + timeoutMs
-
+  const remaining = () => Math.max(0, deadline - Date.now())
   try {
-    if (!(await hasShumeiWidget(page, Math.min(5000, timeoutMs), signal))) return false
+    if (!(await hasShumeiWidget(page, Math.min(3000, remaining()), signal))) return false
+    const initial = await widgetState(page)
+    if (!initial || signal.aborted || remaining() <= 0) return false
+    if (initial.verified) return true
 
-    const pageConfig = await extractShumeiConfig(page)
-    if (!pageConfig.organization) return false
+    for (let attempt = 0; attempt < 3 && remaining() > 0 && !signal.aborted; attempt++) {
+      let state = await widgetState(page)
+      while (state?.visible && !state.loaded && remaining() > 0 && !signal.aborted) {
+        await sleep(Math.min(100, remaining()), signal)
+        state = await widgetState(page)
+      }
+      if (!state?.visible || !state.loaded || state.id !== initial.id || signal.aborted) return false
+      const image = page.locator(`${WIDGET} ${IMAGE}`)
+      await image.scrollIntoViewIfNeeded({ timeout: Math.max(1, Math.min(1000, remaining())) })
+      state = await widgetState(page)
+      if (!state?.visible || signal.aborted || remaining() <= 0 || state.id !== initial.id) return false
+      if (
+        state.width < 1 ||
+        state.height < 1 ||
+        state.width > 1024 ||
+        state.height > 512 ||
+        state.width * state.height > MAX_SHUMEI_PIXELS
+      )
+        return false
+      // A fixed region prevents layout growth from expanding the screenshot allocation.
+      const png = await page.screenshot({
+        clip: { x: state.x, y: state.y, width: state.width, height: state.height },
+        type: "png",
+        timeout: Math.max(1, Math.min(1500, remaining())),
+        scale: "css",
+      })
+      if (signal.aborted || png.length < 24 || png.length > 2_000_000) return false
+      const width = png.readUInt32BE(16),
+        height = png.readUInt32BE(20)
+      if (!width || !height || width * height > MAX_SHUMEI_PIXELS) return false
+      const { PNG } = await import("pngjs")
+      const decoded = PNG.sync.read(png)
+      const target = analyzeClickCaptcha(decoded.data, decoded.width, decoded.height, [state.prompt]).target
+      if (!target || signal.aborted || remaining() <= 0) return false
+      const current = await widgetState(page)
+      if (!current?.visible || current.id !== initial.id || signal.aborted || remaining() <= 0) return false
+      if (current.src !== state.src || current.prompt !== state.prompt) continue
+      await image.click({
+        timeout: Math.max(1, Math.min(1000, remaining())),
+        position: { x: (target.bx * current.width) / decoded.width, y: (target.by * current.height) / decoded.height },
+      })
 
-    const remaining = Math.max(0, deadline - Date.now())
-    const maxRounds = Math.ceil(remaining / 5000)
-    const result = await solveShumeiHttp(pageConfig, 4, Math.min(maxRounds, 3))
-
-    if (result.ok && result.rid) {
-      console.log(`[shumei] solved in ${result.attempts} attempts, ${result.elapsed}s`)
-      await page
-        .evaluate((rid: string) => {
-          const input = document.querySelector('input[name="smCaptcha"], input[name="captcha"]') as HTMLInputElement
-          if (input) input.value = rid
-          const event = new Event("shumei:solved", { bubbles: true })
-          document.dispatchEvent(event)
-        }, result.rid)
-        .catch(() => {})
-      return true
+      const resultUntil = Math.min(deadline, Date.now() + 4000)
+      while (Date.now() < resultUntil && !signal.aborted) {
+        const result = await widgetState(page)
+        if (!result || result.id !== initial.id || signal.aborted || remaining() <= 0) return false
+        // Only the original SDK's accepted state counts; closing a popup is not success.
+        if (result.verified) return true
+        if (!result.visible) return false
+        if (result.loaded && result.src !== state.src) break
+        await sleep(Math.min(100, resultUntil - Date.now()), signal)
+      }
     }
-
-    console.log(`[shumei] failed after ${result.attempts} attempts`)
-    return false
   } catch (err) {
-    console.log("[shumei] error:", err instanceof Error ? err.message : err)
-    return false
+    if (!signal.aborted) console.log("[shumei] error:", err instanceof Error ? err.message : err)
   }
+  return false
 }

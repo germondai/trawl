@@ -12,7 +12,6 @@
     "@trawl/types": "workspace:*",
     "@trawl/browser": "workspace:*",
     "hash-wasm": "^4.13.0",
-    "jpeg-js": "^0.4.4",
     "linkedom": "^0.18.15",
     "node-wreq": "3.2.1",
     "pngjs": "^7.0.0"

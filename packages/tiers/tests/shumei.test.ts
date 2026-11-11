@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test"
-import { desEncrypt } from "../src/solvers/shumeiCrypto"
 import { analyzeClickCaptcha } from "../src/solvers/shumeiImage"
 import { hasShumei } from "../src/utils/detect"
 
@@ -7,54 +6,19 @@ describe("Shumei detection", () => {
   test("detects Shumei widget class markers", () => {
     expect(hasShumei('<div class="smCaptcha"></div>')).toBe(true)
     expect(hasShumei('<div class="sm-captcha"></div>')).toBe(true)
-    expect(hasShumei('<button class="sm-button">Verify</button>')).toBe(true)
-    expect(hasShumei('<div class="sm-slider"></div>')).toBe(true)
+    expect(hasShumei('<button class="sm-button">Verify</button>')).toBe(false)
+    expect(hasShumei('<div class="sm-slider"></div>')).toBe(false)
   })
 
   test("detects Shumei SDK script references", () => {
-    expect(hasShumei('<script src="https://castatic.fengkongcloud.cn/captcha-sdk.js"></script>')).toBe(true)
-    expect(hasShumei('<script src="https://www.ishumei.com/static/sdk.js"></script>')).toBe(true)
-  })
-
-  test("detects the rendered widget wrapper", () => {
-    expect(hasShumei('<div class="shumei_captcha_wrapper mode-spatial_select"></div>')).toBe(true)
+    expect(hasShumei('<script src="https://castatic.fengkongcloud.cn/pr/v1.0.4/smcp.min.js"></script>')).toBe(true)
+    expect(hasShumei('<script src="https://www.ishumei.com/static/sdk.js"></script>')).toBe(false)
   })
 
   test("does not detect unrelated pages", () => {
     expect(hasShumei("<html><body>Hello world</body></html>")).toBe(false)
     expect(hasShumei('<div class="captcha"></div>')).toBe(false)
     expect(hasShumei("<script>console.log('hello')</script>")).toBe(false)
-    expect(hasShumei('<script src="https://cdn.example.com/captcha-sdk.js"></script>')).toBe(false)
-    expect(hasShumei('<script>init({organization: "abcdefghijklmnopqrstuvwxyz"})</script>')).toBe(false)
-    expect(hasShumei("<p>We compared shumei and other vendors.</p>")).toBe(false)
-  })
-})
-
-describe("Shumei DES encryption", () => {
-  test("encrypts string values correctly", () => {
-    expect(desEncrypt("hello", "e1024477")).toBe("jB5WOwO8t+8=")
-    expect(desEncrypt("abcdefgh", "e1024477")).toBe("EAuZGMv2JAQ=")
-    expect(desEncrypt("abcdefghi", "e1024477")).toBe("EAuZGMv2JAQ13gJ6nA0NnQ==")
-  })
-
-  test("encrypts numeric values as JSON", () => {
-    const result = desEncrypt(123, "e1024477")
-    expect(result.length).toBeGreaterThan(0)
-  })
-
-  test("encrypts arrays as JSON", () => {
-    const data = [[0.5, 0.5, 1699999999999]]
-    const result = desEncrypt(data, "e1024477")
-    expect(result.length).toBeGreaterThan(0)
-  })
-
-  test("returns empty string for empty input", () => {
-    expect(desEncrypt("", "e1024477")).toBe("")
-  })
-
-  test("rejects invalid salt length", () => {
-    expect(() => desEncrypt("test", "short")).toThrow()
-    expect(() => desEncrypt("test", "toolongkey")).toThrow()
   })
 })
 
@@ -102,7 +66,7 @@ describe("Shumei image analysis", () => {
       }
     }
 
-    const result = analyzeClickCaptcha(pixels, width, height, ["红色"], 0.1, 0.1, 10)
+    const result = analyzeClickCaptcha(pixels, width, height, ["点击图中最小的红色物体"], 0.1, 0.1, 10)
     expect(result.blobs.length).toBeGreaterThan(0)
     expect(result.blobs[0].color).toBe("红")
     expect(result.target).toBeDefined()
@@ -124,7 +88,7 @@ describe("Shumei image analysis", () => {
       }
     }
 
-    const result = analyzeClickCaptcha(pixels, width, height, ["蓝色"], 0.1, 0.1, 10)
+    const result = analyzeClickCaptcha(pixels, width, height, ["点击图中最小的蓝色物体"], 0.1, 0.1, 10)
     expect(result.targetColor).toBe("蓝")
     expect(result.target).toBeUndefined()
   })

@@ -34,6 +34,7 @@ export {
   hasHcaptcha,
   hasImpervaChallenge,
   hasRecaptcha,
+  hasShumei,
   hasTurnstile,
   isBlocked,
   isBrowserErrorPage,

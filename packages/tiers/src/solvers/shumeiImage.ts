@@ -1,4 +1,5 @@
 const HUB_HUES = [0, 38, 125, 208] as const
+export const MAX_SHUMEI_PIXELS = 262_144
 const HUB_NAMES = ["红", "黄", "绿", "蓝"] as const
 const COLOR_WORDS: Record<string, string[]> = {
   红: ["红"],
@@ -50,10 +51,8 @@ function nearestHub(hue: number): number {
 
 function detectTargetColor(order: string[]): string | undefined {
   const text = order.join(" ")
-  for (const [name, words] of Object.entries(COLOR_WORDS)) {
-    if (words.some((w) => text.includes(w))) return name
-  }
-  return undefined
+  const matches = Object.entries(COLOR_WORDS).filter(([, words]) => words.some((word) => text.includes(word)))
+  return matches.length === 1 ? matches[0][0] : undefined
 }
 
 function labelConnectedComponents(mask: Uint8Array, width: number, height: number): Uint32Array {
@@ -155,70 +154,63 @@ export function analyzeClickCaptcha(
   order: string[],
   sMin = 0.35,
   vMin = 0.1,
-  minArea = 250,
+  minArea = Math.max(12, Math.round((width * height) / 400)),
 ): AnalyzeResult {
-  const colorMasks: Uint8Array[] = [
-    new Uint8Array(width * height),
-    new Uint8Array(width * height),
-    new Uint8Array(width * height),
-    new Uint8Array(width * height),
-  ]
-
+  const targetColor = detectTargetColor(order)
+  const empty = { width, height, targetColor, blobs: [], target: undefined }
+  if (
+    !Number.isSafeInteger(width) ||
+    !Number.isSafeInteger(height) ||
+    width < 1 ||
+    height < 1 ||
+    width * height > MAX_SHUMEI_PIXELS ||
+    pixels.length !== width * height * 4 ||
+    !targetColor
+  )
+    return empty
+  // Only the smallest-color puzzle is supported; other spatial instructions need a different classifier.
+  if (!/最小|\bsmallest\b/i.test(order.join(" "))) return empty
+  const color = HUB_NAMES.indexOf(targetColor as (typeof HUB_NAMES)[number])
+  const mask = new Uint8Array(width * height)
+  for (let i = 0; i < mask.length; i++) {
+    const [h, s, v] = rgbToHsv(pixels[i * 4], pixels[i * 4 + 1], pixels[i * 4 + 2])
+    if (pixels[i * 4 + 3] >= 128 && s >= sMin && v >= vMin && nearestHub(h) === color) mask[i] = 1
+  }
+  const labels = labelConnectedComponents(morphClose(mask, width, height, 5), width, height)
+  const stats = new Map<
+    number,
+    { area: number; sx: number; sy: number; x0: number; x1: number; y0: number; y1: number }
+  >()
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      const i = (y * width + x) * 4
-      const [h, s, v] = rgbToHsv(pixels[i], pixels[i + 1], pixels[i + 2])
-      if (s >= sMin && v >= vMin) {
-        const hub = nearestHub(h)
-        colorMasks[hub][y * width + x] = 1
+      const label = labels[y * width + x]
+      if (!label) continue
+      let stat = stats.get(label)
+      if (!stat) {
+        stat = { area: 0, sx: 0, sy: 0, x0: x, x1: x, y0: y, y1: y }
+        stats.set(label, stat)
       }
+      stat.area++
+      stat.sx += x
+      stat.sy += y
+      stat.x0 = Math.min(stat.x0, x)
+      stat.x1 = Math.max(stat.x1, x)
+      stat.y0 = Math.min(stat.y0, y)
+      stat.y1 = Math.max(stat.y1, y)
     }
   }
-
-  const targetColor = detectTargetColor(order)
   const blobs: Blob[] = []
-
-  for (let ci = 0; ci < 4; ci++) {
-    const closed = morphClose(colorMasks[ci], width, height, 5)
-    const labels = labelConnectedComponents(closed, width, height)
-    const stats = new Map<number, { xs: number[]; ys: number[] }>()
-
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const lab = labels[y * width + x]
-        if (!lab) continue
-        let s = stats.get(lab)
-        if (!s) {
-          s = { xs: [], ys: [] }
-          stats.set(lab, s)
-        }
-        s.xs.push(x)
-        s.ys.push(y)
-      }
-    }
-
-    for (const [, { xs, ys }] of stats) {
-      if (xs.length < minArea) continue
-      const cx = xs.reduce((a, b) => a + b, 0) / xs.length
-      const cy = ys.reduce((a, b) => a + b, 0) / ys.length
-      const x0 = Math.min(...xs)
-      const x1 = Math.max(...xs)
-      const y0 = Math.min(...ys)
-      const y1 = Math.max(...ys)
-      blobs.push({
-        color: HUB_NAMES[ci],
-        area: xs.length,
-        cx,
-        cy,
-        bx: (x0 + x1) / 2,
-        by: (y0 + y1) / 2,
-      })
-    }
+  for (const stat of stats.values()) {
+    if (stat.area < minArea) continue
+    blobs.push({
+      color: targetColor,
+      area: stat.area,
+      cx: stat.sx / stat.area,
+      cy: stat.sy / stat.area,
+      bx: (stat.x0 + stat.x1) / 2,
+      by: (stat.y0 + stat.y1) / 2,
+    })
   }
-
-  blobs.sort((a, b) => b.area - a.area)
-  const candidates = targetColor ? blobs.filter((b) => b.color === targetColor) : []
-  const target = candidates.length > 0 ? candidates.reduce((a, b) => (a.area < b.area ? a : b)) : undefined
-
-  return { width, height, targetColor, blobs, target }
+  blobs.sort((a, b) => a.area - b.area)
+  return { width, height, targetColor, blobs, target: blobs[0] }
 }
