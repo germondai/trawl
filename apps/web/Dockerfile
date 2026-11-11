@@ -22,6 +22,7 @@ FROM nginx:1.31.8-alpine AS runner
 
 COPY --from=builder /app/apps/web/.output/public /usr/share/nginx/html
 COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
+COPY apps/web/security-headers.conf /etc/nginx/security-headers.conf
 
 EXPOSE 80
 
