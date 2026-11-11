@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test"
-import type { BrowserHandle } from "@trawl/browser"
+import { describe, expect, spyOn, test } from "bun:test"
+import { type BrowserHandle, PoolExhaustedError } from "@trawl/browser"
 import type { TierResult } from "@trawl/types"
 import { type OrchestratorDeps, ScrapeError, scrape } from "../src/orchestrator"
 import { ProxyPool } from "../src/utils/proxyRotator"
@@ -44,6 +44,27 @@ function runners(status: TierResult["status"], reason?: string) {
     tier4: async () => ({ ...result, tier: 4 as const }),
   }
 }
+
+test("preserves pool exhaustion at the request deadline", async () => {
+  const start = Date.now()
+  const clock = spyOn(Date, "now").mockReturnValue(start)
+  try {
+    await expect(
+      scrape(
+        { url: "https://example.test/", skipHttp: true, maxTimeout: 80 },
+        {
+          ...dependencies(3, []),
+          acquireBrowser: async () => {
+            clock.mockReturnValue(start + 81)
+            throw new PoolExhaustedError()
+          },
+        },
+      ),
+    ).rejects.toBeInstanceOf(PoolExhaustedError)
+  } finally {
+    clock.mockRestore()
+  }
+})
 
 test.each([1, 2, 3, 4] as const)("Tier %i preserves non-HTML text through the public scrape result", async (tier) => {
   const text = "  alpha\r\n\r\n\r\nbeta  \n"

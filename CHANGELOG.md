@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Include matched wafmeow rule references, incomplete product evaluations and diagnostic codes in native/SDK/MCP results and metric history, while retaining existing profiles and solver routing (#258, #277).
 
 ### Fixed
+- Preserve pool-exhaustion responses when acquisition and the request deadline expire together.
 - Avoid detecting Cloudflare and Turnstile challenges from ordinary verification text, comments and inert HTML examples. Preserve active challenge markers and prevent POST replay from resending application replies containing examples (#278).
 - Avoid replaying non-safe proxy requests after ambiguous upstream failures. Close upstream work on client disconnect, accept fragmented CONNECT headers, preserve HEAD/204/304 semantics and stream unknown-length responses at the existing 8 MiB threshold.
 - Preserve trusted proxy credentials in HTTP escalation and import scoped cookies for browser solving. Isolate authenticated requests from shared clearance sessions, retain native API restrictions and reject unsupported browser `Authorization` forwarding.

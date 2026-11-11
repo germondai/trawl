@@ -157,7 +157,7 @@ export async function scrape(
   let wafResult: Promise<WafDetection> | undefined
   const diagnose = () => wafResult ?? Promise.resolve(wafUnavailable("no-response"))
   const onAbort = () => {
-    capacityExpired = acquiring
+    capacityExpired ||= acquiring
   }
   budget.signal.addEventListener("abort", onAbort, { once: true })
   try {
@@ -176,6 +176,9 @@ export async function scrape(
               }
               ownedHandle = handle
               return handle
+            } catch (error) {
+              if (error instanceof PoolExhaustedError) capacityExpired = true
+              throw error
             } finally {
               acquiring = false
             }
