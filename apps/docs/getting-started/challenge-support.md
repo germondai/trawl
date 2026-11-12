@@ -25,7 +25,7 @@ TRAWL detects supported walls, chooses the matching browser flow and checks whet
 | Akamai Bot Manager      | Supported sensor and press-and-hold flows                                            | No dedicated catalogue entry                              |
 | Imperva / Incapsula     | Supported sensor challenges; no built-in solver for its own interactive CAPTCHA      | Site profile required                                     |
 | DDoS-Guard              | JavaScript challenge execution and cookie checks                                     | No dedicated catalogue entry                              |
-| AWS WAF                 | JavaScript token challenges; detects interactive CAPTCHA separately                  | Site profile required for CAPTCHA                         |
+| AWS WAF                 | Token challenges; CAPTCHA wall via the audio puzzle (needs a capable STT model)      | Site profile required for CAPTCHA                         |
 | DataDome                | Device Check through the opt-in headful pool; detects slider CAPTCHA and hard blocks | Site profile required for slider CAPTCHA                  |
 | DuckDuckGo anomaly wall | Detected and reported as requiring CAPTCHA; no built-in image-puzzle solver          | No dedicated catalogue entry                              |
 

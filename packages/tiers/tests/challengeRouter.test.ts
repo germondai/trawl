@@ -96,6 +96,111 @@ describe("browser challenge routing", () => {
     expect(result).toEqual({ challengeType: "aws-waf", resolution: "captcha-required" })
   })
 
+  describe("AWS WAF CAPTCHA wall solving", () => {
+    const wall = { "x-amzn-waf-action": "captcha" }
+    const reloaded = { content: async () => "<html><body>real page</body></html>" } as unknown as Page
+    const idle = async () => {
+      throw new Error("waiter must not run")
+    }
+    const waiters = (overrides: Record<string, unknown>) =>
+      ({
+        cloudflare: idle,
+        ddosGuard: idle,
+        imperva: idle,
+        akamai: idle,
+        awsWaf: idle,
+        dataDome: idle,
+        ...overrides,
+      }) as never
+
+    test("solves the wall, then lets the waiter confirm the new token", async () => {
+      const calls: string[] = []
+      const result = await routeChallengeWait(
+        reloaded,
+        "",
+        wall,
+        1000,
+        "https://example.test/",
+        waiters({
+          awsWafCaptcha: async () => {
+            calls.push("solve")
+            return true
+          },
+          awsWaf: async () => {
+            calls.push("confirm")
+            return "ok" as const
+          },
+        }),
+        405,
+      )
+      expect(calls).toEqual(["solve", "confirm"])
+      expect(result).toEqual({ challengeType: "aws-waf", resolution: "ok", captchasSolved: ["aws-waf"] })
+    })
+
+    test("keeps CAPTCHA-required when the solver fails and never runs the waiter", async () => {
+      const result = await routeChallengeWait(
+        reloaded,
+        "",
+        wall,
+        1000,
+        undefined,
+        waiters({ awsWafCaptcha: async () => false }),
+        405,
+      )
+      expect(result).toEqual({ challengeType: "aws-waf", resolution: "captcha-required" })
+    })
+
+    test("keeps CAPTCHA-required when the solver throws", async () => {
+      const result = await routeChallengeWait(
+        reloaded,
+        "",
+        wall,
+        1000,
+        undefined,
+        waiters({
+          awsWafCaptcha: async () => {
+            throw new Error("browser closed")
+          },
+        }),
+        405,
+      )
+      expect(result).toEqual({ challengeType: "aws-waf", resolution: "captcha-required" })
+    })
+
+    test("reports the waiter verdict, without claiming a solve, when the token is not accepted", async () => {
+      const result = await routeChallengeWait(
+        reloaded,
+        "",
+        wall,
+        1000,
+        undefined,
+        waiters({ awsWafCaptcha: async () => true, awsWaf: async () => "ip-blocked" as const }),
+        405,
+      )
+      expect(result).toEqual({ challengeType: "aws-waf", resolution: "ip-blocked" })
+    })
+
+    test("does not try to solve once the request is aborted", async () => {
+      const controller = new AbortController()
+      controller.abort()
+      const result = await routeChallengeWait(
+        reloaded,
+        "",
+        wall,
+        1000,
+        undefined,
+        waiters({ awsWafCaptcha: idle }),
+        405,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        controller.signal,
+      )
+      expect(result).toEqual({ challengeType: "aws-waf", resolution: "captcha-required" })
+    })
+  })
+
   test("reports a DuckDuckGo image challenge without invoking the Cloudflare waiter", async () => {
     const fail = async () => {
       throw new Error("waiter must not run")

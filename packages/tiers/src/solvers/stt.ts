@@ -18,6 +18,9 @@ import { runFfmpeg } from "./subprocess"
 
 const STT_URL = process.env.STT_URL?.trim() ?? ""
 const STT_KEY = process.env.STT_API_KEY ?? ""
+// Model name sent to STT_URL. OpenAI-compatible servers that expose several recognisers
+// choose one by this field, so it must be configurable rather than fixed at whisper-1.
+const STT_MODEL = process.env.STT_MODEL?.trim() || "whisper-1"
 // FFMPEG_PATH: full path to ffmpeg binary. Docker installs 'ffmpeg' via apt.
 // On macOS with Playwright's bundled binary it's named 'ffmpeg-mac'; set this
 // env var or create a symlink to make 'ffmpeg' resolve.
@@ -50,16 +53,32 @@ export async function transcribeAudio(
   return STT_URL ? transcribeWhisper(download, signal) : transcribeGoogle(download, signal)
 }
 
+// For audio the page already delivered in memory (for example AWS WAF embeds it in the
+// challenge JSON), so there is no URL to fetch. The extension of `filename` tells servers
+// that sniff by name which container to expect.
+export async function transcribeAudioBytes(
+  bytes: Uint8Array,
+  signal?: AbortSignal,
+  filename = "audio.aac",
+): Promise<string | undefined> {
+  const download = async () => new Response(new Uint8Array(bytes))
+  return STT_URL ? transcribeWhisper(download, signal, filename) : transcribeGoogle(download, signal)
+}
+
 type AudioDownload = (headers: Record<string, string>) => Promise<Response>
 
-async function transcribeWhisper(download: AudioDownload, signal?: AbortSignal): Promise<string | undefined> {
+async function transcribeWhisper(
+  download: AudioDownload,
+  signal?: AbortSignal,
+  filename = "audio.mp3",
+): Promise<string | undefined> {
   try {
     const res = await download({ "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/149" })
     if (!res.ok) return
 
     const form = new FormData()
-    form.append("file", await res.blob(), "audio.mp3")
-    form.append("model", "whisper-1")
+    form.append("file", await res.blob(), filename)
+    form.append("model", STT_MODEL)
     form.append("language", "en")
     form.append("response_format", "text")
 

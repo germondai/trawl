@@ -1,4 +1,5 @@
 import type { Page } from "patchright"
+import { solveAwsWaf } from "../solvers/awsWaf"
 import type { ExternalCaptchaSession } from "../solvers/externalCaptcha"
 import { waitForAkamaiResolution } from "./akamaiWait"
 import { type AnubisResolution, waitForAnubisResolution } from "./anubisWait"
@@ -43,9 +44,12 @@ interface ChallengeWaiters {
     originalUrl?: string,
     initialCookies?: ReadonlySet<string>,
   ) => Promise<Resolution>
+  // Optional so callers and tests that build their own waiter set never reach a real page.
+  awsWafCaptcha?: (page: Page, timeoutMs: number, signal?: AbortSignal) => Promise<boolean>
 }
 
 const defaultWaiters: ChallengeWaiters = {
+  awsWafCaptcha: solveAwsWaf,
   cloudflare: waitForChallengeResolution,
   imperva: waitForImpervaResolution,
   akamai: waitForAkamaiResolution,
@@ -154,6 +158,39 @@ export async function routeChallengeWait(
     initialCookies,
     responseHeaders,
   )
+  // The AWS WAF CAPTCHA wall is solved through its audio puzzle. A solved wall reloads the
+  // page itself, so wait for it to leave the wall before asking the waiter to confirm the
+  // new token; otherwise the waiter would still see the CAPTCHA markup and report it.
+  if (
+    result.challengeType === "aws-waf" &&
+    result.resolution === "captcha-required" &&
+    waiters.awsWafCaptcha &&
+    !signal?.aborted
+  ) {
+    // With an external solver configured the local attempt gets only its share, like every
+    // other local solver, so the fallback is not left without time.
+    const available = Math.max(0, deadline - Date.now())
+    const solvedWall = await waiters
+      .awsWafCaptcha(page, eligible && external ? external.localBudget(available) : available, signal)
+      .catch(() => false)
+    if (solvedWall && !signal?.aborted) {
+      const clearUntil = Math.min(deadline, Date.now() + 8_000)
+      while (Date.now() < clearUntil) {
+        const current = await page.content().catch(() => "")
+        if (current && !hasAwsWafCaptcha(current)) break
+        await new Promise((resolve) => setTimeout(resolve, 250))
+      }
+      const resolution = await waiters.awsWaf(
+        page,
+        Math.max(0, deadline - Date.now()),
+        originalUrl,
+        initialCookies?.awsWaf,
+      )
+      return resolution === "ok"
+        ? { challengeType: "aws-waf", resolution, captchasSolved: ["aws-waf"] }
+        : { challengeType: "aws-waf", resolution }
+    }
+  }
   if (
     !eligible ||
     !external ||
