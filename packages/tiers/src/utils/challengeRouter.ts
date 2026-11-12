@@ -8,6 +8,7 @@ import { waitForChallengeResolution } from "./challengeWait"
 import type { ChallengeCookieSnapshot } from "./cookies"
 import { type DataDomeResolution, waitForDataDomeResolution } from "./datadomeWait"
 import { waitForDdosGuardResolution } from "./ddosGuardWait"
+import { sleep } from "./deadline"
 import {
   type ChallengeType,
   detectChallengeType,
@@ -145,7 +146,7 @@ export async function routeChallengeWait(
       } else if (await external.canSolve(page, kind, proxy)) eligible = true
     }
   }
-  const result = await routeLocalChallengeWait(
+  let result = await routeLocalChallengeWait(
     page,
     html,
     headers,
@@ -170,25 +171,25 @@ export async function routeChallengeWait(
     // With an external solver configured the local attempt gets only its share, like every
     // other local solver, so the fallback is not left without time.
     const available = Math.max(0, deadline - Date.now())
-    const solvedWall = await waiters
-      .awsWafCaptcha(page, eligible && external ? external.localBudget(available) : available, signal)
-      .catch(() => false)
+    const localTimeout = eligible && external ? external.localBudget(available) : available
+    const localDeadline = Math.min(deadline, Date.now() + localTimeout)
+    const solvedWall = await waiters.awsWafCaptcha(page, localTimeout, signal).catch(() => false)
     if (solvedWall && !signal?.aborted) {
-      const clearUntil = Math.min(deadline, Date.now() + 8_000)
-      while (Date.now() < clearUntil) {
+      const clearUntil = Math.min(localDeadline, Date.now() + 8_000)
+      while (Date.now() < clearUntil && !signal?.aborted) {
         const current = await page.content().catch(() => "")
         if (current && !hasAwsWafCaptcha(current)) break
-        await new Promise((resolve) => setTimeout(resolve, 250))
+        await sleep(Math.min(250, Math.max(0, clearUntil - Date.now())), signal).catch(() => {})
       }
+      if (signal?.aborted) return result
       const resolution = await waiters.awsWaf(
         page,
-        Math.max(0, deadline - Date.now()),
+        Math.max(0, localDeadline - Date.now()),
         originalUrl,
         initialCookies?.awsWaf,
       )
-      return resolution === "ok"
-        ? { challengeType: "aws-waf", resolution, captchasSolved: ["aws-waf"] }
-        : { challengeType: "aws-waf", resolution }
+      result = { challengeType: "aws-waf", resolution }
+      if (resolution === "ok") return { ...result, captchasSolved: ["aws-waf"] }
     }
   }
   if (

@@ -840,6 +840,8 @@ The result depends on the recogniser separating the two voices:
   discarded and a new puzzle is requested instead of burning an attempt.
 - The solver submits at most three answers per wall. Without `STT_URL`, the public Google endpoint
   is used, which transcribes this audio poorly.
+- Transcription and clearance verification share the local solving budget, leaving time for a
+  configured external fallback. Cancelling the request stops transcription and further submissions.
 - The embedded widget on an ordinary page, and the image-grid puzzle, are not solved.
 
 The API container already includes ffmpeg. Bare-metal installations must make `ffmpeg` available on

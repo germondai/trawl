@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { Page } from "patchright"
 import type { ExternalCaptchaSession } from "../src/solvers/externalCaptcha"
+import { waitForAwsWafResolution } from "../src/utils/awsWafWait"
 import { routeChallengeWait } from "../src/utils/challengeRouter"
 import { DATADOME_CAPTCHA, DATADOME_INTERSTITIAL, DATADOME_JSON_HARD_BLOCK } from "./fixtures/datadome"
 import { DDOS_GUARD_INTERSTITIAL } from "./fixtures/ddosGuard"
@@ -178,6 +179,157 @@ describe("browser challenge routing", () => {
         405,
       )
       expect(result).toEqual({ challengeType: "aws-waf", resolution: "ip-blocked" })
+    })
+
+    test("uses the external profile when an accepted audio answer does not clear the CAPTCHA wall", async () => {
+      let solves = 0
+      const external = {
+        discover: async () => ["profile:0"],
+        canSolve: async () => true,
+        localBudget: () => 40,
+        solveProfiles: async () => {
+          solves++
+          return ["aws-waf:2captcha"]
+        },
+      } as unknown as ExternalCaptchaSession
+
+      const result = await routeChallengeWait(
+        reloaded,
+        "",
+        wall,
+        1000,
+        "https://example.test/",
+        waiters({
+          awsWafCaptcha: async () => true,
+          awsWaf: async () => "captcha-required",
+          cloudflare: async () => "ok",
+        }),
+        405,
+        undefined,
+        () => ({}),
+        external,
+      )
+
+      expect(solves).toBe(1)
+      expect(result.resolution).toBe("ok")
+      expect(result.captchasSolved).toEqual(["aws-waf:2captcha"])
+    })
+
+    test("reserves external fallback time when audio acceptance does not produce a new token", async () => {
+      const externalBudgets: number[] = []
+      const external = {
+        discover: async () => ["profile:0"],
+        canSolve: async () => true,
+        localBudget: () => 40,
+        solveProfiles: async (_page: Page, remaining: number) => {
+          externalBudgets.push(remaining)
+          return ["aws-waf:2captcha"]
+        },
+      } as unknown as ExternalCaptchaSession
+      const page = {
+        content: reloaded.content,
+        context: () => ({ cookies: async () => [] }),
+      } as unknown as Page
+
+      const result = await routeChallengeWait(
+        page,
+        "",
+        wall,
+        1000,
+        "https://example.test/",
+        waiters({
+          awsWafCaptcha: async () => true,
+          awsWaf: (page: Page, timeout: number) =>
+            waitForAwsWafResolution(page, timeout, "https://example.test/", { pollMs: 1 }),
+          cloudflare: async () => "ok",
+        }),
+        405,
+        undefined,
+        () => ({}),
+        external,
+      )
+
+      expect(result.resolution).toBe("ok")
+      expect(externalBudgets).toHaveLength(1)
+      expect(externalBudgets[0]).toBeGreaterThan(500)
+    })
+
+    test.each(["ok", "ip-blocked"] as const)("does not create an external task after %s", async (resolution) => {
+      let solves = 0
+      const external = {
+        discover: async () => ["profile:0"],
+        canSolve: async () => true,
+        localBudget: () => 40,
+        solveProfiles: async () => {
+          solves++
+          return []
+        },
+      } as unknown as ExternalCaptchaSession
+
+      const result = await routeChallengeWait(
+        reloaded,
+        "",
+        wall,
+        1000,
+        undefined,
+        waiters({ awsWafCaptcha: async () => true, awsWaf: async () => resolution }),
+        405,
+        undefined,
+        () => ({}),
+        external,
+      )
+
+      expect(result.resolution).toBe(resolution)
+      expect(solves).toBe(0)
+    })
+
+    test("stops clearance polling on cancellation without confirming or creating an external task", async () => {
+      const request = new AbortController()
+      let reads = 0
+      let confirmations = 0
+      let solves = 0
+      const external = {
+        discover: async () => ["profile:0"],
+        canSolve: async () => true,
+        localBudget: () => 40,
+        solveProfiles: async () => {
+          solves++
+          return []
+        },
+      } as unknown as ExternalCaptchaSession
+      const page = {
+        content: async () => {
+          reads++
+          request.abort()
+          return '<script>window.gokuProps={}</script><script src="https://x.token.awswaf.com/x/captcha.js"></script>'
+        },
+      } as unknown as Page
+
+      const result = await routeChallengeWait(
+        page,
+        "",
+        wall,
+        200,
+        undefined,
+        waiters({
+          awsWafCaptcha: async () => true,
+          awsWaf: async () => {
+            confirmations++
+            return "ok"
+          },
+        }),
+        405,
+        undefined,
+        () => ({}),
+        external,
+        undefined,
+        request.signal,
+      )
+
+      expect(result.resolution).toBe("captcha-required")
+      expect(reads).toBe(1)
+      expect(confirmations).toBe(0)
+      expect(solves).toBe(0)
     })
 
     test("does not try to solve once the request is aborted", async () => {
