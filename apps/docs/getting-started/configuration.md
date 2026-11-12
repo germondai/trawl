@@ -817,15 +817,32 @@ See the provider's [reCAPTCHA v2](https://2captcha.com/api-docs/recaptcha-v2),
 TRAWL uses ffmpeg while solving supported CAPTCHA challenges. reCAPTCHA audio is converted before
 speech recognition, and the GeeTest solver uses it during image processing.
 
-| Variable      | Default  | Purpose                                                      |
-| ------------- | -------- | ------------------------------------------------------------ |
-| `STT_URL`     | -        | Optional Whisper/OpenAI-compatible transcription endpoint    |
-| `STT_API_KEY` | -        | Optional bearer token sent only to `STT_URL`                 |
-| `FFMPEG_PATH` | `ffmpeg` | Executable name or absolute path used by the CAPTCHA solvers |
+| Variable      | Default     | Purpose                                                      |
+| ------------- | ----------- | ------------------------------------------------------------ |
+| `STT_URL`     | -           | Optional Whisper/OpenAI-compatible transcription endpoint    |
+| `STT_API_KEY` | -           | Optional bearer token sent only to `STT_URL`                 |
+| `STT_MODEL`   | `whisper-1` | Model name sent to `STT_URL`                                 |
+| `FFMPEG_PATH` | `ffmpeg`    | Executable name or absolute path used by the CAPTCHA solvers |
 
 Without `STT_URL`, reCAPTCHA audio uses Google's public speech-recognition endpoint. When `STT_URL`
-is configured, TRAWL sends a multipart `whisper-1` transcription request and adds
-`Authorization: Bearer <STT_API_KEY>` when a key is present.
+is configured, TRAWL sends a multipart transcription request with the `STT_MODEL` name and adds
+`Authorization: Bearer <STT_API_KEY>` when a key is present. Servers that expose several
+recognisers choose one by that name, so set it when the default is not the one you want.
+
+### AWS WAF CAPTCHA audio
+
+TRAWL solves an AWS WAF CAPTCHA wall through the widget's audio puzzle. A voice says "type one of
+the two following words spoken by me" and names two words while a second voice reads unrelated text.
+The result depends on the recogniser separating the two voices:
+
+- A general-purpose recogniser often transcribes only the background text, so submissions are
+  rejected. A transcript without the two words, or whose first words are common function words, is
+  discarded and a new puzzle is requested instead of burning an attempt.
+- The solver submits at most three answers per wall. Without `STT_URL`, the public Google endpoint
+  is used, which transcribes this audio poorly.
+- Transcription and clearance verification share the local solving budget, leaving time for a
+  configured external fallback. Cancelling the request stops transcription and further submissions.
+- The embedded widget on an ordinary page, and the image-grid puzzle, are not solved.
 
 The API container already includes ffmpeg. Bare-metal installations must make `ffmpeg` available on
 `PATH` or set `FFMPEG_PATH`. These values are read only by CAPTCHA solving; ordinary scrapes do not
