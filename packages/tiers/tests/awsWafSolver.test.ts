@@ -186,6 +186,44 @@ describe("AWS WAF audio solver", () => {
     expect(widget.log).toEqual([])
   })
 
+  test("cancels a stalled transcription within the local budget without refreshing the widget", async () => {
+    const widget = fakeWidget()
+    const request = new AbortController()
+    const guard = setTimeout(() => request.abort(), 500)
+    try {
+      const solved = await solveAwsWaf(widget.page, 40, request.signal, async (_bytes, signal) => {
+        await new Promise<void>((resolve) => {
+          if (signal?.aborted) resolve()
+          else signal?.addEventListener("abort", () => resolve(), { once: true })
+        })
+        return undefined
+      })
+
+      expect(solved).toBe(false)
+      expect(request.signal.aborted).toBe(false)
+      expect(widget.log).not.toContain(`click:${REFRESH}`)
+      expect(widget.answers).toEqual([])
+      expect(widget.handlers.size).toBe(0)
+    } finally {
+      clearTimeout(guard)
+    }
+  })
+
+  test("does not submit a transcript returned after cancellation", async () => {
+    const widget = fakeWidget()
+    const request = new AbortController()
+
+    const solved = await solveAwsWaf(widget.page, 5000, request.signal, async () => {
+      request.abort()
+      return GOOD
+    })
+
+    expect(solved).toBe(false)
+    expect(widget.answers).toEqual([])
+    expect(widget.log).not.toContain(`click:${VERIFY}`)
+    expect(widget.handlers.size).toBe(0)
+  })
+
   test("always detaches its response listener", async () => {
     const solved = fakeWidget()
     await solveAwsWaf(solved.page, 5000, undefined, recogniser([GOOD]).fn)

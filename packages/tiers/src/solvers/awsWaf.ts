@@ -107,6 +107,9 @@ export async function solveAwsWaf(
   transcribe: typeof transcribeAudioBytes = transcribeAudioBytes,
 ): Promise<boolean> {
   if (timeoutMs <= 0 || signal?.aborted) return false
+  signal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, timeoutMs))])
+    : AbortSignal.timeout(Math.max(1, timeoutMs))
   const deadline = Date.now() + timeoutMs
   const remaining = () => Math.max(0, deadline - Date.now())
   const step = (cap: number) => Math.max(1, Math.min(cap, remaining()))
@@ -134,11 +137,15 @@ export async function solveAwsWaf(
   try {
     if (!(await hasAwsWafCaptchaWidget(page, Math.min(3000, remaining()), signal))) return false
     const frame = await widgetFrame(page)
-    if (!frame) return false
+    if (!frame || signal.aborted || remaining() <= 0) return false
 
     await useEnglish(frame, step(3000)).catch(() => {})
-    if (await visible(frame, START)) await frame.locator(START).click({ timeout: step(3000) })
+    if (await visible(frame, START)) {
+      signal.throwIfAborted()
+      await frame.locator(START).click({ timeout: step(3000) })
+    }
     if (!(await visible(frame, ANSWER))) {
+      signal.throwIfAborted()
       state.audio = undefined
       await frame.locator(AUDIO_TOGGLE).click({ timeout: step(5000) })
     }
@@ -147,6 +154,7 @@ export async function solveAwsWaf(
     for (let round = 0; round < MAX_ROUNDS && submissions < MAX_SUBMISSIONS; round++) {
       if (signal?.aborted || remaining() <= 0) return false
       const requestNew = async () => {
+        signal.throwIfAborted()
         state.audio = undefined
         await frame.locator(REFRESH).click({ timeout: step(3000) })
       }
@@ -158,6 +166,7 @@ export async function solveAwsWaf(
       const bytes = decodeAudio(state.audio ?? "")
       state.audio = undefined
       const transcript = bytes ? await transcribe(bytes, signal) : undefined
+      signal.throwIfAborted()
       const answer = transcript ? extractAwsWafAnswer(transcript) : undefined
       if (!answer) {
         await requestNew().catch(() => {})
@@ -166,9 +175,11 @@ export async function solveAwsWaf(
 
       state.verify = undefined
       await frame.locator(ANSWER).fill(answer, { timeout: step(3000) })
+      signal.throwIfAborted()
       await frame.locator(VERIFY).click({ timeout: step(3000) })
       submissions++
       if (!(await until(() => state.verify !== undefined, step(8000), signal))) return false
+      signal.throwIfAborted()
       // Read through a function: the assignment above would otherwise narrow this to `undefined`.
       const verdict = ((): VerifyBody | undefined => state.verify)()
       if (verdict?.success === true) {
