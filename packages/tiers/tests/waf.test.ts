@@ -175,8 +175,10 @@ test("timeout and cancellation stop a worker without queueing concurrent request
 })
 
 test("rejects malformed and oversized worker output", async () => {
-  for (const output of ["{}", "x".repeat(33_000)]) {
-    const detector = worker(`console.log(${JSON.stringify(output)}); await Bun.sleep(60_000)`)
+  // The oversized payload is built inside the worker: embedding it in the script would put
+  // 33 KB on the command line, which exceeds the 32,767-character limit on Windows.
+  for (const output of ['"{}"', '"x".repeat(33_000)']) {
+    const detector = worker(`console.log(${output}); await Bun.sleep(60_000)`)
     expect(await detector.detect(evidence, 1_000)).toMatchObject({ state: "unavailable", reason: "failed" })
   }
 })
