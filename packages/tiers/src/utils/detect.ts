@@ -215,8 +215,10 @@ export function hasFriendlyCaptcha(html: string): boolean {
 // enough: it must come with the stub's own markers. A long page that merely mentions the path
 // (documentation, a blog post) is not a punish response.
 export function hasBaxiaPunish(html: string, headers: Record<string, string> = {}): boolean {
+  // The stub is a few KB. Real pages can mention these words in their own scripts.
+  if (html.length >= 20_000) return false
   if (headerValue(headers, "bxpunish") === "1") return /_____tmd_____|x5referer|x5secdata/.test(html)
-  return html.length < 20_000 && /_____tmd_____\/punish\?x5secdata=/.test(html)
+  return /_____tmd_____\/punish\?x5secdata=/.test(html)
 }
 
 export function hasShumei(html: string): boolean {

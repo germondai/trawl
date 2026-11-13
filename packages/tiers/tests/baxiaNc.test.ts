@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { Page } from "patchright"
 import { hasBaxiaNcMarkup, hasBaxiaNcWidget, planNcDrag, solveBaxiaNc } from "../src/solvers/baxiaNc"
+import { persistentBrowserWall } from "../src/utils/browserWall"
 import { detectChallengeType, hasBaxiaPunish, needsJs } from "../src/utils/detect"
 
 const FAST = { appearMs: 300, resultMs: 400, retryMs: 400 }
@@ -175,5 +176,24 @@ describe("Baxia punish detection", () => {
 
   test("a short stub that carries the punish link is recognised without the header", () => {
     expect(hasBaxiaPunish('<a href="https://x.test/_____tmd_____/punish?x5secdata=abc&x5step=1">go</a>', {})).toBe(true)
+  })
+})
+
+describe("Baxia in browser tiers", () => {
+  const stub =
+    '<script>localStorage.x5referer = window.location.href; var jump = "/_____tmd_____/page/login_jump?x";</script>'
+
+  test("a punish stub that is still on screen is a persistent wall", () => {
+    expect(persistentBrowserWall(stub, "https://s.1688.com/x", { bxpunish: "1" }, 302, "baxia")).toEqual({
+      reason: "baxia-persistent",
+    })
+    expect(
+      persistentBrowserWall("<html></html>", "https://x.test/_____tmd_____/punish?x5secdata=a", {}, 200, "baxia"),
+    ).toEqual({ reason: "baxia-persistent" })
+  })
+
+  test("the real page after a passed slide is not a wall, even if its scripts mention x5sec", () => {
+    const page = `<html><body>${"content ".repeat(4000)} x5secdata x5referer</body></html>`
+    expect(persistentBrowserWall(page, "https://s.1688.com/x", { bxpunish: "1" }, 200, "baxia")).toBeUndefined()
   })
 })

@@ -3,6 +3,7 @@ import {
   type ChallengeType,
   hasAkamaiChallenge,
   hasAnubisChallenge,
+  hasBaxiaPunish,
   hasDataDomeChallenge,
   hasDdosGuardChallenge,
   hasDuckDuckGoChallenge,
@@ -33,5 +34,8 @@ export function persistentBrowserWall(
   if (hasDdosGuardChallenge(html)) return { reason: "ddos-guard-persistent" }
   if (hasDataDomeChallenge(html)) return { reason: "datadome-persistent", challenge: "datadome" }
   if (hasDuckDuckGoChallenge(html)) return { reason: "duckduckgo-persistent" }
+  // Still on the punish page (or its stub) after the solver ran: the slide did not pass, or the
+  // block is a login jump that no widget clears.
+  if (hasBaxiaPunish(html, headers) || /\/_____tmd_____\/punish/.test(url)) return { reason: "baxia-persistent" }
   if (isBlocked(status, html)) return { reason: `http-${status}` }
 }
