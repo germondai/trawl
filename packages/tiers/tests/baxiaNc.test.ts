@@ -204,3 +204,22 @@ describe("Baxia punish detection, header branch", () => {
     expect(hasBaxiaPunish('<a href="/_____tmd_____/page/login_jump?x">go</a>', { bxpunish: "1" })).toBe(true)
   })
 })
+
+describe("Baxia stub after a passed slide", () => {
+  const stub = "<script>var jump = localStorage.x5referer; if (!jump) window.history.go(-2); /_____tmd_____/</script>"
+  const url = "https://chat.qwen.ai//api/v2/chat/completions/_____tmd_____/punish?x5secdata=a&x5step=1"
+
+  test("a solved NC is not reported as a wall even if the page stays on the stub", () => {
+    expect(persistentBrowserWall(stub, url, { bxpunish: "1" }, 200, "baxia", ["baxia-nc"])).toBeUndefined()
+    expect(persistentBrowserWall(stub, url, { bxpunish: "1" }, 200, "baxia", ["turnstile", "baxia-nc"])).toBeUndefined()
+  })
+
+  test("without a solved NC the same stub is still a wall", () => {
+    expect(persistentBrowserWall(stub, url, { bxpunish: "1" }, 200, "baxia", [])).toEqual({
+      reason: "baxia-persistent",
+    })
+    expect(persistentBrowserWall(stub, url, { bxpunish: "1" }, 200, "baxia", ["turnstile"])).toEqual({
+      reason: "baxia-persistent",
+    })
+  })
+})
