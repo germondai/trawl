@@ -197,3 +197,10 @@ describe("Baxia in browser tiers", () => {
     expect(persistentBrowserWall(page, "https://s.1688.com/x", { bxpunish: "1" }, 200, "baxia")).toBeUndefined()
   })
 })
+
+describe("Baxia punish detection, header branch", () => {
+  test("only the stub's own path counts next to the header, not words real pages may use", () => {
+    expect(hasBaxiaPunish("<script>var x5referer = 1; var x5secdata = 2</script>", { bxpunish: "1" })).toBe(false)
+    expect(hasBaxiaPunish('<a href="/_____tmd_____/page/login_jump?x">go</a>', { bxpunish: "1" })).toBe(true)
+  })
+})

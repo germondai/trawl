@@ -217,7 +217,10 @@ export function hasFriendlyCaptcha(html: string): boolean {
 export function hasBaxiaPunish(html: string, headers: Record<string, string> = {}): boolean {
   // The stub is a few KB. Real pages can mention these words in their own scripts.
   if (html.length >= 20_000) return false
-  if (headerValue(headers, "bxpunish") === "1") return /_____tmd_____|x5referer|x5secdata/.test(html)
+  // With the header, the stub's own path is the only marker: words like x5referer can sit in
+  // an ordinary short page's scripts, and the header comes from the first response, so it is
+  // still in hand after a passed slide has landed on real content.
+  if (headerValue(headers, "bxpunish") === "1") return html.includes("_____tmd_____")
   return /_____tmd_____\/punish\?x5secdata=/.test(html)
 }
 
