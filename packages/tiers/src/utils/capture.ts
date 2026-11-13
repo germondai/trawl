@@ -2,6 +2,7 @@ import type { CapturedResponseEntry, ConsoleLogEntry, InputCookie, NetworkLogEnt
 import type { ConsoleMessage, Page, Request } from "patchright"
 import type { ExternalCaptchaSession } from "../solvers/externalCaptcha"
 import type { BlockedEvidenceSink } from "./blockedEvidence"
+import type { CaptchaSink } from "./captchaOutcomes"
 import { captureLimit } from "./captureConfig"
 import type { RequestBudget } from "./deadline"
 import type { PostReplay } from "./postReplay"
@@ -61,6 +62,8 @@ export interface CaptureOptions extends ResponseCaptureOptions {
   // Where a tier hands back the challenge wall it could not clear. Attaches no listener
   // and buffers nothing - the tier reads the page once, on the branch that gives up.
   blockedEvidence?: BlockedEvidenceSink
+  // Receives every CAPTCHA the tier tried and whether it cleared it. Read by metrics only.
+  captchaOutcomes?: CaptchaSink
 }
 
 export interface CapturedPageEvidence {
