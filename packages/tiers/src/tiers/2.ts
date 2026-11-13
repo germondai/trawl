@@ -7,6 +7,7 @@ import { isAnubisVerificationUrl } from "../utils/anubis"
 import { waitForAnubisResolution } from "../utils/anubisWait"
 import { reportBlocked } from "../utils/blockedEvidence"
 import { captureBrowserDocument, waitForBrowserLoad } from "../utils/browserCapture"
+import { widgetOutcomes } from "../utils/captchaOutcomes"
 import { attachPageCapture, type CaptureOptions } from "../utils/capture"
 import { normalizeSameSite, toCookies } from "../utils/cookies"
 import { DeadlineError, RequestBudget } from "../utils/deadline"
@@ -245,6 +246,7 @@ async function runTier2Task(
         solved: [],
       }))
       captchasSolved = result.solved
+      capture.captchaOutcomes?.(widgetOutcomes(result.attempted, result.solved))
     }
 
     const {

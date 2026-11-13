@@ -224,6 +224,16 @@ charts for 15 minutes, 1 hour, 24 hours, 7 days or 30 days, with hover and
 keyboard details for each time bucket, plus tier, source and failure-cause
 breakdowns. It also lists the latest 100 completed requests
 with timestamps, domains, duration, status and outcome, plus the latest 50 failures.
+The **CAPTCHA solvers** panel counts every CAPTCHA a request tried to clear, per solver
+(`turnstile`, `recaptcha-v2`, `hcaptcha`, `altcha`, `friendly-captcha`, `cap`, `shumei`,
+`geetest-slide`, `aws-waf`, ...), with attempts, solved, failed and success rate. An
+external-solver fallback shows as its own row (for example `turnstile (2captcha)`) and counts as a
+separate attempt, so a CAPTCHA the local solver missed and the fallback cleared appears as one failure
+and one solve. A wall that stops at a CAPTCHA no solver could clear counts as a failure of that wall's
+kind. Timeouts and plain blocks are not CAPTCHA attempts. The activity and failure tables add a
+CAPTCHA column with each request's outcomes, and the failure filter matches them. Each tier attempt in
+the scrape result's `timings` carries a `captchas` array of `{ kind, outcome }` only when it tried one.
+Counts start with the first request recorded after upgrading; older history has no CAPTCHA data.
 The `GET /dashboard/events` stream signals new activity immediately;
 the page refreshes its snapshot when an event arrives and falls back to periodic
 refresh. The live view can be paused or refreshed manually. Export JSON downloads

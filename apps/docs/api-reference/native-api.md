@@ -172,6 +172,7 @@ interface TierResult {
   status: 'success' | 'blocked' | 'needs-js' | 'timeout' | 'error' | 'skipped'
   durationMs: number
   reason?: string
+  captchas?: { kind: string; outcome: 'solved' | 'failed' }[]  // only when this attempt tried a CAPTCHA
 }
 ```
 

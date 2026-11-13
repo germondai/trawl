@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Solve the AWS WAF CAPTCHA wall through its audio puzzle in the browser tier, using the existing speech-to-text configuration. Require an accepted answer and verified clearance, bound transcription and token validation to the local budget, and preserve configured external fallback. Transcripts without a usable answer request a fresh puzzle, and at most three answers are submitted per wall (#283).
 - Add `STT_MODEL` to choose the model name sent to `STT_URL` (default `whisper-1`).
+- Show CAPTCHA results in the local metrics dashboard: a per-solver panel with attempts, solved, failed and success rate, and a CAPTCHA column on recent activity and failures. Tier attempts in `timings` carry `captchas` when they tried one.
 
 ## [1.11.1] - 2026-11-12
 
