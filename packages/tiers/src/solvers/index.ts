@@ -10,6 +10,7 @@ import {
   hasShumei as hasShumeiMarkup,
 } from "../utils/detect"
 import { hasAltchaWidget, solveAltcha } from "./altcha"
+import { hasBaxiaNcMarkup, hasBaxiaNcWidget, solveBaxiaNc } from "./baxiaNc"
 import { hasCapWidget, solveCap } from "./cap"
 import type { ExternalCaptchaSession } from "./externalCaptcha"
 import { hasFriendlyCaptchaWidget, solveFriendlyCaptcha } from "./friendlyCaptcha"
@@ -115,6 +116,7 @@ export async function solvePageCaptchas(
   const mightHaveCap = hasCapChallenge(html)
   const mightHaveFriendlyCaptcha = hasFriendlyCaptchaMarkup(html)
   const mightHaveShumei = hasShumeiMarkup(html)
+  const mightHaveBaxiaNc = hasBaxiaNcMarkup(html)
 
   if (
     !mightHaveTurnstile &&
@@ -125,6 +127,7 @@ export async function solvePageCaptchas(
     !mightHaveFriendlyCaptcha &&
     !mightHaveCap &&
     !mightHaveShumei &&
+    !mightHaveBaxiaNc &&
     !externalProfiles.length
   ) {
     return { attempted: [], solved: [] }
@@ -157,23 +160,33 @@ export async function solvePageCaptchas(
       : "recaptcha-v2"
   const externalRecaptcha =
     mightHaveRecaptcha && !signal?.aborted && (await external?.canSolve(page, recaptchaKind, proxy))
-  const [hasTurnstile, hasHcaptcha, hasRecaptchaFrame, hasGeetest, hasAltcha, hasFriendlyCaptcha, hasCap, hasShumei] =
-    await Promise.all([
-      mightHaveTurnstile ? detectTurnstile(page, DETECT_MS, signal) : Promise.resolve(false),
-      mightHaveHcaptcha ? hasHcaptchaWidget(page, DETECT_MS) : Promise.resolve(false),
-      mightHaveRecaptcha
-        ? externalRecaptcha
-          ? page
-              .evaluate(() => Boolean(document.querySelector('iframe[src*="recaptcha"][src*="anchor"]')))
-              .catch(() => false)
-          : hasRecaptchaV2(page, DETECT_MS)
-        : Promise.resolve(false),
-      mightHaveGeetest ? hasGeetestSlide(page, DETECT_MS) : Promise.resolve(false),
-      mightHaveAltcha ? hasAltchaWidget(page, DETECT_MS) : Promise.resolve(false),
-      mightHaveFriendlyCaptcha ? hasFriendlyCaptchaWidget(page, DETECT_MS) : Promise.resolve(false),
-      mightHaveCap ? hasCapWidget(page, DETECT_MS, signal) : Promise.resolve(false),
-      mightHaveShumei ? hasShumeiWidget(page, DETECT_MS, signal) : Promise.resolve(false),
-    ])
+  const [
+    hasTurnstile,
+    hasHcaptcha,
+    hasRecaptchaFrame,
+    hasGeetest,
+    hasAltcha,
+    hasFriendlyCaptcha,
+    hasCap,
+    hasShumei,
+    hasBaxiaNc,
+  ] = await Promise.all([
+    mightHaveTurnstile ? detectTurnstile(page, DETECT_MS, signal) : Promise.resolve(false),
+    mightHaveHcaptcha ? hasHcaptchaWidget(page, DETECT_MS) : Promise.resolve(false),
+    mightHaveRecaptcha
+      ? externalRecaptcha
+        ? page
+            .evaluate(() => Boolean(document.querySelector('iframe[src*="recaptcha"][src*="anchor"]')))
+            .catch(() => false)
+        : hasRecaptchaV2(page, DETECT_MS)
+      : Promise.resolve(false),
+    mightHaveGeetest ? hasGeetestSlide(page, DETECT_MS) : Promise.resolve(false),
+    mightHaveAltcha ? hasAltchaWidget(page, DETECT_MS) : Promise.resolve(false),
+    mightHaveFriendlyCaptcha ? hasFriendlyCaptchaWidget(page, DETECT_MS) : Promise.resolve(false),
+    mightHaveCap ? hasCapWidget(page, DETECT_MS, signal) : Promise.resolve(false),
+    mightHaveShumei ? hasShumeiWidget(page, DETECT_MS, signal) : Promise.resolve(false),
+    mightHaveBaxiaNc ? hasBaxiaNcWidget(page, DETECT_MS, signal) : Promise.resolve(false),
+  ])
 
   const hasRecaptcha = hasRecaptchaFrame || Boolean(externalRecaptcha)
   const count = [
@@ -185,6 +198,7 @@ export async function solvePageCaptchas(
     hasFriendlyCaptcha,
     hasCap,
     hasShumei,
+    hasBaxiaNc,
   ].filter(Boolean).length
   if (count === 0 && !externalProfiles.length) {
     console.log(
@@ -197,6 +211,7 @@ export async function solvePageCaptchas(
         mightHaveFriendlyCaptcha && "friendly-captcha",
         mightHaveCap && "cap",
         mightHaveShumei && "shumei",
+        mightHaveBaxiaNc && "baxia-nc",
       ]
         .filter(Boolean)
         .join(",")})`,
@@ -263,6 +278,11 @@ export async function solvePageCaptchas(
   if (hasShumei && !signal?.aborted && remaining() > 0) {
     attempted.push("shumei")
     if (await solveShumei(page, remaining(), signal).catch(() => false)) solved.push("shumei")
+  }
+
+  if (hasBaxiaNc && !signal?.aborted && remaining() > 0) {
+    attempted.push("baxia-nc")
+    if (await solveBaxiaNc(page, remaining(), signal).catch(() => false)) solved.push("baxia-nc")
   }
 
   for (const kind of externalProfiles) {
