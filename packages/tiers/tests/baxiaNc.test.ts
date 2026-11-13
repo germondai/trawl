@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { Page } from "patchright"
 import { hasBaxiaNcMarkup, hasBaxiaNcWidget, planNcDrag, solveBaxiaNc } from "../src/solvers/baxiaNc"
+import { detectChallengeType, hasBaxiaPunish, needsJs } from "../src/utils/detect"
 
 const FAST = { appearMs: 300, resultMs: 400, retryMs: 400 }
 const KNOB = { x: 100, y: 200, width: 40, height: 40 }
@@ -151,5 +152,28 @@ describe("solveBaxiaNc", () => {
     const none = fakePage({ passOnDrag: 1 })
     expect(await solveBaxiaNc(none.page, 0, undefined, FAST)).toBe(false)
     expect(none.log).toEqual([])
+  })
+})
+
+describe("Baxia punish detection", () => {
+  const stub =
+    '<script>localStorage.x5referer = window.location.href; var jump = "/_____tmd_____/page/login_jump?x";</script>'
+
+  test("a bxpunish response with the stub's markers is a challenge, not a page", () => {
+    expect(hasBaxiaPunish(stub, { bxpunish: "1" })).toBe(true)
+    expect(hasBaxiaPunish(stub, { BxPunish: "1" })).toBe(true)
+    expect(detectChallengeType(stub, { bxpunish: "1" }, 200)).toBe("baxia")
+    expect(needsJs(stub, { bxpunish: "1" })).toBe(true)
+  })
+
+  test("the header alone, or a page that only mentions the path, is not enough", () => {
+    expect(hasBaxiaPunish("<html>ordinary page</html>", { bxpunish: "1" })).toBe(false)
+    expect(hasBaxiaPunish(stub, {})).toBe(false)
+    expect(hasBaxiaPunish(`${"x".repeat(25_000)}/_____tmd_____/punish?x5secdata=a`, {})).toBe(false)
+    expect(detectChallengeType("<html>ordinary page</html>", {}, 200)).toBe("none")
+  })
+
+  test("a short stub that carries the punish link is recognised without the header", () => {
+    expect(hasBaxiaPunish('<a href="https://x.test/_____tmd_____/punish?x5secdata=abc&x5step=1">go</a>', {})).toBe(true)
   })
 })

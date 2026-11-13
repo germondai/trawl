@@ -88,7 +88,8 @@ async function routeLocalChallengeWait(
       challengeType === "recaptcha" ||
       challengeType === "hcaptcha" ||
       challengeType === "cap" ||
-      challengeType === "shumei") &&
+      challengeType === "shumei" ||
+      challengeType === "baxia") &&
       !isCloudflarePage(html, headers))
   ) {
     return { challengeType, resolution: "ok" }
