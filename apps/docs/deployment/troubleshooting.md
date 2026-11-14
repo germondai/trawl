@@ -108,11 +108,11 @@ docker compose up -d --force-recreate
 
 **Symptom:** Request returns **HTTP 429** (not 500) with a FlareSolverr v2 envelope and `message: "Browser pool saturated, retry shortly"`.
 
-**Cause:** TRAWL polled for `BROWSER_ACQUIRE_TIMEOUT_MS` (default 15s) without finding an idle browser. The default pool contains one browser to keep ordinary Prowlarr and scraper deployments memory-efficient.
+**Cause:** TRAWL waited for a free browser until `BROWSER_ACQUIRE_TIMEOUT_MS` (default 30s) or the request's remaining `maxTimeout` expired. The default pool contains one browser to keep ordinary Prowlarr and scraper deployments memory-efficient.
 
 **Fixes (in order of preference):**
 
-1. **Raise `BROWSER_ACQUIRE_TIMEOUT_MS`** if your upstream target legitimately takes >5s per scrape - bumps the queue wait before 429 fires.
+1. **Raise `BROWSER_ACQUIRE_TIMEOUT_MS`** if bursts exhaust the queue wait. The client's `maxTimeout` must still leave time for scraping after a browser becomes available.
 2. **Raise `BROWSER_POOL_SIZE`** if you're consistently saturating - each browser uses ~350-500 MB RAM.
 3. **Reduce incoming request rate** if you control the client (Prowlarr's indexer interval, etc.).
 

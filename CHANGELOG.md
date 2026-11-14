@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Solve the AWS WAF CAPTCHA wall through its audio puzzle in the browser tier, using the existing speech-to-text configuration. Require an accepted answer and verified clearance, bound transcription and token validation to the local budget, and preserve configured external fallback. Transcripts without a usable answer request a fresh puzzle, and at most three answers are submitted per wall (#283).
 - Add `STT_MODEL` to choose the model name sent to `STT_URL` (default `whisper-1`).
 
+### Changed
+- Increase the default browser acquisition wait from 15 to 30 seconds so bursts can wait longer for a free browser. Keep explicit `BROWSER_ACQUIRE_TIMEOUT_MS` overrides and the request's overall deadline.
+
 ## [1.11.1] - 2026-11-12
 
 ### Added

@@ -72,6 +72,11 @@ const readConfig = (overrides: Record<string, string>): ConfigSnapshot => {
 }
 
 describe("environment configuration", () => {
+  test("defaults browser acquisition to 30 seconds and preserves a shorter override", () => {
+    expect(readConfig({ BROWSER_ACQUIRE_TIMEOUT_MS: "" }).acquireTimeoutMs).toBe(30000)
+    expect(readConfig({ BROWSER_ACQUIRE_TIMEOUT_MS: "15000" }).acquireTimeoutMs).toBe(15000)
+  })
+
   test("keeps FlareSolverr cookie fallback opt-in", () => {
     expect(readConfig({}).flareSolverrCookieFallback).toBe(false)
     expect(readConfig({ FLARESOLVERR_COOKIE_FALLBACK: "false" }).flareSolverrCookieFallback).toBe(false)
@@ -185,7 +190,7 @@ describe("environment configuration", () => {
       poolSize: 1,
       maxContentProcesses: 2,
       hardwareConcurrency: null,
-      acquireTimeoutMs: 15000,
+      acquireTimeoutMs: 30000,
       recycleAfterContexts: 8,
       headfulPoolSize: 0,
       scrapeMinTier: 1,

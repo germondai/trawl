@@ -119,7 +119,7 @@ TRAWL and Redis.
 | Variable                           | Default              | Description                                                             |
 | ---------------------------------- | -------------------- | ----------------------------------------------------------------------- |
 | `BROWSER_POOL_SIZE`                | `1`                  | Warm browsers; raise only for concurrent browser solves                 |
-| `BROWSER_ACQUIRE_TIMEOUT_MS`       | `15000`              | How long `acquire()` polls for a free browser before returning HTTP 429 |
+| `BROWSER_ACQUIRE_TIMEOUT_MS`       | `30000`              | Maximum wait for a free browser before returning HTTP 429, within the request deadline |
 | `BROWSER_RECYCLE_AFTER_CONTEXTS`   | `8`                  | Rolling-replace after this many Tier 3/4 contexts; `0` disables it      |
 | `BROWSER_MAX_CONTENT_PROCESSES`    | `2`                  | Maximum Firefox content processes per browser                           |
 | `SCRAPE_MIN_TIER`                  | `1`                  | Lowest scraper tier allowed across every endpoint                       |

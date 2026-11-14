@@ -129,7 +129,7 @@ export class BrowserPool {
 
   constructor({
     poolSize,
-    acquireTimeoutMs = 15_000,
+    acquireTimeoutMs = 30_000,
     pollIntervalMs = 100,
     recycleAfterTemporaryContexts = 8,
     contentProcesses = 2,

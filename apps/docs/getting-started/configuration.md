@@ -292,7 +292,7 @@ BROWSER_POOL_SIZE=8   # high-throughput (6+ GB host RAM)
 
 ### `BROWSER_ACQUIRE_TIMEOUT_MS`
 
-**Default:** `15000` (15 seconds)
+**Default:** `30000` (30 seconds)
 
 Maximum queue wait for a free browser before rejecting with `PoolExhaustedError`. Queue time also consumes the request's remaining `maxTimeout`: the shorter deadline wins. Waiting requests wake when capacity becomes available, without periodic queue polling. The default pool intentionally favors low memory use; raise the pool when sustained concurrent browser solves are expected.
 
@@ -300,8 +300,8 @@ Lower it for fail-fast client feedback (Prowlarr will see 429s sooner and retry 
 
 ```ini
 BROWSER_ACQUIRE_TIMEOUT_MS=5000    # fail fast - 429s after 5s
-BROWSER_ACQUIRE_TIMEOUT_MS=15000   # default - bounded queue before HTTP 429
-BROWSER_ACQUIRE_TIMEOUT_MS=30000   # tolerate longer queueing on slow targets
+BROWSER_ACQUIRE_TIMEOUT_MS=15000   # shorter queue wait before HTTP 429
+BROWSER_ACQUIRE_TIMEOUT_MS=30000   # default - allow bursts to wait for a free browser
 ```
 
 When the timeout fires, both `/v1` and `/scrape` return **HTTP 429** with the FlareSolverr v2 error envelope (not a 500).

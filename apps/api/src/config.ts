@@ -45,7 +45,7 @@ export const WAF_DETECTION_ENABLED = !/^(0|false|no)$/i.test(process.env.WAF_DET
 export const POOL_SIZE = positiveInteger(process.env.BROWSER_POOL_SIZE, 1)
 // How long acquire() will poll for a free browser before rejecting with PoolExhaustedError.
 // Tune lower for fast-fail feedback; tune higher to let a small pool absorb longer browser queues.
-export const ACQUIRE_TIMEOUT_MS = positiveInteger(process.env.BROWSER_ACQUIRE_TIMEOUT_MS, 15_000)
+export const ACQUIRE_TIMEOUT_MS = positiveInteger(process.env.BROWSER_ACQUIRE_TIMEOUT_MS, 30_000)
 export const REDIS_SESSION_TTL_SECONDS = positiveInteger(process.env.REDIS_SESSION_TTL_SECONDS, 3_600)
 export const BROWSER_SESSION_MAX_ENTRIES = positiveInteger(process.env.BROWSER_SESSION_MAX_ENTRIES, 4)
 export const BROWSER_SESSION_TTL_SECONDS = positiveInteger(process.env.BROWSER_SESSION_TTL_SECONDS, 3_600)
