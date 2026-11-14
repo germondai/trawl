@@ -256,7 +256,14 @@ async function runBrowserTierTask<T extends 3 | 4>(
     const { html, shot, evidence } = await captureBrowserDocument(page, capture, pageCapture, budget, screenshot)
     let captured: CapturedResponse | undefined
 
-    const wall = persistentBrowserWall(html, page.url(), mainResponse.headers, mainResponse.status, challengeType)
+    const wall = persistentBrowserWall(
+      html,
+      page.url(),
+      mainResponse.headers,
+      mainResponse.status,
+      challengeType,
+      captchasSolved,
+    )
     // Anubis verification URLs and Google's sorry URL identify a wall even when
     // the document is empty. Other providers follow the network-error checks.
     if (wall?.reason !== "anubis-persistent" && wall?.reason !== "google-sorry-persistent") {

@@ -17,6 +17,7 @@ export type ChallengeType =
   | "altcha"
   | "friendly-captcha"
   | "shumei"
+  | "baxia"
   | "none"
 
 export function isCloudflareErrorUrl(url: string): boolean {
@@ -206,6 +207,21 @@ export function hasFriendlyCaptcha(html: string): boolean {
   return /<iframe\b[^>]*\bsrc\s*=\s*["'][^"']*(?:frcapi\.com|friendlycaptcha\.[^/"']+)[^"']*\/(?:captcha\/)?widget\b/i.test(
     html,
   )
+}
+
+// Alibaba Baxia answers a flagged request with HTTP 200, a `bxpunish: 1` header and a short stub that
+// sends the browser to `.../_____tmd_____/punish` (the NC slider) or its login jump. The status
+// is 200 and the body is tiny, so nothing else here would call it a wall. The header alone is not
+// enough: it must come with the stub's own markers. A long page that merely mentions the path
+// (documentation, a blog post) is not a punish response.
+export function hasBaxiaPunish(html: string, headers: Record<string, string> = {}): boolean {
+  // The stub is a few KB. Real pages can mention these words in their own scripts.
+  if (html.length >= 20_000) return false
+  // With the header, the stub's own path is the only marker: words like x5referer can sit in
+  // an ordinary short page's scripts, and the header comes from the first response, so it is
+  // still in hand after a passed slide has landed on real content.
+  if (headerValue(headers, "bxpunish") === "1") return html.includes("_____tmd_____")
+  return /_____tmd_____\/punish\?x5secdata=/.test(html)
 }
 
 export function hasShumei(html: string): boolean {
@@ -418,6 +434,7 @@ export function detectChallengeType(
   if (hasRecaptcha(html)) return "recaptcha"
   if (hasCapChallenge(html)) return "cap"
   if (hasShumei(html)) return "shumei"
+  if (hasBaxiaPunish(html, headers)) return "baxia"
   return "none"
 }
 
@@ -445,7 +462,8 @@ export function needsJs(html: string, headers: Record<string, string>): boolean 
     hasAltcha(html) ||
     hasFriendlyCaptcha(html) ||
     hasCapChallenge(html) ||
-    hasShumei(html)
+    hasShumei(html) ||
+    hasBaxiaPunish(html, headers)
   )
 }
 

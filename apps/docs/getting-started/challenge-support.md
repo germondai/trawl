@@ -17,6 +17,7 @@ TRAWL detects supported walls, chooses the matching browser flow and checks whet
 | hCaptcha                | Checkbox auto-pass and audio where offered; no image-grid solver                     | Not included in the current external task catalogue       |
 | GeeTest                 | Slide puzzle matching and verified-state checks                                      | Site profile required                                     |
 | Shumei                  | Visible `spatial_select` widgets with supported smallest-color puzzles; SDK acceptance checks | No catalogue entry                                 |
+| Baxia NC (Alibaba)      | "Slide to verify" slider on punish pages; passes only when a new `x5sec` cookie is issued | No catalogue entry                                 |
 | ALTCHA                  | Bounded HTTP solving for supported access forms; browser widget fallback             | Site profile required                                     |
 | Friendly Captcha v1/v2  | Bounded HTTP v1 access forms; browser v1/v2 widget execution and response checks       | Site profile required                                     |
 | CAP                     | Native proof of work; verifies every visible widget                                  | No catalogue entry                                        |
@@ -30,6 +31,8 @@ TRAWL detects supported walls, chooses the matching browser flow and checks whet
 | DuckDuckGo anomaly wall | Detected and reported as requiring CAPTCHA; no built-in image-puzzle solver          | No dedicated catalogue entry                              |
 
 DataDome browser handling requires `BROWSER_HEADFUL_POOL_SIZE=1`, which adds another browser pool. IP hard blocks may require a different egress IP. Google Search `/sorry/` redirects and supported bot-wall pages are also detected; detection alone does not mean a puzzle can be solved.
+
+Baxia NC solving drags the slider on Alibaba's punish page (`.../_____tmd_____/punish`) in the page's own browser, in the punish document or its iframe. Success requires a new, non-empty `x5sec` cookie; the widget's verified text and the challenge's beacon traffic answer 2xx either way and are not trusted. A rejected slide is retried through the widget's own retry control, up to three drags. The click-in-order captcha Baxia sometimes serves for the same block is not solved, and the puzzle-piece variant used before 2026-11-08 is not supported.
 
 Shumei solving uses the page's existing widget and normal browser clicks, retaining its proxy, cookies, User-Agent and SDK callbacks. It supports one visible `spatial_select` widget with Chinese smallest-color instructions, within image-size and request-deadline limits. Slide, text/icon selection, other spatial instructions and multiple widgets are not solved. TRAWL does not open arbitrary login controls or submit application forms to expose a popup. A provider-accepted widget does not prove that an application's backend accepted a subsequent form submission.
 
