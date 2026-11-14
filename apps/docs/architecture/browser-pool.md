@@ -49,7 +49,7 @@ The pool is configurable via the `BrowserPool` constructor:
 ```typescript
 new BrowserPool({
   poolSize: 1,                // BROWSER_POOL_SIZE (default 1)
-  acquireTimeoutMs: 15000,    // BROWSER_ACQUIRE_TIMEOUT_MS - 15s default
+  acquireTimeoutMs: 30000,    // BROWSER_ACQUIRE_TIMEOUT_MS - 30s default
   recycleAfterTemporaryContexts: 8,
   contentProcesses: 2,        // BROWSER_MAX_CONTENT_PROCESSES - Firefox preference
   idleTimeoutMs: 0,           // BROWSER_IDLE_TIMEOUT_MS - disabled by default
