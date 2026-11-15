@@ -9,6 +9,7 @@ type ConfigSnapshot = {
   poolSize: number
   maxContentProcesses: number
   hardwareConcurrency: number | null
+  geoipIp: string | null
   acquireTimeoutMs: number
   recycleAfterContexts: number
   headfulPoolSize: number
@@ -37,6 +38,7 @@ const readConfig = (overrides: Record<string, string>): ConfigSnapshot => {
       poolSize: config.POOL_SIZE,
       maxContentProcesses: config.BROWSER_MAX_CONTENT_PROCESSES,
       hardwareConcurrency: config.BROWSER_HARDWARE_CONCURRENCY ?? null,
+      geoipIp: config.BROWSER_GEOIP_IP ?? null,
       acquireTimeoutMs: config.ACQUIRE_TIMEOUT_MS,
       recycleAfterContexts: config.RECYCLE_AFTER_TEMPORARY_CONTEXTS,
       headfulPoolSize: config.HEADFUL_POOL_SIZE,
@@ -61,6 +63,7 @@ const readConfig = (overrides: Record<string, string>): ConfigSnapshot => {
       MITM_ESCALATE_429: "",
       FLARESOLVERR_COOKIE_FALLBACK: "",
       BROWSER_HARDWARE_CONCURRENCY: "",
+      BROWSER_GEOIP_IP: "",
       USER_PREFS: "",
       SCRAPE_MAX_TIMEOUT_MS: "",
       BROWSER_SHUTDOWN_DRAIN_MS: "",
@@ -72,6 +75,30 @@ const readConfig = (overrides: Record<string, string>): ConfigSnapshot => {
 }
 
 describe("environment configuration", () => {
+  test("keeps automatic GeoIP unless an IPv4 or IPv6 address is configured", () => {
+    expect(readConfig({ BROWSER_GEOIP_IP: "   " }).geoipIp).toBeNull()
+    expect(readConfig({ BROWSER_GEOIP_IP: " 1.1.1.1 " }).geoipIp).toBe("1.1.1.1")
+    expect(readConfig({ BROWSER_GEOIP_IP: "2606:4700:4700::1111" }).geoipIp).toBe("2606:4700:4700::1111")
+  })
+
+  test.each(["example.test", "https://example.test/private-token", "false", "999.1.1.1"])(
+    "rejects invalid GeoIP address %s without including the value in the error",
+    (value) => {
+      const result = Bun.spawnSync({
+        cmd: [
+          process.execPath,
+          "-e",
+          'try { await import("./config.ts") } catch (error) { console.error(error.message); process.exit(1) }',
+        ],
+        cwd: import.meta.dir,
+        env: { ...process.env, BROWSER_GEOIP_IP: value },
+      })
+      expect(result.exitCode).not.toBe(0)
+      expect(result.stderr.toString()).toContain("BROWSER_GEOIP_IP must be a valid IPv4 or IPv6 address")
+      expect(result.stderr.toString()).not.toContain(value)
+    },
+  )
+
   test("defaults browser acquisition to 30 seconds and preserves a shorter override", () => {
     expect(readConfig({ BROWSER_ACQUIRE_TIMEOUT_MS: "" }).acquireTimeoutMs).toBe(30000)
     expect(readConfig({ BROWSER_ACQUIRE_TIMEOUT_MS: "15000" }).acquireTimeoutMs).toBe(15000)
@@ -142,6 +169,7 @@ describe("environment configuration", () => {
       poolSize: 4,
       maxContentProcesses: 3,
       hardwareConcurrency: null,
+      geoipIp: null,
       acquireTimeoutMs: 12000,
       recycleAfterContexts: 0,
       headfulPoolSize: 2,
@@ -190,6 +218,7 @@ describe("environment configuration", () => {
       poolSize: 1,
       maxContentProcesses: 2,
       hardwareConcurrency: null,
+      geoipIp: null,
       acquireTimeoutMs: 30000,
       recycleAfterContexts: 8,
       headfulPoolSize: 0,

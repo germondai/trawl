@@ -58,6 +58,21 @@ browser could not start, often because outbound networking or a GeoIP endpoint w
 acquire timeout means the browsers started but all pool capacity remained busy, and `/v1` returns
 HTTP 429.
 
+### Startup fails with `Failed to get a public proxy IP address from any API endpoint`
+
+Camoufox could not discover the container's public egress IP for GeoIP. This can happen without a
+VPN or proxy: DNS filtering, firewall rules or unavailable IP services can block discovery while
+ordinary HTTPS requests still work. The word `proxy` comes from Camoufox's generic error message.
+
+Restore outbound DNS/HTTPS access to an IP-discovery service, or set `BROWSER_GEOIP_IP` to the
+**actual public IP used by the container** and recreate TRAWL. The supplied Compose files forward
+this variable from `.env`. For custom deployments, add it to the service's `environment` section.
+The configured address lets Camoufox use the bundled GeoIP database without external IP discovery.
+
+Do not use a private container address or an arbitrary public IP. If the egress IP changes, update
+the setting before restarting. Leaving it unset preserves automatic discovery and still requires
+a reachable IP service. See [`BROWSER_GEOIP_IP`](/getting-started/configuration#browser-geoip-ip).
+
 ### Requests through the VPN return HTTP 403
 
 If TRAWL starts successfully but a target returns HTTP 403, the VPN is already routing traffic and

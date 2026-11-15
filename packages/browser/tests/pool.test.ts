@@ -604,7 +604,11 @@ describe("BrowserPool wedge recovery", () => {
 })
 
 describe("Firefox launch preferences", () => {
-  test.each([false, true])("passes custom prefs and enforces proxy safety for virtualDisplay=%s", (virtualDisplay) => {
+  test.each(
+    [false, true].flatMap((virtualDisplay) =>
+      [undefined, "1.1.1.1", "2606:4700:4700::1111"].map((geoipIp) => ({ virtualDisplay, geoipIp })),
+    ),
+  )("preserves launch preferences and GeoIP for %j", ({ virtualDisplay, geoipIp }) => {
     const script = `
       import { mock } from "bun:test"
       let options
@@ -617,7 +621,7 @@ describe("Firefox launch preferences", () => {
         }
       }}))
       const { BrowserPool } = await import("../src/pool.ts")
-      const pool = new BrowserPool({ poolSize: 1, virtualDisplay: ${virtualDisplay}, userPrefs: {
+      const pool = new BrowserPool({ poolSize: 1, virtualDisplay: ${virtualDisplay}, geoipIp: ${JSON.stringify(geoipIp)}, userPrefs: {
         "network.dns.blockDotOnion": false,
         "network.proxy.failover_direct": true,
         "network.proxy.no_proxies_on": "*",
@@ -629,13 +633,14 @@ describe("Firefox launch preferences", () => {
       }})
       try {
         await pool.init()
-        console.log(JSON.stringify({ headless: options.headless, prefs: options.firefox_user_prefs }))
+        console.log(JSON.stringify({ headless: options.headless, geoip: options.geoip, prefs: options.firefox_user_prefs }))
       } finally { await pool.shutdown() }
     `
     const result = Bun.spawnSync({ cmd: [process.execPath, "-e", script], cwd: import.meta.dir })
     expect(result.exitCode, result.stderr.toString()).toBe(0)
     const options = JSON.parse(result.stdout.toString().trim().split("\n").at(-1) ?? "")
     expect(options.headless).toBe(virtualDisplay ? "virtual" : true)
+    expect(options.geoip).toBe(geoipIp ?? true)
     expect(options.prefs).toMatchObject({
       "network.dns.blockDotOnion": false,
       "network.proxy.failover_direct": false,
@@ -647,6 +652,29 @@ describe("Firefox launch preferences", () => {
       "test.integer": 7,
       "dom.ipc.processCount": 2,
     })
+  })
+
+  test.each([true, false])("preserves the launch error and identifies IP discovery failure=%s", (ipFailure) => {
+    const script = `
+      import { mock } from "bun:test"
+      const original = new Error(${JSON.stringify(ipFailure ? "Failed to get a public proxy IP address from any API endpoint." : "missing browser executable")})
+      mock.module("camoufox-js", () => ({ Camoufox: async () => { throw original } }))
+      const { BrowserPool } = await import("../src/pool.ts")
+      const pool = new BrowserPool({ poolSize: 1 })
+      try { await pool.init(); throw new Error("Unexpected successful launch") }
+      catch (error) { console.log(JSON.stringify({ message: error.message, original: error === original, cause: error.cause === original })) }
+      finally { await pool.shutdown() }
+    `
+    const result = Bun.spawnSync({ cmd: [process.execPath, "-e", script], cwd: import.meta.dir })
+    expect(result.exitCode, result.stderr.toString()).toBe(0)
+    const error = JSON.parse(result.stdout.toString().trim().split("\n").at(-1) ?? "")
+    if (ipFailure) {
+      expect(error.message).toContain("BROWSER_GEOIP_IP")
+      expect(error.cause).toBe(true)
+    } else {
+      expect(error.message).toBe("missing browser executable")
+      expect(error.original).toBe(true)
+    }
   })
 })
 
