@@ -338,8 +338,7 @@ export function decrypt(jspl: string, ddjskey: string, cid: string | null = null
         const parsed = JSON.parse(text)
         return parsed as Record<string, unknown>
       }
-    } catch {
-    }
+    } catch {}
   }
 
   return undefined

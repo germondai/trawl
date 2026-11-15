@@ -1,18 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Page } from "patchright"
 import {
-  djb2Hash,
-  encrypt,
-  decrypt,
-  hashL,
-  PRNGStream,
-  toInt32,
-  toUint32,
-  wDecode,
-  wEncode,
-  xorshift32,
-} from "../src/solvers/datadome/crypto"
-import {
   buildPayload,
   buildPayloadWithVariation,
   CHROME_WIN_PROFILE,
@@ -23,6 +11,18 @@ import {
   generateR3n,
   generateTrrd,
 } from "../src/solvers/datadome/builder"
+import {
+  decrypt,
+  djb2Hash,
+  encrypt,
+  hashL,
+  PRNGStream,
+  toInt32,
+  toUint32,
+  wDecode,
+  wEncode,
+  xorshift32,
+} from "../src/solvers/datadome/crypto"
 import { extractFromCaptchaUrl, solveDataDomeDirect } from "../src/solvers/datadome/solver"
 
 describe("crypto: 32-bit integer helpers", () => {

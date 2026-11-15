@@ -4,8 +4,8 @@
 // and posts it to DataDome's API endpoint to obtain a clearance cookie directly.
 
 import type { Page } from "patchright"
-import { encrypt } from "./crypto"
 import { buildPayloadWithVariation } from "./builder"
+import { encrypt } from "./crypto"
 
 const DD_ENDPOINT = "https://api-js.datadome.co/js/"
 const DD_VERSION = "5.11.4"
