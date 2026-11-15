@@ -1,0 +1,5 @@
+# Files that run inside Linux containers must keep LF endings whatever the checkout
+# platform: with core.autocrlf=true a Windows checkout turns them into CRLF and
+# `sh build.sh` fails with "set: illegal option -".
+*.sh text eol=lf
+Dockerfile* text eol=lf
