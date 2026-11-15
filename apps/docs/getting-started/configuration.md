@@ -290,6 +290,24 @@ BROWSER_POOL_SIZE=8   # high-throughput (6+ GB host RAM)
 
 > **Note:** Pool size controls concurrency, not solver capability. The API container sets `shm_size: 1gb` by default. Shared memory does not replace the container memory limit.
 
+### `BROWSER_GEOIP_IP`
+
+**Default:** unset (automatic public IP discovery)
+
+Optional IPv4 or IPv6 address for browser GeoIP. Set it to the container's **actual public egress
+IP** when outbound IP-discovery services are unavailable. Camoufox uses the bundled GeoIP database
+for that address instead of calling external IP services. GeoIP remains enabled; browser profiles,
+proxy routing and TLS checks keep their existing behavior.
+
+```ini
+BROWSER_GEOIP_IP= # leave blank for automatic discovery
+```
+
+Only an IP literal is accepted, with surrounding whitespace ignored. URLs, hostnames and `false`
+are invalid. This setting applies to both browser pools, including cold starts and replacements.
+Update it when your public egress IP changes, including VPN exit changes. It does not configure a
+proxy or discover its IP; it replaces the startup lookup for the container's egress address.
+
 ### `BROWSER_ACQUIRE_TIMEOUT_MS`
 
 **Default:** `30000` (30 seconds)
