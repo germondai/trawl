@@ -14,11 +14,12 @@ const clip = (n: number) => `https://dd.prod.captcha-delivery.com/audio/2026-11-
 const GOOD = "please type the numbers you hear 5 8. 9. 2. 4. 4."
 
 // "gone": the wall left the page. "restricted": DataDome swapped the widget for its access-restricted page.
-type Verdict = "accept" | "reject" | "gone" | "restricted" | "restricted-inline"
+type Verdict = "accept" | "reject" | "gone" | "restricted" | "restricted-inline" | "swapped"
 
 // No pauses: the pacing is a human-likeness concern, not something the loop logic depends on.
-const NO_PACE: { typing: [number, number]; submit: [number, number]; settle: number } = {
+const NO_PACE: { typing: [number, number]; keystroke: [number, number]; submit: [number, number]; settle: number } = {
   typing: [0, 0],
+  keystroke: [0, 0],
   submit: [0, 0],
   settle: 0,
 }
@@ -45,9 +46,20 @@ function fakeWidget(
 ) {
   const log: string[] = []
   const typed: string[] = []
+  // Key presses, in order, and the digit box that had the focus when each one arrived.
+  const keystrokes: string[] = []
+  let focused = 0
   const verdicts = [...(options.verdicts ?? ["accept"])]
   let ignoredToggles = options.ignoredToggleClicks ?? 0
-  const state = { audio: false, clip: 1, passed: false, detached: false, restricted: false, inline: false }
+  const state = {
+    audio: false,
+    clip: 1,
+    passed: false,
+    detached: false,
+    restricted: false,
+    inline: false,
+    swapped: false,
+  }
   const srcOf = () => (options.audioHost ? `https://${options.audioHost}/a.wav` : clip(state.clip))
 
   const visible = (selector: string) => {
@@ -71,6 +83,11 @@ function fakeWidget(
         // The widget flags the pass and then swaps its own content for the restricted page.
         state.passed = true
         state.inline = true
+      } else if (verdict === "swapped") {
+        // The widget flags the pass, then DataDome replaces the whole iframe with the restricted page.
+        state.passed = true
+        state.detached = true
+        state.swapped = true
       } else if (verdict === "gone") state.detached = true
       else if (verdict === "restricted") {
         state.detached = true
@@ -85,11 +102,12 @@ function fakeWidget(
     isVisible: async () => visible(selector),
     count: async () => (selector === PASSED && state.passed ? 1 : 0),
     getAttribute: async (name: string) => (selector === AUDIO_TRACK && name === "src" ? srcOf() : null),
-    click: async () => click(selector),
-    textContent: async () => (state.inline ? "O acesso está temporariamente restrito" : "Digite os números"),
-    fill: async (value: string) => {
-      typed[index] = value
+    click: async () => {
+      // Focusing a digit box is not one of the controls the log tracks.
+      if (selector === INPUTS) focused = index
+      else click(selector)
     },
+    textContent: async () => (state.inline ? "O acesso está temporariamente restrito" : "Digite os números"),
   })
 
   const idle = (url: string) => ({
@@ -109,17 +127,33 @@ function fakeWidget(
     },
     url: () => "https://geo.captcha-delivery.com/captcha/",
   }
+  // What DataDome puts in the replacement iframe once it has turned an answer away.
+  const restrictedWall = {
+    locator: () => ({
+      first: () => ({ isVisible: async () => false }),
+      textContent: async () => "O acesso está temporariamente restrito",
+    }),
+    isDetached: () => false,
+    url: () => "https://geo.captcha-delivery.com/captcha/",
+  }
   const page = {
+    keyboard: {
+      type: async (text: string) => {
+        keystrokes.push(text)
+        typed[focused] = text
+      },
+    },
     frames: () =>
       state.detached
         ? [
             idle("https://www.thefork.com/"),
             ...(state.restricted ? [idle("https://geo.captcha-delivery.com/captcha/")] : []),
+            ...(state.swapped ? [restrictedWall] : []),
           ]
         : [idle("https://www.thefork.com/"), frame],
   } as unknown as Page
 
-  return { page, log, typed, state }
+  return { page, log, typed, keystrokes, state }
 }
 
 function recogniser(transcripts: Array<string | undefined>) {
@@ -222,6 +256,20 @@ describe("DataDome audio solver", () => {
     expect(await solve(widget.page, 5000, undefined, recogniser([GOOD]).fn, download)).toBe(false)
   })
 
+  test("does not count a pass whose iframe DataDome replaces with the access-restricted page", async () => {
+    const widget = fakeWidget({ verdicts: ["swapped"] })
+
+    expect(await solve(widget.page, 5000, undefined, recogniser([GOOD]).fn, download)).toBe(false)
+  })
+
+  test("enters each digit as a key press in its own box, never by setting the value", async () => {
+    const widget = fakeWidget()
+
+    expect(await solve(widget.page, 5000, undefined, recogniser([GOOD]).fn, download)).toBe(true)
+    expect(widget.keystrokes).toEqual(["5", "8", "9", "2", "4", "4"])
+    expect(widget.typed.join("")).toBe("589244")
+  })
+
   test("stops without typing when the session is turned away while the clip plays", async () => {
     const widget = fakeWidget({ restrictedWhilePlaying: true })
 
@@ -296,5 +344,62 @@ describe("audioLanguage", () => {
   test("defaults to English for unknown paths", () => {
     expect(audioLanguage("https://dd.prod.captcha-delivery.com/clip.wav")).toBe("en")
     expect(audioLanguage("not a url")).toBe("en")
+  })
+})
+
+describe("DataDome solver: slider first, audio as the fallback", () => {
+  const sliderThat = (result: "passed" | "restricted" | "failed") => {
+    const calls: number[] = []
+    const fn = async (_page: Page, timeoutMs: number) => {
+      calls.push(timeoutMs)
+      return result
+    }
+    return { fn, calls }
+  }
+  const run = (
+    widget: ReturnType<typeof fakeWidget>,
+    slider: ReturnType<typeof sliderThat>,
+    stt = recogniser([GOOD]),
+  ) => solveDataDome(widget.page, 5000, undefined, stt.fn, download, NO_PACE, slider.fn)
+
+  test("a passed slider is the answer and the audio panel is never opened", async () => {
+    const widget = fakeWidget()
+    const slider = sliderThat("passed")
+    expect(await run(widget, slider)).toBe(true)
+    expect(slider.calls).toHaveLength(1)
+    expect(widget.log).toEqual([])
+  })
+
+  test("a restricted session ends the attempt without trying the audio", async () => {
+    const widget = fakeWidget()
+    const stt = recogniser([GOOD])
+    expect(await run(widget, sliderThat("restricted"), stt)).toBe(false)
+    expect(widget.log).toEqual([])
+    expect(stt.files).toEqual([])
+  })
+
+  test("a slider that cannot be used falls back to the audio alternative", async () => {
+    downloads.length = 0
+    const widget = fakeWidget()
+    const slider = sliderThat("failed")
+    expect(await run(widget, slider)).toBe(true)
+    expect(slider.calls).toHaveLength(1)
+    expect(widget.typed.join("")).toBe("589244")
+  })
+
+  test("the slider never takes more than half of the time that is left", async () => {
+    const widget = fakeWidget()
+    const slider = sliderThat("failed")
+    await run(widget, slider)
+    expect(slider.calls[0]).toBeLessThanOrEqual(2500)
+  })
+
+  test("no widget at all is not an attempt", async () => {
+    const widget = fakeWidget({ present: false })
+    const slider = sliderThat("passed")
+    expect(await solveDataDome(widget.page, 400, undefined, recogniser([GOOD]).fn, download, NO_PACE, slider.fn)).toBe(
+      false,
+    )
+    expect(slider.calls).toEqual([])
   })
 })

@@ -1,15 +1,22 @@
-// DataDome CAPTCHA solver (audio alternative).
+// DataDome CAPTCHA solver.
 //
 // The interactive wall offers a slider and an accessibility alternative that plays a short
-// clip reading six digits, typed one per box. The solver switches the widget to audio, reads
-// the clip through the page's own network context, transcribes it and types the digits into
-// the real widget, so the SDK builds its own request and telemetry. It needs a recogniser
-// that returns all six digits reliably (see STT_URL/STT_MODEL); the default public one often
-// drops a repeated digit, in which case the puzzle is replaced instead of submitted.
+// clip reading six digits, typed one per box. The slider is tried first (datadomeSlider.ts);
+// when it cannot be used or does not pass, the audio alternative is the fallback: the solver
+// switches the widget to audio, reads the clip through the page's own network context,
+// transcribes it and types the digits into the real widget, so the SDK builds its own request
+// and telemetry. The audio path needs a recogniser that returns all six digits reliably (see
+// STT_URL/STT_MODEL); the default public one often drops a repeated digit, in which case the
+// puzzle is replaced instead of submitted.
+//
+// A turned-away session ("access restricted") ends the whole attempt: no second way of answering
+// helps once DataDome has restricted the session.
 
 import type { Frame, Page } from "patchright"
 import { sleep } from "../utils/deadline"
 import { DATADOME_DIGITS, extractDataDomeDigits } from "./datadomeAnswer"
+import { SLIDER_HANDLE, type SliderPace, type SliderResult, solveDataDomeSlider } from "./datadomeSlider"
+import { accepted, findFrame, hasWallFrame, isRestricted, present, settledAfterAccept } from "./datadomeWidget"
 import { transcribeAudioBytes } from "./stt"
 
 const AUDIO_BUTTON = "#captcha__audio__button"
@@ -25,7 +32,6 @@ const PLAYBACK = `(() => {
 // DataDome's clips are 16 kHz mono 16-bit WAV: 32 000 bytes per second of speech.
 const WAV_BYTES_PER_SECOND = 32_000
 const MAX_LISTEN_MS = 30_000
-const PASSED = '#analyticsCaptchaPassed[data-analytics-captcha-passed="true"]'
 // Only DataDome's own host may serve the clip: the URL comes from page markup.
 const DD_HOST = /(?:^|\.)captcha-delivery\.com$/i
 
@@ -49,30 +55,8 @@ async function defaultDownload(page: Page, url: string, timeoutMs: number): Prom
   }
 }
 
-async function present(frame: Frame, selector: string): Promise<boolean> {
-  return frame
-    .locator(selector)
-    .first()
-    .isVisible()
-    .catch(() => false)
-}
-
-function hasWallFrame(page: Page): boolean {
-  return page.frames().some((frame) => {
-    try {
-      return /captcha-delivery\.com/i.test(frame.url())
-    } catch {
-      return false
-    }
-  })
-}
-
 async function widgetFrame(page: Page): Promise<Frame | undefined> {
-  for (const frame of page.frames()) {
-    for (const selector of [AUDIO_BUTTON, INPUTS]) {
-      if (await present(frame, selector)) return frame
-    }
-  }
+  return findFrame(page, [AUDIO_BUTTON, INPUTS])
 }
 
 async function hasDataDomeWidget(page: Page, timeoutMs: number, signal?: AbortSignal): Promise<boolean> {
@@ -117,13 +101,15 @@ export function audioLanguage(src: string): string {
 export interface Pace {
   // Pause between two digit boxes and before pressing Verify, in milliseconds [min, max].
   typing: [number, number]
+  // How long a key stays down before the next one, in milliseconds [min, max].
+  keystroke: [number, number]
   submit: [number, number]
   // How long to watch the widget after it flags a pass: DataDome can still turn the session
   // away in the same frame ("access restricted"), and that is not a solved wall.
   settle: number
 }
 
-const HUMAN_PACE: Pace = { typing: [120, 280], submit: [500, 1100], settle: 2500 }
+const HUMAN_PACE: Pace = { typing: [120, 280], keystroke: [40, 100], submit: [500, 1100], settle: 6000 }
 
 function between([min, max]: [number, number]): number {
   return min + Math.random() * Math.max(0, max - min)
@@ -167,38 +153,13 @@ async function openAudioView(frame: Frame, signal: AbortSignal, timeout: () => n
   return present(frame, INPUTS)
 }
 
-// DataDome words its "access restricted" page per language; none of them offers a control.
-const RESTRICTED =
-  /temporarily restricted|temporariamente restrito|temporairement restreint|vorübergehend eingeschränkt|temporalmente restringido/i
-
-async function isRestricted(frame: Frame): Promise<boolean> {
-  try {
-    const text = await frame.locator("body").textContent({ timeout: 1000 })
-    return RESTRICTED.test(text ?? "")
-  } catch {
-    return false
-  }
-}
-
-// The widget flags a passed verification in its own markup. A detached frame proves nothing:
-// DataDome also replaces it with the "access restricted" page when it turns an answer away.
-async function accepted(frame: Frame): Promise<boolean> {
-  return (
-    (await frame
-      .locator(PASSED)
-      .count()
-      .catch(() => 0)) > 0
-  )
-}
-
-export async function solveDataDome(
+async function solveAudio(
   page: Page,
-  timeoutMs = 60_000,
-  signal?: AbortSignal,
-  // Injectable so the widget loop can be exercised without a recogniser or a network.
-  transcribe: typeof transcribeAudioBytes = transcribeAudioBytes,
-  download: DataDomeDownload = defaultDownload,
-  pace: Pace = HUMAN_PACE,
+  timeoutMs: number,
+  signal: AbortSignal | undefined,
+  transcribe: typeof transcribeAudioBytes,
+  download: DataDomeDownload,
+  pace: Pace,
 ): Promise<boolean> {
   if (timeoutMs <= 0 || signal?.aborted) return false
   signal = signal
@@ -279,7 +240,11 @@ export async function solveDataDome(
       const boxes = frame.locator(INPUTS)
       for (let i = 0; i < DATADOME_DIGITS; i++) {
         signal.throwIfAborted()
-        await boxes.nth(i).fill(digits[i], { timeout: step(3000) })
+        // Real key events: the wall's own script records the typing, and fill() would set the value
+        // with no keyboard activity at all. A pass without keystrokes is accepted by the widget and
+        // then turned away by the site.
+        await boxes.nth(i).click({ timeout: step(3000) })
+        await page.keyboard.type(digits[i], { delay: between(pace.keystroke) })
         await sleep(Math.min(between(pace.typing), remaining()), signal).catch(() => {})
       }
       signal.throwIfAborted()
@@ -293,8 +258,7 @@ export async function solveDataDome(
       const verdictBy = Math.min(deadline, Date.now() + 8000)
       while (Date.now() < verdictBy && !signal.aborted) {
         if (await accepted(frame)) {
-          await sleep(Math.min(pace.settle, remaining()), signal).catch(() => {})
-          if (await isRestricted(frame)) {
+          if ((await settledAfterAccept(page, frame, pace.settle, signal, remaining)) === "restricted") {
             console.log(`[datadome] answer turned away after ${submissions} submission(s): access restricted`)
             return false
           }
@@ -326,4 +290,58 @@ export async function solveDataDome(
     if (!signal?.aborted) console.log("[datadome] error:", err instanceof Error ? err.message : err)
   }
   return false
+}
+
+type SliderSolver = (page: Page, timeoutMs: number, signal?: AbortSignal) => Promise<SliderResult>
+
+function sliderEnabled(): boolean {
+  return /^(1|true|yes)$/i.test(process.env.DATADOME_SLIDER?.trim() ?? "")
+}
+
+// The slider gets at most this long: it either passes within a few drags or it will not.
+const SLIDER_BUDGET_MS = 30_000
+
+async function hasAnyWidget(page: Page, timeoutMs: number, signal?: AbortSignal): Promise<boolean> {
+  const deadline = Date.now() + Math.max(0, timeoutMs)
+  do {
+    if (signal?.aborted) return false
+    if (await findFrame(page, [SLIDER_HANDLE, AUDIO_BUTTON, INPUTS])) return true
+    if (Date.now() >= deadline) break
+    await sleep(Math.min(200, deadline - Date.now()), signal).catch(() => {})
+  } while (Date.now() < deadline)
+  return false
+}
+
+export async function solveDataDome(
+  page: Page,
+  timeoutMs = 60_000,
+  signal?: AbortSignal,
+  // Injectable so the widget loops can be exercised without a recogniser or a network.
+  transcribe: typeof transcribeAudioBytes = transcribeAudioBytes,
+  download: DataDomeDownload = defaultDownload,
+  pace: Pace = HUMAN_PACE,
+  // Off unless DATADOME_SLIDER is set: under the pool's humanised mouse the drag does not finish in
+  // time, and an aborted drag followed by the audio answer is not something a person does.
+  slider: SliderSolver | undefined = sliderEnabled()
+    ? (p, ms, s) => solveDataDomeSlider(p, ms, s, sliderPace)
+    : undefined,
+  sliderPace?: SliderPace,
+): Promise<boolean> {
+  if (timeoutMs <= 0 || signal?.aborted) return false
+  const deadline = Date.now() + timeoutMs
+  const left = () => Math.max(0, deadline - Date.now())
+
+  if (!(await hasAnyWidget(page, Math.min(3000, left()), signal))) {
+    if (!signal?.aborted) console.log("[datadome] no widget on the wall (slider or audio): nothing to solve")
+    return false
+  }
+
+  if (slider) {
+    const result = await slider(page, Math.min(SLIDER_BUDGET_MS, Math.floor(left() / 2)), signal)
+    if (result === "passed") return true
+    // A restricted session cannot be recovered by answering another way.
+    if (result === "restricted") return false
+    if (signal?.aborted || left() <= 0) return false
+  }
+  return solveAudio(page, left(), signal, transcribe, download, pace)
 }

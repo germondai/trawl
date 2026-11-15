@@ -9,11 +9,12 @@
   },
   "dependencies": {
     "@noble/hashes": "^1.7.2",
-    "@trawl/types": "workspace:*",
     "@trawl/browser": "workspace:*",
+    "@trawl/types": "workspace:*",
     "hash-wasm": "^4.13.0",
     "linkedom": "^0.18.15",
     "node-wreq": "3.2.1",
+    "playwright": "^1.65.1",
     "pngjs": "^7.0.0"
   },
   "devDependencies": {
