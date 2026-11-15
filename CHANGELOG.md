@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `BROWSER_GEOIP_IP` to start browsers with a known public egress IP when external IP-discovery services are unavailable. Keep automatic discovery by default, validate configured addresses and provide an actionable startup error (#288).
 - Solve the AWS WAF CAPTCHA wall through its audio puzzle in the browser tier, using the existing speech-to-text configuration. Require an accepted answer and verified clearance, bound transcription and token validation to the local budget, and preserve configured external fallback. Transcripts without a usable answer request a fresh puzzle, and at most three answers are submitted per wall (#283).
 - Add `STT_MODEL` to choose the model name sent to `STT_URL` (default `whisper-1`).
+- Solve the DataDome CAPTCHA wall through its audio alternative in the headful browser pool. The solver plays the clip, waits for it to end, types the six digits at a human pace and reports an answer as turned away when DataDome replaces the widget with its access-restricted page, so an accepted widget is never counted as clearance. Best effort: DataDome can still restrict the session after a correct answer.
+- Let the speech-to-text helpers take the language of the clip. The DataDome solver reads it from the clip path, so a browser in `pt-BR` no longer gets English transcription; digits are understood in English and Portuguese.
+- Keep the randomised screen at least as large as the fixed browser window, so the window is never bigger than its own screen.
 
 ### Changed
 - Increase the default browser acquisition wait from 15 to 30 seconds so bursts can wait longer for a free browser. Keep explicit `BROWSER_ACQUIRE_TIMEOUT_MS` overrides and the request's overall deadline.

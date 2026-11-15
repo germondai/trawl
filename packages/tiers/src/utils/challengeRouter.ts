@@ -1,5 +1,6 @@
 import type { Page } from "patchright"
 import { solveAwsWaf } from "../solvers/awsWaf"
+import { solveDataDome } from "../solvers/datadome"
 import type { ExternalCaptchaSession } from "../solvers/externalCaptcha"
 import { waitForAkamaiResolution } from "./akamaiWait"
 import { type AnubisResolution, waitForAnubisResolution } from "./anubisWait"
@@ -47,10 +48,12 @@ interface ChallengeWaiters {
   ) => Promise<Resolution>
   // Optional so callers and tests that build their own waiter set never reach a real page.
   awsWafCaptcha?: (page: Page, timeoutMs: number, signal?: AbortSignal) => Promise<boolean>
+  dataDomeCaptcha?: (page: Page, timeoutMs: number, signal?: AbortSignal) => Promise<boolean>
 }
 
 const defaultWaiters: ChallengeWaiters = {
   awsWafCaptcha: solveAwsWaf,
+  dataDomeCaptcha: solveDataDome,
   cloudflare: waitForChallengeResolution,
   imperva: waitForImpervaResolution,
   akamai: waitForAkamaiResolution,
@@ -159,37 +162,45 @@ export async function routeChallengeWait(
     initialCookies,
     responseHeaders,
   )
-  // The AWS WAF CAPTCHA wall is solved through its audio puzzle. A solved wall reloads the
+  // An interactive CAPTCHA wall is solved through its audio puzzle. A solved wall reloads the
   // page itself, so wait for it to leave the wall before asking the waiter to confirm the
-  // new token; otherwise the waiter would still see the CAPTCHA markup and report it.
-  if (
-    result.challengeType === "aws-waf" &&
-    result.resolution === "captcha-required" &&
-    waiters.awsWafCaptcha &&
-    !signal?.aborted
-  ) {
+  // new token or cookie; otherwise the waiter would still see the CAPTCHA markup and report it.
+  const wallSolver =
+    result.resolution === "captcha-required" && !signal?.aborted
+      ? result.challengeType === "aws-waf" && waiters.awsWafCaptcha
+        ? {
+            type: "aws-waf" as const,
+            solve: waiters.awsWafCaptcha,
+            stillWall: (html: string) => hasAwsWafCaptcha(html),
+            confirm: (timeout: number) => waiters.awsWaf(page, timeout, originalUrl, initialCookies?.awsWaf),
+          }
+        : result.challengeType === "datadome" && waiters.dataDomeCaptcha
+          ? {
+              type: "datadome" as const,
+              solve: waiters.dataDomeCaptcha,
+              stillWall: (html: string) => getDataDomeAction(html) === "captcha",
+              confirm: (timeout: number) => waiters.dataDome(page, timeout, originalUrl, initialCookies?.dataDome),
+            }
+          : undefined
+      : undefined
+  if (wallSolver) {
     // With an external solver configured the local attempt gets only its share, like every
     // other local solver, so the fallback is not left without time.
     const available = Math.max(0, deadline - Date.now())
     const localTimeout = eligible && external ? external.localBudget(available) : available
     const localDeadline = Math.min(deadline, Date.now() + localTimeout)
-    const solvedWall = await waiters.awsWafCaptcha(page, localTimeout, signal).catch(() => false)
+    const solvedWall = await wallSolver.solve(page, localTimeout, signal).catch(() => false)
     if (solvedWall && !signal?.aborted) {
       const clearUntil = Math.min(localDeadline, Date.now() + 8_000)
       while (Date.now() < clearUntil && !signal?.aborted) {
         const current = await page.content().catch(() => "")
-        if (current && !hasAwsWafCaptcha(current)) break
+        if (current && !wallSolver.stillWall(current)) break
         await sleep(Math.min(250, Math.max(0, clearUntil - Date.now())), signal).catch(() => {})
       }
       if (signal?.aborted) return result
-      const resolution = await waiters.awsWaf(
-        page,
-        Math.max(0, localDeadline - Date.now()),
-        originalUrl,
-        initialCookies?.awsWaf,
-      )
-      result = { challengeType: "aws-waf", resolution }
-      if (resolution === "ok") return { ...result, captchasSolved: ["aws-waf"] }
+      const resolution = await wallSolver.confirm(Math.max(0, localDeadline - Date.now()))
+      result = { challengeType: wallSolver.type, resolution }
+      if (resolution === "ok") return { ...result, captchasSolved: [wallSolver.type] }
     }
   }
   if (

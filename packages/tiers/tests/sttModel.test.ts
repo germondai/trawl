@@ -74,3 +74,19 @@ describe("STT_MODEL for in-memory audio", () => {
     expect(await stt.transcribeAudioBytes(new Uint8Array([1]))).toBeUndefined()
   })
 })
+
+describe("language for in-memory audio", () => {
+  test("tells Whisper which language the clip is in", async () => {
+    const stt = await loadStt({ STT_URL: "http://stt.test/v1/audio/transcriptions" })
+    const seen = captureFetch("dois quatro cinco")
+    await stt.transcribeAudioBytes(new Uint8Array([1]), undefined, "clip.wav", "pt")
+    expect(seen.form?.get("language")).toBe("pt")
+  })
+
+  test("defaults to English", async () => {
+    const stt = await loadStt({ STT_URL: "http://stt.test/v1/audio/transcriptions" })
+    const seen = captureFetch("one two three")
+    await stt.transcribeAudioBytes(new Uint8Array([1]))
+    expect(seen.form?.get("language")).toBe("en")
+  })
+})

@@ -353,6 +353,109 @@ describe("browser challenge routing", () => {
     })
   })
 
+  describe("DataDome CAPTCHA wall solving", () => {
+    const idle = async () => {
+      throw new Error("waiter must not run")
+    }
+    const waiters = (overrides: Record<string, unknown>) =>
+      ({
+        cloudflare: idle,
+        ddosGuard: idle,
+        imperva: idle,
+        akamai: idle,
+        awsWaf: idle,
+        dataDome: idle,
+        ...overrides,
+      }) as never
+    const left = { content: async () => "<html><body>real page</body></html>" } as unknown as Page
+
+    test("solves the wall, then lets the waiter confirm the new cookie", async () => {
+      const calls: string[] = []
+      const result = await routeChallengeWait(
+        left,
+        DATADOME_CAPTCHA,
+        {},
+        1000,
+        "https://example.test/",
+        waiters({
+          dataDomeCaptcha: async () => {
+            calls.push("solve")
+            return true
+          },
+          dataDome: async () => {
+            calls.push("confirm")
+            return "ok" as const
+          },
+        }),
+      )
+      expect(calls).toEqual(["solve", "confirm"])
+      expect(result).toEqual({ challengeType: "datadome", resolution: "ok", captchasSolved: ["datadome"] })
+    })
+
+    test("keeps CAPTCHA-required when the solver fails or throws", async () => {
+      for (const solve of [
+        async () => false,
+        async () => {
+          throw new Error("browser closed")
+        },
+      ]) {
+        const result = await routeChallengeWait(
+          left,
+          DATADOME_CAPTCHA,
+          {},
+          1000,
+          undefined,
+          waiters({ dataDomeCaptcha: solve }),
+        )
+        expect(result).toEqual({ challengeType: "datadome", resolution: "captcha-required" })
+      }
+    })
+
+    test("reports the waiter verdict, without claiming a solve, when the answer is not accepted", async () => {
+      const result = await routeChallengeWait(
+        left,
+        DATADOME_CAPTCHA,
+        {},
+        1000,
+        undefined,
+        waiters({ dataDomeCaptcha: async () => true, dataDome: async () => "ip-blocked" as const }),
+      )
+      expect(result).toEqual({ challengeType: "datadome", resolution: "ip-blocked" })
+    })
+
+    test("never tries to solve a hard block", async () => {
+      const result = await routeChallengeWait(
+        left,
+        DATADOME_JSON_HARD_BLOCK,
+        {},
+        1000,
+        undefined,
+        waiters({ dataDomeCaptcha: idle }),
+      )
+      expect(result).toEqual({ challengeType: "datadome", resolution: "ip-blocked" })
+    })
+
+    test("does not try to solve once the request is aborted", async () => {
+      const controller = new AbortController()
+      controller.abort()
+      const result = await routeChallengeWait(
+        left,
+        DATADOME_CAPTCHA,
+        {},
+        1000,
+        undefined,
+        waiters({ dataDomeCaptcha: idle }),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        controller.signal,
+      )
+      expect(result).toEqual({ challengeType: "datadome", resolution: "captcha-required" })
+    })
+  })
+
   test("reports a DuckDuckGo image challenge without invoking the Cloudflare waiter", async () => {
     const fail = async () => {
       throw new Error("waiter must not run")
