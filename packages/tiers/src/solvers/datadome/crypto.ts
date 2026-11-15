@@ -202,7 +202,7 @@ export function encrypt(
   const nKey = toInt32(toInt32(SEED_E) ^ hashL(ddjskey) ^ DEFAULT_V)
 
   // Derive f from timestamp
-  const tsShifted = toInt32(toInt32(timestampMs) >> 3 ^ toInt32(IV_XOR_CONST))
+  const tsShifted = toInt32((toInt32(timestampMs) >> 3) ^ toInt32(IV_XOR_CONST))
   const inner = xorshift32(tsShifted)
   const product = inner * SEED_E
   const f = xorshift32(float64ToInt32(product))
@@ -250,7 +250,7 @@ export function encrypt(
   const c = d.map((byte) => byte ^ tPrng.next())
 
   // Closing brace (peek from s_prng)
-  c.push((125 ^ sPrng.next(true)) ^ tPrng.next()) // '}'
+  c.push(125 ^ sPrng.next(true) ^ tPrng.next()) // '}'
 
   // Apply rolling mask with a_iv
   const output: string[] = []
@@ -296,11 +296,7 @@ function wEncodeChar(n: number): number {
 }
 
 // Decrypt jspl string back to signals (brute-force f_low, matches Python)
-export function decrypt(
-  jspl: string,
-  ddjskey: string,
-  cid: string | null = null,
-): Record<string, unknown> | undefined {
+export function decrypt(jspl: string, ddjskey: string, cid: string | null = null): Record<string, unknown> | undefined {
   // URL decode and clean
   const cleaned = decodeURIComponent(jspl.trim().replace(/[\n\r ]/g, ""))
 

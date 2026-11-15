@@ -32,9 +32,7 @@ export interface SolverResult {
 }
 
 // Extract DataDome parameters from the interstitial page
-export async function extractDdParams(
-  page: Page,
-): Promise<{ ddk: string; cid: string; hash: string } | undefined> {
+export async function extractDdParams(page: Page): Promise<{ ddk: string; cid: string; hash: string } | undefined> {
   try {
     // Try to find the ddm object in the page
     const params = await page.evaluate(() => {
@@ -184,11 +182,7 @@ export async function applyCookie(page: Page, cookie: string, domain: string): P
 }
 
 // Full flow: extract params, solve, apply cookie
-export async function solveDataDomeDirectFlow(
-  page: Page,
-  targetUrl: string,
-  timeoutMs = 10000,
-): Promise<boolean> {
+export async function solveDataDomeDirectFlow(page: Page, targetUrl: string, timeoutMs = 10000): Promise<boolean> {
   // Extract parameters from the page
   const params = await extractDdParams(page)
   if (!params) {

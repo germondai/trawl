@@ -266,9 +266,7 @@ describe("builder: buildPayload", () => {
 
 describe("builder: buildPayloadWithVariation", () => {
   test("varies resolution and hardware", () => {
-    const payloads = Array.from({ length: 10 }, () =>
-      buildPayloadWithVariation("https://example.com", "hash"),
-    )
+    const payloads = Array.from({ length: 10 }, () => buildPayloadWithVariation("https://example.com", "hash"))
     const resolutions = new Set(payloads.map((p) => `${p.rs_w}x${p.rs_h}`))
     const hcs = new Set(payloads.map((p) => p.hc))
 

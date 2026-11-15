@@ -473,9 +473,8 @@ export function generateTrrd(random: Random): number {
 
   const e = Math.sqrt(
     Math.abs(
-      Math.sin((Math.PI / 90) * 100 - 40 * r1 * (Math.PI / 180) / 2) +
-        Math.cos(100 * sqrt2 * (Math.PI / 180)) *
-          Math.sin((Math.PI / 180) * 40 - 100 * r2 * (Math.PI / 75) / 2),
+      Math.sin((Math.PI / 90) * 100 - (40 * r1 * (Math.PI / 180)) / 2) +
+        Math.cos(100 * sqrt2 * (Math.PI / 180)) * Math.sin((Math.PI / 180) * 40 - (100 * r2 * (Math.PI / 75)) / 2),
     ),
   )
 
@@ -485,9 +484,7 @@ export function generateTrrd(random: Random): number {
       Math.abs(
         1 -
           Math.sin(40 * r4 * (Math.PI / 90) - (100 * sqrt2 * (Math.PI / 180)) / 2) +
-          Math.cos(3.7055555555555557) *
-            random() *
-            Math.sin((Math.PI / 180) * 60 - (Math.PI / 45) * (100 / 2)),
+          Math.cos(3.7055555555555557) * random() * Math.sin((Math.PI / 180) * 60 - (Math.PI / 45) * (100 / 2)),
       ),
     )
 
