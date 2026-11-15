@@ -177,11 +177,20 @@ export interface BlockedEvidence {
   screenshot?: string
 }
 
+// One CAPTCHA a tier tried to clear. Kinds match `captchasSolved` (for example `turnstile`,
+// `altcha`, `aws-waf`, or `recaptcha:2captcha` for the external-solver fallback).
+export interface CaptchaOutcome {
+  kind: string
+  outcome: "solved" | "failed"
+}
+
 export interface TierResult {
   tier: 1 | 2 | 3 | 4
   status: "success" | "blocked" | "needs-js" | "timeout" | "error" | "skipped"
   durationMs: number
   reason?: string
+  // Present only when this attempt tried at least one CAPTCHA.
+  captchas?: CaptchaOutcome[]
 }
 
 export interface WafDetection {

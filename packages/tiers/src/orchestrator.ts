@@ -2,6 +2,7 @@ import type { BrowserHandle } from "@trawl/browser"
 import { FINGERPRINT, FINGERPRINT_POOL, PoolExhaustedError } from "@trawl/browser"
 import type {
   BlockedEvidence,
+  CaptchaOutcome,
   Cookie,
   ScrapeRequest,
   ScrapeResult,
@@ -271,7 +272,11 @@ async function scrapeWithinBudget(
   // of `timings` - that stays the thin, machine-readable attempt history - and reached
   // only via the thrown ScrapeError.
   let blockedEvidence: BlockedEvidence | undefined
+  // CAPTCHAs the running tier tried. `emit` moves them onto that tier's attempt, and tiers
+  // run one at a time, so they always land on the attempt that produced them.
+  let pendingCaptchas: CaptchaOutcome[] = []
   const capture: CaptureOptions = {
+    captchaOutcomes: (outcomes) => pendingCaptchas.push(...outcomes),
     networkProxy,
     anubisDetected: false,
     cookies: req.cookies,
@@ -330,7 +335,9 @@ async function scrapeWithinBudget(
       status: r.status,
       durationMs: r.durationMs,
       ...(r.reason === undefined ? {} : { reason: r.reason }),
+      ...(pendingCaptchas.length === 0 ? {} : { captchas: pendingCaptchas }),
     }
+    pendingCaptchas = []
     timings.push(publicResult)
     deps.onTierAttempt?.(publicResult)
   }
