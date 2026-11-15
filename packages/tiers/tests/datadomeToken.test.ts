@@ -4,7 +4,15 @@ import { applyDataDomeToken, fetchDataDomeToken } from "../src/solvers/datadomeT
 
 function fakePage(response: { status: number; body: unknown } | "timeout" | "network-error") {
   const requests: Array<{ url: string; data: string; headers: Record<string, string> }> = []
-  const cookies: Array<{ name: string; value: string; domain: string }> = []
+  const cookies: Array<{
+    name: string
+    value: string
+    domain: string
+    path?: string
+    httpOnly?: boolean
+    secure?: boolean
+    sameSite?: "Strict" | "Lax" | "None"
+  }> = []
 
   const page = {
     request: {
