@@ -339,7 +339,6 @@ export function decrypt(jspl: string, ddjskey: string, cid: string | null = null
         return parsed as Record<string, unknown>
       }
     } catch {
-      continue
     }
   }
 
