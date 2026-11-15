@@ -34,11 +34,19 @@ const solve = (
 // own URL, and each Verify click is answered from a list of verdicts. A rejection swaps in
 // the next clip, the way the real widget does.
 function fakeWidget(
-  options: { verdicts?: Verdict[]; present?: boolean; audioHost?: string; restrictedWhilePlaying?: boolean } = {},
+  options: {
+    verdicts?: Verdict[]
+    present?: boolean
+    audioHost?: string
+    restrictedWhilePlaying?: boolean
+    // Toggle clicks that do nothing, the way a click landing on the animating button does.
+    ignoredToggleClicks?: number
+  } = {},
 ) {
   const log: string[] = []
   const typed: string[] = []
   const verdicts = [...(options.verdicts ?? ["accept"])]
+  let ignoredToggles = options.ignoredToggleClicks ?? 0
   const state = { audio: false, clip: 1, passed: false, detached: false, restricted: false, inline: false }
   const srcOf = () => (options.audioHost ? `https://${options.audioHost}/a.wav` : clip(state.clip))
 
@@ -51,7 +59,10 @@ function fakeWidget(
 
   const click = (selector: string) => {
     log.push(`click:${selector}`)
-    if (selector === AUDIO_BUTTON) state.audio = true
+    if (selector === AUDIO_BUTTON) {
+      if (ignoredToggles > 0) ignoredToggles--
+      else state.audio = true
+    }
     if (selector === RELOAD) state.clip++
     if (selector === SUBMIT) {
       const verdict = verdicts.shift() ?? "reject"
@@ -180,7 +191,7 @@ describe("DataDome audio solver", () => {
 
     expect(widget.log).not.toContain(`click:${SUBMIT}`)
     expect(stt.files.length).toBeLessThanOrEqual(6)
-  })
+  }, 20_000)
 
   test("ignores a clip that is not served by DataDome", async () => {
     downloads.length = 0
@@ -219,6 +230,24 @@ describe("DataDome audio solver", () => {
     expect(widget.typed).toEqual([])
     expect(widget.log).not.toContain(`click:${SUBMIT}`)
   })
+
+  test("clicks the audio toggle again when the first click did not switch the widget", async () => {
+    const widget = fakeWidget({ ignoredToggleClicks: 1 })
+
+    expect(await solve(widget.page, 8000, undefined, recogniser([GOOD]).fn, download)).toBe(true)
+
+    expect(widget.log.filter((entry) => entry === `click:${AUDIO_BUTTON}`)).toHaveLength(2)
+    expect(widget.typed.join("")).toBe("589244")
+  })
+
+  test("does not type into a widget that never leaves the slider", async () => {
+    const widget = fakeWidget({ ignoredToggleClicks: 99 })
+
+    expect(await solve(widget.page, 6000, undefined, recogniser([GOOD]).fn, download)).toBe(false)
+
+    expect(widget.typed).toEqual([])
+    expect(widget.log).not.toContain(`click:${SUBMIT}`)
+  }, 20_000)
 
   test("returns false without touching anything when no widget is on the page", async () => {
     const widget = fakeWidget({ present: false })

@@ -152,6 +152,21 @@ async function listen(
   return (await isRestricted(frame)) ? "restricted" : "done"
 }
 
+// The toggle animates, so a click can miss: the widget stays on the slider while the clip is
+// still readable from the hidden <audio>. Confirm the digit boxes are showing before relying on
+// the audio view, and click again when they are not.
+async function openAudioView(frame: Frame, signal: AbortSignal, timeout: () => number): Promise<boolean> {
+  for (let attempt = 0; attempt < 3 && !signal.aborted; attempt++) {
+    if (await present(frame, INPUTS)) return true
+    await frame
+      .locator(AUDIO_BUTTON)
+      .click({ timeout: Math.max(1, Math.min(3000, timeout())), force: true })
+      .catch(() => {})
+    await sleep(Math.min(900, timeout()), signal).catch(() => {})
+  }
+  return present(frame, INPUTS)
+}
+
 // DataDome words its "access restricted" page per language; none of them offers a control.
 const RESTRICTED =
   /temporarily restricted|temporariamente restrito|temporairement restreint|vorübergehend eingeschränkt|temporalmente restringido/i
@@ -212,10 +227,10 @@ export async function solveDataDome(
       }
 
       // A reload can bring the slider back, so the audio panel is re-opened every round.
-      if (!(await present(frame, INPUTS))) {
-        signal.throwIfAborted()
-        // The toggle keeps animating, so Playwright's stability check never settles on it.
-        await frame.locator(AUDIO_BUTTON).click({ timeout: step(5000), force: true })
+      signal.throwIfAborted()
+      if (!(await openAudioView(frame, signal, remaining))) {
+        await requestNew().catch(() => {})
+        continue
       }
 
       // A reload is only confirmed once a new clip replaces the old one.
@@ -235,10 +250,12 @@ export async function solveDataDome(
 
       // Play the clip like a person would; the download and transcription run while it plays.
       const playedAt = Date.now()
+      // No `force` here: it skips the stability wait, and a click that lands while the widget is
+      // still animating can hit the neighbouring toggle and flip the widget back to the slider.
       await frame
         .locator(PLAY)
         .first()
-        .click({ timeout: step(3000), force: true })
+        .click({ timeout: step(3000) })
         .catch(() => {})
       const bytes = await download(page, src, step(10_000)).catch(() => undefined)
       signal.throwIfAborted()
@@ -253,6 +270,11 @@ export async function solveDataDome(
       if ((await listen(frame, bytes?.length ?? 0, playedAt, deadline, signal)) === "restricted") {
         console.log(`[datadome] access restricted before the answer was typed (${submissions} submission(s))`)
         return false
+      }
+      // The widget can fall back to the slider while the clip plays; the clip is stale then.
+      if (!(await openAudioView(frame, signal, remaining))) {
+        await requestNew().catch(() => {})
+        continue
       }
       const boxes = frame.locator(INPUTS)
       for (let i = 0; i < DATADOME_DIGITS; i++) {
