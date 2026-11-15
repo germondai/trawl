@@ -132,14 +132,24 @@ function between([min, max]: [number, number]): number {
 // A person plays the clip and waits for it to end before typing; the widget reports the play
 // and the time taken. Playing is best effort: without an audio device the element may never
 // advance, so the wait is also bounded by the length the clip should take.
-async function listen(frame: Frame, bytes: number, startedAt: number, deadline: number, signal: AbortSignal) {
+async function listen(
+  frame: Frame,
+  bytes: number,
+  startedAt: number,
+  deadline: number,
+  signal: AbortSignal,
+): Promise<"done" | "restricted"> {
   const lengthMs = Math.min(MAX_LISTEN_MS, (bytes / WAV_BYTES_PER_SECOND) * 1000 + 800)
   const until = Math.min(deadline, startedAt + lengthMs)
   while (Date.now() < until && !signal.aborted) {
+    // DataDome can turn the session away while the clip plays; typing into a widget that is
+    // already gone only ends in a timeout.
+    if (await isRestricted(frame)) return "restricted"
     const ended = await frame.evaluate(PLAYBACK).catch(() => false)
-    if (ended === true) return
+    if (ended === true) return "done"
     await sleep(Math.min(300, Math.max(1, until - Date.now())), signal).catch(() => {})
   }
+  return (await isRestricted(frame)) ? "restricted" : "done"
 }
 
 // DataDome words its "access restricted" page per language; none of them offers a control.
@@ -240,7 +250,10 @@ export async function solveDataDome(
         continue
       }
 
-      await listen(frame, bytes?.length ?? 0, playedAt, deadline, signal)
+      if ((await listen(frame, bytes?.length ?? 0, playedAt, deadline, signal)) === "restricted") {
+        console.log(`[datadome] access restricted before the answer was typed (${submissions} submission(s))`)
+        return false
+      }
       const boxes = frame.locator(INPUTS)
       for (let i = 0; i < DATADOME_DIGITS; i++) {
         signal.throwIfAborted()

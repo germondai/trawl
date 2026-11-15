@@ -33,7 +33,9 @@ const solve = (
 // A scripted stand-in for the widget: the audio panel opens on the toggle, every clip has its
 // own URL, and each Verify click is answered from a list of verdicts. A rejection swaps in
 // the next clip, the way the real widget does.
-function fakeWidget(options: { verdicts?: Verdict[]; present?: boolean; audioHost?: string } = {}) {
+function fakeWidget(
+  options: { verdicts?: Verdict[]; present?: boolean; audioHost?: string; restrictedWhilePlaying?: boolean } = {},
+) {
   const log: string[] = []
   const typed: string[] = []
   const verdicts = [...(options.verdicts ?? ["accept"])]
@@ -86,7 +88,14 @@ function fakeWidget(options: { verdicts?: Verdict[]; present?: boolean; audioHos
   const frame = {
     locator,
     isDetached: () => state.detached,
-    evaluate: async () => true,
+    // The playback probe: the session can be turned away while the clip is still playing.
+    evaluate: async () => {
+      if (options.restrictedWhilePlaying) {
+        state.inline = true
+        return false
+      }
+      return true
+    },
     url: () => "https://geo.captcha-delivery.com/captcha/",
   }
   const page = {
@@ -200,6 +209,15 @@ describe("DataDome audio solver", () => {
     const widget = fakeWidget({ verdicts: ["restricted-inline"] })
 
     expect(await solve(widget.page, 5000, undefined, recogniser([GOOD]).fn, download)).toBe(false)
+  })
+
+  test("stops without typing when the session is turned away while the clip plays", async () => {
+    const widget = fakeWidget({ restrictedWhilePlaying: true })
+
+    expect(await solve(widget.page, 5000, undefined, recogniser([GOOD]).fn, download)).toBe(false)
+
+    expect(widget.typed).toEqual([])
+    expect(widget.log).not.toContain(`click:${SUBMIT}`)
   })
 
   test("returns false without touching anything when no widget is on the page", async () => {
