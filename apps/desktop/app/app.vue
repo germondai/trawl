@@ -114,8 +114,8 @@ onBeforeUnmount(() => {
   pause()
   for (const unlisten of unlisteners) unlisten()
 })
-async function close(behavior: "tray" | "quit") {
-  if (remember.value && desktop.loaded && desktop.config.desktop.closeBehavior !== behavior) {
+async function close(behavior: "tray" | "quit", rememberChoice = false) {
+  if (rememberChoice && remember.value && desktop.loaded && desktop.config.desktop.closeBehavior !== behavior) {
     const config = structuredClone(toRaw(desktop.config))
     config.desktop.closeBehavior = behavior
     await desktop.save(config)
@@ -250,8 +250,8 @@ async function close(behavior: "tray" | "quit") {
       ><template #footer
         ><div class="actions">
           <UButton color="neutral" variant="ghost" @click="closePrompt = false">Cancel</UButton
-          ><UButton color="neutral" variant="outline" @click="close('quit')">Quit completely</UButton
-          ><UButton @click="close('tray')">Keep running in tray</UButton>
+          ><UButton color="neutral" variant="outline" @click="close('quit', true)">Quit completely</UButton
+          ><UButton @click="close('tray', true)">Keep running in tray</UButton>
         </div></template
       ></UModal
     >

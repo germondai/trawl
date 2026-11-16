@@ -8,6 +8,8 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU8, Ordering},
     Arc,
 };
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use tauri::menu::PredefinedMenuItem;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
@@ -91,6 +93,41 @@ async fn close_window(app: tauri::AppHandle, behavior: String) -> Result<(), Str
 }
 pub fn run() {
     tauri::Builder::default()
+        .menu(|app| {
+            let menu = Menu::default(app)?;
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            {
+                // The predefined Quit directly terminates AppKit instead of requesting a guarded exit.
+                let quit_label = PredefinedMenuItem::quit(app, None)?.text()?;
+                for item in menu.items()? {
+                    if let Some(submenu) = item.as_submenu() {
+                        for (index, item) in submenu.items()?.iter().enumerate() {
+                            if let Some(item) = item.as_predefined_menuitem() {
+                                if item.text()? == quit_label {
+                                    submenu.remove_at(index)?;
+                                    submenu.insert(
+                                        &MenuItem::with_id(
+                                            app,
+                                            "application-quit",
+                                            "Quit TRAWL",
+                                            true,
+                                            Some("CmdOrCtrl+Q"),
+                                        )?,
+                                        index,
+                                    )?;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(menu)
+        })
+        .on_menu_event(|app, event| {
+            if event.id.as_ref() == "application-quit" {
+                request_quit(app);
+            }
+        })
         .manage(window_chrome::WindowChrome::default())
         .on_page_load(|webview, payload| {
             if webview.label() != "main"

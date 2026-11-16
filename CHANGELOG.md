@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Increase the default browser acquisition wait from 15 to 30 seconds so bursts can wait longer for a free browser. Keep explicit `BROWSER_ACQUIRE_TIMEOUT_MS` overrides and the request's overall deadline.
 
 ### Fixed
+- Route the desktop application's native Quit command through unsaved-settings confirmation and owned-server cleanup, matching tray Quit behavior.
 - Restore desktop macOS window-control alignment after native titlebar relayouts without requiring a WebView resize.
 - Allow container clients to reach managed loopback instances through the exact Docker and OrbStack host aliases while retaining cross-origin browser and Host validation.
 
