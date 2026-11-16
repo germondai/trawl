@@ -60,7 +60,16 @@ class Fixture(BaseHTTPRequestHandler):
         self.wfile.write(output)
 
 
-fixture = ThreadingHTTPServer(("127.0.0.1", 0), Fixture)
+class FixtureServer(ThreadingHTTPServer):
+    def server_bind(self):
+        if os.name == "nt":
+            # Windows SO_REUSEADDR permits another process to share this port.
+            self.allow_reuse_address = False
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
+fixture = FixtureServer(("127.0.0.1", 0), Fixture)
 threading.Thread(target=fixture.serve_forever, daemon=True).start()
 with socket.socket() as s:
     s.bind(("127.0.0.1", 0))
@@ -141,20 +150,33 @@ command = (
         str(home),
     ]
 )
+management_parent_exit = None
 if not args.source:
-    probe = subprocess.run(
+    probe = subprocess.Popen(
         [
             str(bundle / ("trawl-server.exe" if os.name == "nt" else "trawl-server")),
             "--manage",
+            "--watch-parent",
         ],
-        input=json.dumps({"action": "status", "home": str(home)}),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
-        capture_output=True,
-        timeout=10,
     )
-    if probe.returncode != 0 or json.loads(probe.stdout).get("result", {}).get(
-        "running"
-    ):
+    try:
+        # Match desktop IPC: one JSON line, with the parent pipe still open.
+        probe.stdin.write(json.dumps({"action": "status", "home": str(home)}) + "\n")
+        probe.stdin.flush()
+        management_parent_exit = probe.wait(timeout=10)
+        probe_result = json.loads(probe.stdout.read())
+    finally:
+        probe.stdin.close()
+        try:
+            probe.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            probe.kill()
+            probe.wait()
+    if probe.returncode != 0 or probe_result.get("result", {}).get("running"):
         raise RuntimeError(
             "Refusing to use a home with a running instance or unavailable control"
         )
@@ -175,6 +197,15 @@ if not args.source:
     try:
         startup_failure_exit = collision.wait(timeout=15)
         assert startup_failure_exit != 0, "An occupied HTTP port must reject startup"
+    except subprocess.TimeoutExpired as error:
+        with log.open("rb") as failed_log:
+            failed_log.seek(0, os.SEEK_END)
+            failed_log.seek(max(0, failed_log.tell() - 4096))
+            diagnostic = failed_log.read(4096).decode(errors="replace")
+        raise RuntimeError(
+            "Failed startup did not exit with its parent pipe open. Runtime log:\n"
+            + diagnostic
+        ) from error
     finally:
         collision.stdin.close()
         try:
@@ -417,6 +448,7 @@ try:
         "arch": platform.machine(),
         "startupMs": startup,
         "checks": len(records),
+        "managementParentPipeExitCode": management_parent_exit,
         "failedStartupExitCode": startup_failure_exit,
         "observability": args.observability,
         "requests": records,
