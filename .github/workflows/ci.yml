@@ -48,6 +48,8 @@ jobs:
           deno-version: v2.x
       - name: Check the packed client in Node, Bun and Deno
         run: bun scripts/check-client-package.ts
+      - name: Check the packed CLI in Node, Bun and Deno
+        run: bun scripts/check-cli-package.ts
 
   browser-smoke:
     runs-on: ubuntu-latest
