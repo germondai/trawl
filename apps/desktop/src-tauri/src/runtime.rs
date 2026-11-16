@@ -228,59 +228,68 @@ async fn read_private_json(path: &std::path::Path, limit: u64) -> Result<Value, 
     }
     serde_json::from_slice(&raw).map_err(|_| "Invalid instance file".into())
 }
+fn api_ready(status: &Value) -> bool {
+    status["running"] == true && status["ready"] != false
+}
 pub async fn start(state: &AppState) -> Result<Value, String> {
     let mut owned = state.child.lock().await;
+    if let Ok(mut error) = state.startup_error.lock() {
+        *error = None;
+    }
     let status = call(state, json!({"action":"status"})).await?;
-    if status["running"] == true {
+    if api_ready(&status) {
         return Ok(status);
     }
-    if let Some(child) = owned.as_mut() {
-        if child
-            .try_wait()
-            .map_err(|_| "Cannot inspect local process")?
-            .is_none()
-        {
-            return Err("The previous local server is still shutting down".into());
-        }
-    }
-    let logs = state.home.join("logs");
-    tokio::fs::create_dir_all(&logs)
-        .await
-        .map_err(|_| "Cannot prepare server logs")?;
-    let mut options = std::fs::OpenOptions::new();
-    options.create(true).append(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-        std::fs::set_permissions(&logs, std::fs::Permissions::from_mode(0o700))
-            .map_err(|_| "Cannot protect server logs")?;
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-    }
-    let output = options
-        .open(logs.join("server.log"))
-        .map_err(|_| "Cannot open server log")?;
-    let error = output.try_clone().map_err(|_| "Cannot open server log")?;
-    let mut command = tokio::process::Command::new(executable(state));
-    command
-        .args(["serve", "--owner", "desktop", "--watch-parent", "--home"])
-        .arg(&state.home)
-        .current_dir(&state.runtime)
-        .stdin(Stdio::piped())
-        .stdout(output)
-        .stderr(error);
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.as_std_mut().process_group(0);
-    }
-    #[cfg(windows)]
-    command.creation_flags(0x08000200);
-    let child = command
-        .spawn()
-        .map_err(|_| "Could not start the packaged server")?;
-    *owned = Some(child);
-    for _ in 0..100 {
+    let already_starting = status["running"] == true;
+    if !already_starting {
         if let Some(child) = owned.as_mut() {
+            if child
+                .try_wait()
+                .map_err(|_| "Cannot inspect local process")?
+                .is_none()
+            {
+                return Err("The previous local server is still shutting down".into());
+            }
+        }
+        let logs = state.home.join("logs");
+        tokio::fs::create_dir_all(&logs)
+            .await
+            .map_err(|_| "Cannot prepare server logs")?;
+        let mut options = std::fs::OpenOptions::new();
+        options.create(true).append(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+            std::fs::set_permissions(&logs, std::fs::Permissions::from_mode(0o700))
+                .map_err(|_| "Cannot protect server logs")?;
+            options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        }
+        let output = options
+            .open(logs.join("server.log"))
+            .map_err(|_| "Cannot open server log")?;
+        let error = output.try_clone().map_err(|_| "Cannot open server log")?;
+        let mut command = tokio::process::Command::new(executable(state));
+        command
+            .args(["serve", "--owner", "desktop", "--watch-parent", "--home"])
+            .arg(&state.home)
+            .current_dir(&state.runtime)
+            .stdin(Stdio::piped())
+            .stdout(output)
+            .stderr(error);
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.as_std_mut().process_group(0);
+        }
+        #[cfg(windows)]
+        command.creation_flags(0x08000200);
+        let child = command
+            .spawn()
+            .map_err(|_| "Could not start the packaged server")?;
+        *owned = Some(child);
+    }
+    for _ in 0..100 {
+        if let Some(child) = owned.as_mut().filter(|_| !already_starting) {
             if child
                 .try_wait()
                 .map_err(|_| "Cannot inspect server process")?
@@ -290,13 +299,28 @@ pub async fn start(state: &AppState) -> Result<Value, String> {
             }
         }
         if let Ok(status) = call(state, json!({"action":"status"})).await {
-            if status["running"] == true {
+            if api_ready(&status) {
                 return Ok(status);
+            }
+            if already_starting && status["running"] != true {
+                return Err("Local server stopped during startup. Check Logs for details.".into());
             }
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     Err("Local server did not become available. Check Logs for details.".into())
+}
+#[cfg(test)]
+mod readiness_tests {
+    use super::*;
+
+    #[test]
+    fn startup_waits_for_explicit_readiness_and_accepts_legacy_status() {
+        assert!(!api_ready(&json!({"running":true,"ready":false})));
+        assert!(!api_ready(&json!({"running":false,"ready":true})));
+        assert!(api_ready(&json!({"running":true,"ready":true})));
+        assert!(api_ready(&json!({"running":true})));
+    }
 }
 #[tauri::command]
 pub async fn server_start(state: State<'_, Arc<AppState>>) -> Result<Value, String> {

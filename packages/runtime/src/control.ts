@@ -19,6 +19,7 @@ export interface InstanceState {
 }
 export interface InstanceStatus extends Omit<InstanceState, "token" | "socket" | "dashboardToken"> {
   running: boolean
+  ready?: boolean
 }
 const lineLimit = 16384
 export async function instanceState(paths = runtimePaths()): Promise<InstanceState | undefined> {
@@ -111,6 +112,7 @@ export async function startControl(
   paths: RuntimePaths,
   details: Pick<InstanceState, "baseURL" | "owner" | "dashboardToken" | "shutdownDrainMs" | "listenHost">,
   shutdown: () => void,
+  isReady: () => boolean = () => true,
 ) {
   await privateDirectory(paths.run)
   if (await control("status", paths)) throw new Error("A managed TRAWL instance is already running")
@@ -154,7 +156,7 @@ export async function startControl(
           client.end(`${JSON.stringify({ error: "Unauthorized control request" })}\n`)
           return
         }
-        client.end(`${JSON.stringify(status)}\n`, () => {
+        client.end(`${JSON.stringify({ ...status, ready: isReady() })}\n`, () => {
           if (request.action === "stop") shutdown()
         })
       } catch {

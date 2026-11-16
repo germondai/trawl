@@ -78,31 +78,40 @@ export async function runServer(args: string[]) {
   const host = env.HOST === "0.0.0.0" || env.HOST === "::" ? "127.0.0.1" : env.HOST
   const baseURL = `http://${host.includes(":") ? `[${host}]` : host}:${env.PORT}`
   let close: () => Promise<void> = async () => {}
+  let ready = false
   const shutdown = () => {
     if (process.listenerCount("SIGTERM") === 0) process.exit(0)
     process.emit("SIGTERM", "SIGTERM")
   }
-  if (values["watch-parent"] || process.env.TRAWL_PARENT_WATCH === "1") {
+  const watchingParent = values["watch-parent"] || process.env.TRAWL_PARENT_WATCH === "1"
+  if (watchingParent) {
     process.stdin.once("end", shutdown)
     process.stdin.resume()
   }
-  close = await startControl(
-    paths,
-    {
-      baseURL,
-      owner: owner as "cli" | "desktop" | "foreground",
-      dashboardToken: env.METRICS_DASHBOARD_TOKEN,
-      shutdownDrainMs: Number(env.BROWSER_SHUTDOWN_DRAIN_MS),
-      listenHost: host,
-    },
-    shutdown,
-  )
   try {
+    close = await startControl(
+      paths,
+      {
+        baseURL,
+        owner: owner as "cli" | "desktop" | "foreground",
+        dashboardToken: env.METRICS_DASHBOARD_TOKEN,
+        shutdownDrainMs: Number(env.BROWSER_SHUTDOWN_DRAIN_MS),
+        listenHost: host,
+      },
+      shutdown,
+      () => ready,
+    )
     if (!(await browserStatus(paths)).installed)
       throw new Error("Browser installation changed during startup; install it before starting the server")
     maintainLogs(paths)
     await import(pathToFileURL(join(resources, "api.mjs")).href)
+    ready = true
   } catch (error) {
+    if (watchingParent) {
+      // A live parent pipe must not keep a failed child running.
+      process.stdin.removeListener("end", shutdown)
+      process.stdin.destroy()
+    }
     await close()
     throw error
   }

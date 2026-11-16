@@ -157,7 +157,7 @@ export const useDesktopStore = defineStore("desktop", () => {
       await refresh(true)
       return true
     } catch (cause) {
-      error.value = cause instanceof Error ? cause.message : "Operation failed"
+      error.value = cause instanceof Error ? cause.message : typeof cause === "string" ? cause : "Operation failed"
       return false
     } finally {
       busy.value = false

@@ -36,6 +36,7 @@ mock.module("@tauri-apps/api/core", () => ({
   isTauri: () => true,
   Channel: class {},
   invoke: async (command: string, request: { instanceId: string; path: string }) => {
+    if (command === "server_start") throw "Local server stopped during startup. Check Logs for details."
     if (command === "management") throw new Error("Fixture configuration is unavailable")
     if (request.path === "/capabilities" && request.instanceId === "transient") {
       capabilityReads++
@@ -77,6 +78,13 @@ test("a failed startup bootstrap never marks placeholder configuration as loaded
   expect(store.loaded).toBe(false)
   expect(await store.action(() => store.bootstrap())).toBe(false)
   expect(store.loaded).toBe(false)
+})
+
+test("native startup errors retain their actionable message", async () => {
+  setActivePinia(createPinia())
+  const store = useDesktopStore()
+  expect(await store.start()).toBe(false)
+  expect(store.error).toBe("Local server stopped during startup. Check Logs for details.")
 })
 
 test("capability discovery retries a transient failure on the selected instance", async () => {

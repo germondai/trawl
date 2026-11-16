@@ -28,32 +28,36 @@ export async function startManaged(
   flags: Environment = {},
 ): Promise<InstanceStatus> {
   const running = await control("status", paths)
-  if (running) return running
-  await readConfig(paths)
-  const executable = await runtimeExecutable(paths)
-  await rotateLog(paths)
-  const file = await open(paths.log, "a", 0o600)
-  const child = spawn(executable, ["serve", "--home", paths.home, "--owner", owner], {
-    detached: true,
-    windowsHide: true,
-    stdio: ["ignore", file.fd, file.fd],
-    env: { ...process.env, ...validateEnvironment(flags), TRAWL_HOME: paths.home },
-  })
-  await file.close()
-  child.unref()
+  if (running && running.ready !== false) return running
+  let child: ReturnType<typeof spawn> | undefined
   let failure: Error | undefined
-  child.once("error", (error) => {
-    failure = error
-  })
+  if (!running) {
+    await readConfig(paths)
+    const executable = await runtimeExecutable(paths)
+    await rotateLog(paths)
+    const file = await open(paths.log, "a", 0o600)
+    child = spawn(executable, ["serve", "--home", paths.home, "--owner", owner], {
+      detached: true,
+      windowsHide: true,
+      stdio: ["ignore", file.fd, file.fd],
+      env: { ...process.env, ...validateEnvironment(flags), TRAWL_HOME: paths.home },
+    })
+    await file.close()
+    child.unref()
+    child.once("error", (error) => {
+      failure = error
+    })
+  }
   const deadline = Date.now() + 10000
   while (Date.now() < deadline) {
     if (failure) throw failure
     const status = await control("status", paths)
-    if (status) return status
-    if (child.exitCode !== null) throw new Error("Server startup failed; inspect trawl server logs")
+    if (status && status.ready !== false) return status
+    if ((child && child.exitCode !== null) || (running && !status))
+      throw new Error("Server startup failed; inspect trawl server logs")
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
-  throw new Error("Server did not register its control socket; inspect trawl server logs")
+  throw new Error("Server did not become ready; inspect trawl server logs")
 }
 export async function stopManaged(paths = runtimePaths(), requiredOwner?: "desktop" | "cli", signal?: AbortSignal) {
   const current = await control("status", paths)

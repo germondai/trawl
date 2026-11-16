@@ -3,10 +3,49 @@ import { mkdtemp, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { control, instanceState, startControl } from "../src/control"
+import { startManaged } from "../src/manager"
 import { runtimePaths } from "../src/paths"
 import { emptyConfig, publicConfig, readConfig, writeConfig } from "../src/store"
 
 describe("managed runtime", () => {
+  test("starting waits for API readiness and rejects a failed startup", async () => {
+    for (const outcome of ["ready", "failed"]) {
+      const root = await mkdtemp(join(tmpdir(), "trawl-ready-"))
+      const paths = runtimePaths(root)
+      let ready = false
+      const close = await startControl(
+        paths,
+        { owner: "desktop", baseURL: "http://127.0.0.1:8191" },
+        () => {},
+        () => ready,
+      )
+      let settled = false
+      let closed = false
+      const starting = startManaged(paths).finally(() => {
+        settled = true
+      })
+      // Observe a rejected attempt immediately while retaining its eventual assertion.
+      void starting.catch(() => {})
+      try {
+        await Bun.sleep(30)
+        expect(settled).toBe(false)
+        expect(await control("status", paths)).toMatchObject({ running: true, ready: false })
+        if (outcome === "ready") {
+          ready = true
+          expect(await starting).toMatchObject({ running: true, ready: true, owner: "desktop" })
+        } else {
+          await close()
+          closed = true
+          await expect(starting).rejects.toThrow("startup")
+        }
+      } finally {
+        ready = true
+        if (!closed) await close()
+        await starting.catch(() => {})
+        await rm(root, { recursive: true, force: true })
+      }
+    }
+  })
   test("persists validated private configuration and masks connection secrets", async () => {
     const root = await mkdtemp(join(tmpdir(), "trawl-runtime-"))
     const paths = runtimePaths(root)

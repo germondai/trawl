@@ -159,14 +159,35 @@ if not args.source:
             "Refusing to use a home with a running instance or unavailable control"
         )
 records = []
-started = time.monotonic()
 log = Path(args.output).with_suffix(".server.log")
 logfile = log.open("w")
+startup_failure_exit = None
+if not args.source:
+    # Keep stdin open: a failed startup must exit even while its desktop parent lives.
+    collision = subprocess.Popen(
+        command,
+        cwd=Path(args.output).parent,
+        env={**env, "PORT": str(fixture.server_port)},
+        stdin=subprocess.PIPE,
+        stdout=logfile,
+        stderr=logfile,
+    )
+    try:
+        startup_failure_exit = collision.wait(timeout=15)
+        assert startup_failure_exit != 0, "An occupied HTTP port must reject startup"
+    finally:
+        collision.stdin.close()
+        try:
+            collision.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            collision.kill()
+            collision.wait()
 time_file = Path(args.output).with_suffix(".time.txt")
 if args.resources:
     if os.name == "nt":
         raise RuntimeError("Resource sampler requires POSIX ps/time")
     command = ["/usr/bin/time", "-p", "-o", str(time_file), *command]
+started = time.monotonic()
 process = subprocess.Popen(
     command,
     cwd=root if args.source else Path(args.output).parent,
@@ -396,6 +417,7 @@ try:
         "arch": platform.machine(),
         "startupMs": startup,
         "checks": len(records),
+        "failedStartupExitCode": startup_failure_exit,
         "observability": args.observability,
         "requests": records,
     }
