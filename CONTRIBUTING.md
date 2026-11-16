@@ -22,6 +22,7 @@ Requirements depend on the workspace:
 - **API and shared packages:** Bun 1.4.4 is the runtime and package manager.
 - **Web and docs:** Node.js 26.13.1 runs the Nuxt and VitePress build tools; Bun installs dependencies.
 - **Integration tests:** Docker provides Redis and the Linux browser environment.
+- **Native preview:** Rust and Go build the standalone runtime; Tauri additionally needs the platform's WebView development libraries. See [native development](packages/runtime/README.md) and [desktop setup](apps/desktop/README.md).
 
 The scraper service runs on Bun. Its Docker runtime does not require Node.js.
 
@@ -68,11 +69,13 @@ We use [Biome](https://biomejs.dev/) for both:
 bun run check       # read-only format, lint, and import-order check
 bun run fix         # apply safe Biome fixes and formatting
 bun run typecheck   # typecheck TypeScript workspaces, including browser/tier tests
-bun run build       # production-build the web and docs apps
+bun run build       # build SDK, CLI, desktop frontend, web and docs
 bun run verify      # full release gate: check, types, tests, and builds
 ```
 
 CI runs `bun run verify` on every PR.
+
+Native work also uses the five-target `Native distributions` workflow. Local commands are `bun run build:native` and `bun run dev:desktop`; they do not publish anything. Check disk and memory before native builds and keep `CARGO_BUILD_JOBS=2` on shared development machines. The SDK/CLI npm namespace and public native releases remain pending.
 
 ### Browser integration tests
 

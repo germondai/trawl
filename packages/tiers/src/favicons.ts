@@ -242,3 +242,11 @@ export async function capturePageFavicons(page: Page, budgetMs = TOTAL_TIMEOUT_M
     return []
   }
 }
+
+export const faviconSettings = Object.freeze({
+  FAVICON_MAX_ENTRIES: MAX_ENTRIES,
+  FAVICON_MAX_BYTES: MAX_BYTES,
+  FAVICON_MAX_METADATA_CHARS: MAX_METADATA_CHARS,
+  FAVICON_FETCH_TIMEOUT_MS: FETCH_TIMEOUT_MS,
+  FAVICON_TIMEOUT_MS: TOTAL_TIMEOUT_MS,
+})

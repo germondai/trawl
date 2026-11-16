@@ -77,6 +77,8 @@ export interface AcquireOptions {
 }
 
 export interface OrchestratorDeps {
+  observePage?: CaptureOptions["observePage"]
+  captureHistory?: CaptureOptions["historySnapshot"]
   sessions?: BrowserSessions
   acquireBrowser(domain: string, budgetMs?: number, options?: AcquireOptions): Promise<BrowserHandle>
   releaseBrowser(handle: BrowserHandle): void
@@ -272,6 +274,8 @@ async function scrapeWithinBudget(
   // only via the thrown ScrapeError.
   let blockedEvidence: BlockedEvidence | undefined
   const capture: CaptureOptions = {
+    historySnapshot: deps.captureHistory,
+    observePage: deps.observePage,
     networkProxy,
     anubisDetected: false,
     cookies: req.cookies,

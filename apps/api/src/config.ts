@@ -42,6 +42,7 @@ export const parseBrowserHardwareConcurrency = (value: string | undefined): numb
 }
 
 export const PORT = integerInRange(process.env.PORT, 8_191, 1, 65_535)
+export const HOST = process.env.HOST?.trim() || "0.0.0.0"
 export const WAF_DETECTION_ENABLED = !/^(0|false|no)$/i.test(process.env.WAF_DETECTION_ENABLED?.trim() ?? "")
 export const POOL_SIZE = positiveInteger(process.env.BROWSER_POOL_SIZE, 1)
 export const BROWSER_GEOIP_IP = process.env.BROWSER_GEOIP_IP?.trim() || undefined
@@ -123,6 +124,7 @@ export const MCP_ALLOWED_ORIGINS = (process.env.MCP_ALLOWED_ORIGINS ?? "")
 
 // Setting a token enables the local metrics dashboard. The API may be exposed
 // beyond loopback, so target hostnames are never served without authentication.
+export const METRICS_DB_PATH = process.env.METRICS_DB_PATH?.trim() || "/data/metrics/trawl.sqlite"
 export const METRICS_DASHBOARD_TOKEN = process.env.METRICS_DASHBOARD_TOKEN?.trim() || undefined
 if (METRICS_DASHBOARD_TOKEN && METRICS_DASHBOARD_TOKEN.length < 32) {
   throw new Error("METRICS_DASHBOARD_TOKEN must be at least 32 characters")
@@ -130,6 +132,52 @@ if (METRICS_DASHBOARD_TOKEN && METRICS_DASHBOARD_TOKEN.length < 32) {
 // Explicitly allow an unauthenticated dashboard only when the operator keeps
 // the published port on a trusted loopback interface.
 export const METRICS_DASHBOARD_ENABLED = /^(1|true|yes)$/i.test(process.env.METRICS_DASHBOARD_ENABLED ?? "")
+
+// These resources include application logs and configuration, beyond anonymous metrics.
+export const OBSERVABILITY_ENABLED = /^(1|true|yes)$/i.test(process.env.OBSERVABILITY_ENABLED?.trim() ?? "")
+if (OBSERVABILITY_ENABLED && !METRICS_DASHBOARD_TOKEN) {
+  throw new Error("OBSERVABILITY_ENABLED requires a METRICS_DASHBOARD_TOKEN of at least 32 characters")
+}
+
+export const HISTORY_CAPTURE_MODE = process.env.HISTORY_CAPTURE_MODE?.trim().toLowerCase() || "none"
+export const BROWSER_INSPECTION_ENABLED = /^(1|true|yes)$/i.test(process.env.BROWSER_INSPECTION_ENABLED?.trim() ?? "")
+if (BROWSER_INSPECTION_ENABLED && !OBSERVABILITY_ENABLED)
+  throw new Error("Browser inspection requires OBSERVABILITY_ENABLED and its dashboard token")
+if (!["none", "html", "screenshot", "both"].includes(HISTORY_CAPTURE_MODE))
+  throw new Error("HISTORY_CAPTURE_MODE must be none, html, screenshot or both")
+if (HISTORY_CAPTURE_MODE !== "none" && !OBSERVABILITY_ENABLED)
+  throw new Error("History captures require OBSERVABILITY_ENABLED and its dashboard token")
+export const HISTORY_CAPTURE_MAX_BYTES = integerInRange(process.env.HISTORY_CAPTURE_MAX_BYTES, 2097152, 1024, 8388608)
+export const HISTORY_CAPTURE_STORAGE_BYTES = integerInRange(
+  process.env.HISTORY_CAPTURE_STORAGE_BYTES,
+  134217728,
+  1048576,
+  1073741824,
+)
+export const HISTORY_CAPTURE_MAX_RECORDS = integerInRange(process.env.HISTORY_CAPTURE_MAX_RECORDS, 500, 1, 5000)
+export const HISTORY_CAPTURE_TTL_SECONDS = integerInRange(process.env.HISTORY_CAPTURE_TTL_SECONDS, 604800, 60, 2592000)
+export const HISTORY_CAPTURE_FALLBACK_HTML = /^(1|true|yes)$/i.test(
+  process.env.HISTORY_CAPTURE_FALLBACK_HTML?.trim() ?? "",
+)
+export const HISTORY_CAPTURE_TIMEOUT_MS = integerInRange(process.env.HISTORY_CAPTURE_TIMEOUT_MS, 750, 50, 2000)
+export const HISTORY_CAPTURE_SCREENSHOT_WIDTH = integerInRange(
+  process.env.HISTORY_CAPTURE_SCREENSHOT_WIDTH,
+  1920,
+  320,
+  3840,
+)
+export const HISTORY_CAPTURE_SCREENSHOT_HEIGHT = integerInRange(
+  process.env.HISTORY_CAPTURE_SCREENSHOT_HEIGHT,
+  1080,
+  200,
+  2160,
+)
+export const HISTORY_CAPTURE_SCREENSHOT_QUALITY = integerInRange(
+  process.env.HISTORY_CAPTURE_SCREENSHOT_QUALITY,
+  50,
+  1,
+  90,
+)
 
 // Grace period after a scrape's deadline before reclaiming a hung browser checkout.
 export const STALL_TIMEOUT_MS = positiveInteger(process.env.BROWSER_STALL_TIMEOUT_MS, 180_000)

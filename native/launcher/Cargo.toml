@@ -1,0 +1,20 @@
+[package]
+name = "trawl-launcher"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+
+[[bin]]
+name = "trawl-server"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Console", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Pipes", "Win32_Security"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

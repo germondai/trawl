@@ -1,6 +1,7 @@
 import type { Cookie, InputCookie, ScrapeResponse } from "./api"
 
 export type * from "./api"
+export type * from "./observability"
 
 export interface ScrapeResult extends Omit<ScrapeResponse, "body"> {
   body?: Uint8Array
@@ -109,3 +110,5 @@ export interface FlareSolverrResponse {
     userAgent: string
   }
 }
+export type { ArtifactKind, ArtifactState, CaptureMode, RequestArtifact, RequestCaptures } from "./artifacts"
+export type { BrowserObservationSnapshot, ObservedBrowserPage } from "./browserObservation"

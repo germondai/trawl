@@ -4,7 +4,10 @@ import { RequestValidationError, ScrapeError, sanitizeHeaders, scrape, validateS
 import type { ExtractResponse, ReadResponse, ScrapeRequest } from "@trawl/types"
 import { type Context, Elysia } from "elysia"
 import { flareSolverrError } from "../adapters/flaresolverr"
+import type { CaptureStore } from "../captureStore"
+import { captures } from "../captures"
 import { getDeps, getPool } from "../deps"
+import { requestId } from "../logger"
 import { type MetricsStore, metrics } from "../metrics"
 import { preparePageOperation } from "../pageContent/options"
 import { runLoggedScrape } from "../requestLogging"
@@ -19,9 +22,19 @@ export function scrapeRoute(
   deps: () => OrchestratorDeps = getDeps,
   poolReady: () => unknown = getPool,
   metricsStore: MetricsStore = metrics,
+  captureStore: CaptureStore | undefined = captures,
 ) {
-  const handle = async (body: unknown, set: Context["set"], sessionId?: string, operation?: "read" | "extract") => {
+  const handle = async (
+    body: unknown,
+    set: Context["set"],
+    sessionId?: string,
+    operation?: "read" | "extract",
+    proposedId: string | null = null,
+  ) => {
     const started = Date.now()
+    // No await occurs before the existing observation starts or this result is recorded.
+    const id = metricsStore.acceptRequestId(proposedId) ?? requestId()
+    set.headers["X-Trawl-Request-ID"] = id
     let scraperStarted = false
     try {
       validateScrapeRequest(body)
@@ -34,7 +47,13 @@ export function scrapeRoute(
       const req: ScrapeRequest = sessionId === undefined ? (page?.request ?? body) : { ...body, sessionId }
       if (!poolReady()) {
         set.status = 503
-        metricsStore.record({ source: "native", url: req.url, durationMs: Date.now() - started, statusCode: 503 })
+        metricsStore.record({
+          requestId: id,
+          source: "native",
+          url: req.url,
+          durationMs: Date.now() - started,
+          statusCode: 503,
+        })
         return { error: "Browser pool initializing, retry in a few seconds" }
       }
       const sanitized = { ...req, headers: sanitizeHeaders(req.headers) }
@@ -46,20 +65,23 @@ export function scrapeRoute(
         sanitized,
         orchestratorDeps,
         scrape,
-        undefined,
+        id,
         metricsStore,
         page
           ? (result) => {
               output = page.format(result)
             }
           : undefined,
+        undefined,
+        captureStore,
       )
-      return output ?? result
+      return { ...(output ?? result), requestId: id }
     } catch (err) {
       if (err instanceof RequestValidationError) {
         set.status = err.statusCode
         if (!scraperStarted)
           metricsStore.record({
+            requestId: id,
             source: "native",
             url: requestUrl(body),
             durationMs: Date.now() - started,
@@ -72,6 +94,7 @@ export function scrapeRoute(
         set.status = 429
         if (!scraperStarted)
           metricsStore.record({
+            requestId: id,
             source: "native",
             url: requestUrl(body),
             durationMs: Date.now() - started,
@@ -83,6 +106,7 @@ export function scrapeRoute(
       set.status = 500
       if (!scraperStarted)
         metricsStore.record({
+          requestId: id,
           source: "native",
           url: requestUrl(body),
           durationMs: Date.now() - started,
@@ -102,8 +126,14 @@ export function scrapeRoute(
     }
   }
   return new Elysia()
-    .post("/scrape", ({ body, set }) => handle(body, set))
-    .post("/read", ({ body, set }) => handle(body, set, undefined, "read"))
-    .post("/extract", ({ body, set }) => handle(body, set, undefined, "extract"))
+    .post("/scrape", ({ body, set, request }) =>
+      handle(body, set, undefined, undefined, request.headers.get("x-trawl-request-id")),
+    )
+    .post("/read", ({ body, set, request }) =>
+      handle(body, set, undefined, "read", request.headers.get("x-trawl-request-id")),
+    )
+    .post("/extract", ({ body, set, request }) =>
+      handle(body, set, undefined, "extract", request.headers.get("x-trawl-request-id")),
+    )
     .post("/sessions/:id/scrape", ({ params, body, set }) => handle(body, set, params.id))
 }

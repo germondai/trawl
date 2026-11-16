@@ -6,6 +6,49 @@ import { join } from "node:path"
 import { ScrapeError } from "@trawl/tiers"
 import { MetricsStore } from "./metrics"
 
+test("active-list overflow is bounded and clears after every in-flight observation finishes", () => {
+  const store = new MetricsStore(true, ":memory:", true)
+  const finishes = Array.from({ length: 300 }, (_, index) =>
+    store.startRequest(`request-${index}`, "native", "https://owned.example"),
+  )
+  expect(store.history().active).toHaveLength(256)
+  expect(store.history().activeTruncated).toBe(true)
+  for (const finish of finishes) {
+    finish?.()
+    finish?.()
+  }
+  expect(store.history().active).toEqual([])
+  expect(store.history().activeTruncated).toBe(false)
+  store.close()
+})
+
+test("large WAF details remain available in details without overflowing lifecycle or history pages", () => {
+  const store = new MetricsStore(true, ":memory:", true)
+  const waf = {
+    engine: "wafmeow" as const,
+    version: "3.1.0",
+    state: "complete" as const,
+    products: Array.from({ length: 256 }, (_, index) => `${index}-`.padEnd(256, "x")),
+  }
+  store.startRequest("large-waf", "native", "https://owned.example")
+  store.record({
+    requestId: "large-waf",
+    source: "native",
+    url: "https://owned.example",
+    durationMs: 1,
+    statusCode: 200,
+    waf,
+  })
+  const entries = store.events.snapshot().entries
+  expect(entries).toHaveLength(2)
+  expect(entries[1]?.data.type).toBe("completed")
+  expect(JSON.stringify(entries).length).toBeLessThan(1024)
+  expect(store.history().entries[0]?.waf).toBeUndefined()
+  expect(store.request("large-waf")?.waf?.products).toHaveLength(256)
+  expect(store.history().activeTruncated).toBe(false)
+  store.close()
+})
+
 const waf = {
   engine: "wafmeow" as const,
   version: "3.1.0",
@@ -244,4 +287,34 @@ describe("local metrics", () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
+})
+test("client request IDs cannot replace active, retained or truncated observations", () => {
+  const store = new MetricsStore(true, ":memory:", true)
+  const id = "10000000-0000-4000-8000-000000000000"
+  try {
+    expect(store.acceptRequestId(id)).toBe(id)
+    expect(store.acceptRequestId("not-a-uuid")).toBeUndefined()
+    const finish = store.startRequest(id, "native", "https://owned.fixture")
+    expect(store.acceptRequestId(id)).toBeUndefined()
+    finish?.()
+    store.record({
+      requestId: id,
+      source: "native",
+      url: "https://owned.fixture",
+      durationMs: 1,
+      tier: 1,
+      statusCode: 200,
+    })
+    expect(store.acceptRequestId(id)).toBeUndefined()
+    const finishes = Array.from({ length: 257 }, (_, index) =>
+      store.startRequest(`overflow-${index}`, "native", "https://owned.fixture"),
+    )
+    finishes[0]?.()
+    finishes[1]?.()
+    expect(store.acceptRequestId("20000000-0000-4000-8000-000000000000")).toBeUndefined()
+    for (const release of finishes) release?.()
+    expect(store.acceptRequestId("20000000-0000-4000-8000-000000000000")).toBe("20000000-0000-4000-8000-000000000000")
+  } finally {
+    store.close()
+  }
 })

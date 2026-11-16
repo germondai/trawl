@@ -11,7 +11,9 @@
 !apps/docs/**/*.md
 .github/
 docker-compose*.yml
-native/*/target/
+**/target/
+.artifacts/
+apps/desktop/src-tauri/gen/
 
 # Local agent / IDE state - not needed at build or runtime
 .git/

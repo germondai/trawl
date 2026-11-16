@@ -1,10 +1,19 @@
 import { Database } from "bun:sqlite"
+import { randomUUID } from "node:crypto"
 import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { PoolExhaustedError } from "@trawl/browser"
 import { ScrapeError, sanitizeWafDetails } from "@trawl/tiers"
-import type { TierResult, WafDetection } from "@trawl/types"
-import { METRICS_DASHBOARD_ENABLED, METRICS_DASHBOARD_TOKEN } from "./config"
+import type {
+  ActiveRequest,
+  RequestHistoryEntry,
+  RequestHistoryResponse,
+  RequestLifecycle,
+  TierResult,
+  WafDetection,
+} from "@trawl/types"
+import { METRICS_DASHBOARD_ENABLED, METRICS_DASHBOARD_TOKEN, METRICS_DB_PATH, OBSERVABILITY_ENABLED } from "./config"
+import { EventJournal } from "./eventJournal"
 import type { ScrapeSource } from "./requestLogging"
 
 type Tier = 0 | 1 | 2 | 3 | 4
@@ -16,6 +25,8 @@ const MAX_EVENTS = 50_000
 const RETENTION_MS = 30 * 24 * 60 * 60_000
 
 export interface MetricEvent {
+  requestId?: string
+  method?: string
   source: ScrapeSource
   url: string
   durationMs: number
@@ -28,6 +39,8 @@ export interface MetricEvent {
 
 interface StoredEvent {
   id: number
+  request_id: string
+  method: string | null
   at: number
   domain: string
   source: ScrapeSource
@@ -106,7 +119,27 @@ function failureKind(
   return { category: "internal", severity: "error" }
 }
 
+function historyEntry(row: StoredEvent): RequestHistoryEntry {
+  return {
+    id: row.request_id,
+    at: new Date(row.at).toISOString(),
+    domain: row.domain,
+    source: row.source,
+    method: row.method,
+    durationMs: row.duration_ms,
+    success: Boolean(row.success),
+    tier: row.tier,
+    tierStatus: row.tier_status,
+    statusCode: row.status_code,
+    category: row.category,
+    severity: row.severity,
+  }
+}
+
 export class MetricsStore {
+  readonly events = new EventJournal<RequestLifecycle>()
+  private active = new Map<string, { request: ActiveRequest; finish: () => void }>()
+  private activeCount = 0
   private db?: Database
   private listeners = new Set<() => void>()
   private recorded = 0
@@ -118,7 +151,11 @@ export class MetricsStore {
   }
   private wafProviders = new Map<string, { requests: number; failures: number }>()
 
-  constructor(enabled = true, path = ":memory:") {
+  constructor(
+    enabled = true,
+    path = ":memory:",
+    private readonly live = OBSERVABILITY_ENABLED,
+  ) {
     if (!enabled) return
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true })
     this.db = new Database(path, { create: true })
@@ -131,12 +168,22 @@ export class MetricsStore {
       status_code INTEGER, category TEXT, severity TEXT, waf_json TEXT
     )`)
     const db = this.db
-    const hasWafColumn = () =>
-      (db.query("PRAGMA table_info(events)").all() as { name: string }[]).some((column) => column.name === "waf_json")
-    if (!hasWafColumn())
-      db.transaction(() => {
-        if (!hasWafColumn()) db.run("ALTER TABLE events ADD COLUMN waf_json TEXT")
-      }).immediate()
+    const schema = (db.query("PRAGMA user_version").get() as { user_version: number }).user_version
+    if (schema > 1) {
+      db.close()
+      throw new Error("Request-history schema is newer than this server supports")
+    }
+    db.transaction(() => {
+      const columns = new Set(
+        (db.query("PRAGMA table_info(events)").all() as { name: string }[]).map(({ name }) => name),
+      )
+      if (!columns.has("waf_json")) db.run("ALTER TABLE events ADD COLUMN waf_json TEXT")
+      if (!columns.has("request_id")) db.run("ALTER TABLE events ADD COLUMN request_id TEXT")
+      if (!columns.has("method")) db.run("ALTER TABLE events ADD COLUMN method TEXT")
+      db.run("UPDATE events SET request_id = 'legacy-' || lower(hex(randomblob(16))) WHERE request_id IS NULL")
+      db.run("CREATE UNIQUE INDEX IF NOT EXISTS events_request_id ON events(request_id)")
+      db.run("PRAGMA user_version = 1")
+    }).immediate()
     this.db.run(`CREATE TABLE IF NOT EXISTS tier_attempts (
       id INTEGER PRIMARY KEY, at INTEGER NOT NULL, event_id INTEGER REFERENCES events(id) ON DELETE CASCADE,
       tier INTEGER NOT NULL
@@ -152,12 +199,87 @@ export class MetricsStore {
 
   close(): void {
     this.listeners.clear()
+    this.events.close()
+    this.active.clear()
+    this.activeCount = 0
     this.db?.close()
   }
 
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
+  }
+
+  get clientRequestIds(): boolean {
+    return this.live && Boolean(this.db)
+  }
+
+  acceptRequestId(candidate: string | null): string | undefined {
+    if (
+      !this.live ||
+      !this.db ||
+      !candidate ||
+      this.activeCount > this.active.size ||
+      this.active.size >= 256 ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(candidate) ||
+      this.active.has(candidate)
+    )
+      return
+    try {
+      if (!this.db.query("SELECT 1 FROM events WHERE request_id = ?").get(candidate)) return candidate
+    } catch {
+      /* Observation storage must not break an ordinary request. */
+    }
+  }
+
+  startRequest(id: string, source: ScrapeSource, url: string, method = "GET"): (() => void) | undefined {
+    if (!this.live || !this.db) return
+    const existing = this.active.get(id)
+    if (existing) return existing.finish
+    const request: ActiveRequest = { id, source, domain: domainOf(url), method, startedAt: new Date().toISOString() }
+    let finished = false
+    this.activeCount++
+    const finish = () => {
+      if (finished) return
+      finished = true
+      this.activeCount = Math.max(0, this.activeCount - 1)
+      this.active.delete(id)
+    }
+    // Overflow cleanup lives with the in-flight operation, not an unbounded retained ID set.
+    if (this.active.size < 256) this.active.set(id, { request, finish })
+    this.events.publish({ type: "started", request })
+    return finish
+  }
+
+  history(limit = 50, before?: string): RequestHistoryResponse {
+    const count = Math.min(100, Math.max(1, Math.floor(limit)))
+    const db = this.db
+    let bound = Number.MAX_SAFE_INTEGER
+    if (before && db) {
+      const row = db.query("SELECT id FROM events WHERE request_id = ?").get(before) as { id: number } | null
+      if (!row) throw new Error("History cursor is no longer available; reload the first page")
+      bound = row.id
+    }
+    const rows = db
+      ? (db
+          .query("SELECT * FROM events WHERE id < ? AND at >= ? ORDER BY id DESC LIMIT ?")
+          .all(bound, Date.now() - RETENTION_MS, count + 1) as StoredEvent[])
+      : []
+    const page = rows.slice(0, count)
+    return {
+      entries: page.map(historyEntry),
+      nextCursor: rows.length > count ? (page.at(-1)?.request_id ?? null) : null,
+      cursor: this.events.cursor,
+      active: [...this.active.values()].map(({ request }) => request),
+      activeTruncated: this.activeCount > this.active.size,
+    }
+  }
+
+  request(id: string): RequestHistoryEntry | undefined {
+    const row = this.db
+      ?.query("SELECT * FROM events WHERE request_id = ? AND at >= ?")
+      .get(id, Date.now() - RETENTION_MS) as StoredEvent | null | undefined
+    return row ? { ...historyEntry(row), ...(row.waf_json ? { waf: readWaf(row.waf_json) } : {}) } : undefined
   }
 
   wafTotals(): WafTotals {
@@ -219,18 +341,20 @@ export class MetricsStore {
     const rawWaf = event.waf ?? (event.error instanceof ScrapeError ? event.error.waf : undefined)
     if (!db && !rawWaf) return
     const at = Date.now()
+    const id = event.requestId ?? randomUUID()
     const attempts = event.attempts ?? (event.error instanceof ScrapeError ? event.error.timings : [])
     const success =
       event.error === undefined && event.statusCode !== undefined && event.statusCode >= 200 && event.statusCode < 400
     const failure = success ? null : failureKind(event.error, attempts, event.statusCode)
+    let persisted = false
     try {
       const waf = storedWaf(rawWaf)
       if (waf) this.recordWaf(waf, success)
       if (!db) return
       db.transaction(() => {
         const inserted = db
-          .query(`INSERT INTO events(at, domain, source, duration_ms, success, tier, tier_status, status_code, category, severity, waf_json)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .query(`INSERT INTO events(at, domain, source, duration_ms, success, tier, tier_status, status_code, category, severity, waf_json, request_id, method)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
           .run(
             at,
             domainOf(event.url),
@@ -243,6 +367,8 @@ export class MetricsStore {
             failure?.category ?? null,
             failure?.severity ?? null,
             waf ? JSON.stringify(waf) : null,
+            id,
+            event.method ?? this.active.get(id)?.request.method ?? null,
           )
         for (const attempt of attempts) {
           if (attempt.status !== "skipped") {
@@ -254,11 +380,34 @@ export class MetricsStore {
           }
         }
       })()
+      persisted = true
       if (++this.recorded % 100 === 0) this.prune()
       this.notify()
     } catch (error) {
       // Metrics must never change the result of a scrape.
       console.error("[metrics] failed to record request:", error)
+    } finally {
+      const method = event.method ?? this.active.get(id)?.request.method ?? null
+      this.active.get(id)?.finish()
+      if (this.live && db)
+        this.events.publish({
+          type: success ? "completed" : "failed",
+          persisted,
+          request: {
+            id,
+            at: new Date(at).toISOString(),
+            domain: domainOf(event.url),
+            source: event.source,
+            method,
+            durationMs: Math.max(0, Math.round(event.durationMs)),
+            success,
+            tier: event.tier ?? attempts.at(-1)?.tier ?? null,
+            tierStatus: attempts.at(-1)?.status ?? null,
+            statusCode: event.statusCode ?? null,
+            category: failure?.category ?? null,
+            severity: failure?.severity ?? null,
+          },
+        })
     }
   }
 
@@ -423,6 +572,7 @@ export class MetricsStore {
       lastHour: timeline,
       domains,
       recentEvents: events.slice(0, 100).map((row) => ({
+        id: row.request_id,
         at: new Date(row.at).toISOString(),
         domain: row.domain,
         source: row.source,
@@ -451,6 +601,6 @@ export class MetricsStore {
 }
 
 export const metrics = new MetricsStore(
-  Boolean(METRICS_DASHBOARD_TOKEN) || METRICS_DASHBOARD_ENABLED,
-  process.env.METRICS_DB_PATH?.trim() || "/data/metrics/trawl.sqlite",
+  Boolean(METRICS_DASHBOARD_TOKEN) || METRICS_DASHBOARD_ENABLED || OBSERVABILITY_ENABLED,
+  METRICS_DB_PATH,
 )

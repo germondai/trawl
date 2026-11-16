@@ -1,15 +1,8 @@
-import { timingSafeEqual } from "node:crypto"
 import { Elysia } from "elysia"
+import { validBearer } from "../bearer"
 import { METRICS_DASHBOARD_ENABLED, METRICS_DASHBOARD_TOKEN } from "../config"
 import { type MetricsStore, metricRanges, metrics } from "../metrics"
 import { dashboardPage } from "./dashboardPage"
-
-function validToken(header: string | null, secret: string): boolean {
-  if (!header?.startsWith("Bearer ")) return false
-  const supplied = Buffer.from(header.slice(7))
-  const expected = Buffer.from(secret)
-  return supplied.length === expected.length && timingSafeEqual(supplied, expected)
-}
 
 export function dashboardRoute(
   secret = METRICS_DASHBOARD_TOKEN,
@@ -18,7 +11,8 @@ export function dashboardRoute(
 ) {
   const app = new Elysia()
   if (!secret && !enabled) return app
-  const authorized = (header: string | null) => !secret || validToken(header, secret)
+  const authorized = (header: string | null) => !secret || validBearer(header, secret)
+  let subscribers = 0
   return app
     .get("/dashboard", ({ set }) => {
       set.headers["Content-Type"] = "text/html; charset=utf-8"
@@ -38,22 +32,44 @@ export function dashboardRoute(
         metricRanges.includes(value as (typeof metricRanges)[number]) ? (value as (typeof metricRanges)[number]) : 60,
       )
     })
-    .get("/dashboard/events", ({ request, set }) => {
+    .get("/dashboard/events", ({ request, set, server }) => {
       if (!authorized(request.headers.get("authorization"))) {
         set.status = 401
         return { error: "Unauthorized" }
       }
+      if (subscribers >= 16) return new Response("Too many stream subscribers", { status: 429 })
+      server?.timeout(request, 30)
+      subscribers++
       let cleanup = () => {}
+      let flush = () => {}
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
           const encoder = new TextEncoder()
-          const send = () => controller.enqueue(encoder.encode("event: update\ndata: {}\n\n"))
+          let dirty = false
+          let closed = false
+          flush = () => {
+            if (!closed && dirty && (controller.desiredSize ?? 0) > 0) {
+              dirty = false
+              controller.enqueue(encoder.encode("event: update\ndata: {}\n\n"))
+            }
+          }
+          const send = () => {
+            dirty = true
+            flush()
+          }
           controller.enqueue(encoder.encode(": connected\n\n"))
           const unsubscribe = store.subscribe(send)
-          const heartbeat = setInterval(() => controller.enqueue(encoder.encode(": heartbeat\n\n")), 20_000)
+          const heartbeat = setInterval(() => {
+            if (!closed && (controller.desiredSize ?? 0) > 0) controller.enqueue(encoder.encode(": heartbeat\n\n"))
+          }, 20_000)
+          heartbeat.unref?.()
           const close = () => {
+            if (closed) return
+            closed = true
+            subscribers--
             clearInterval(heartbeat)
             unsubscribe()
+            request.signal.removeEventListener("abort", close)
             try {
               controller.close()
             } catch {
@@ -62,6 +78,10 @@ export function dashboardRoute(
           }
           cleanup = close
           request.signal.addEventListener("abort", close, { once: true })
+          if (request.signal.aborted) close()
+        },
+        pull() {
+          flush()
         },
         cancel() {
           cleanup()

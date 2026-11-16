@@ -41,8 +41,10 @@ export function resolveFingerprintPool(
 ): ReadonlyArray<BrowserFingerprint> {
   if (!installDir) return ALL_FINGERPRINTS
 
-  const hasWindowsFonts = existsSync(join(installDir, "fonts", "windows"))
-  const hasMacosFonts = existsSync(join(installDir, "fonts", "macos"))
+  const macResources = join(installDir, "Camoufox.app", "Contents", "Resources")
+  const fontRoot = existsSync(macResources) ? macResources : installDir
+  const hasWindowsFonts = existsSync(join(fontRoot, "fonts", "windows"))
+  const hasMacosFonts = existsSync(join(fontRoot, "fonts", "macos"))
 
   return ALL_FINGERPRINTS.filter((fingerprint) => {
     if (fingerprint.platform === "Win32") return hasWindowsFonts

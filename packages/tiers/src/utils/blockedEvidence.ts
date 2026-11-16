@@ -54,3 +54,7 @@ export async function reportBlocked(
     console.log(`[blocked-evidence] capture failed: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
+
+export const blockedEvidenceSettings = Object.freeze({
+  BLOCKED_EVIDENCE_MAX_HTML_CHARS: MAX_HTML_CHARS,
+})

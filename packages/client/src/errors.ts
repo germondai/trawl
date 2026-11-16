@@ -1,5 +1,5 @@
 import type { BlockedEvidence, TierResult, WafDetection } from "../../types/src/api"
-import { isRecord } from "./responses"
+import { isRecord, isWafDetection } from "./responses"
 import type { TrawlErrorKind } from "./types"
 
 export interface TrawlErrorDetails {
@@ -7,6 +7,7 @@ export interface TrawlErrorDetails {
   status?: number
   data?: unknown
   retryAfter?: string
+  requestId?: string
 }
 
 export class TrawlError extends Error {
@@ -14,6 +15,7 @@ export class TrawlError extends Error {
   readonly status: number | undefined
   readonly data: unknown
   readonly retryAfter: string | undefined
+  readonly requestId: string | undefined
   readonly timings: TierResult[] | undefined
   readonly blockedEvidence: BlockedEvidence | undefined
   readonly waf: WafDetection | undefined
@@ -25,8 +27,9 @@ export class TrawlError extends Error {
     this.status = details.status
     this.data = details.data
     this.retryAfter = details.retryAfter
+    this.requestId = details.requestId
     const data = isRecord(details.data) ? details.data : undefined
-    this.waf = isRecord(data?.waf) ? (data.waf as unknown as WafDetection) : undefined
+    this.waf = isWafDetection(data?.waf) ? data.waf : undefined
     this.timings = Array.isArray(data?.timings) ? (data.timings as TierResult[]) : undefined
     this.blockedEvidence = isRecord(data?.blockedEvidence)
       ? (data.blockedEvidence as unknown as BlockedEvidence)

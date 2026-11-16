@@ -1,7 +1,11 @@
 import { PoolExhaustedError } from "@trawl/browser"
 import { type OrchestratorDeps, RequestValidationError, ScrapeError, scrape } from "@trawl/tiers"
 import type { ScrapeRequest, ScrapeResult, TierResult, WafDetection } from "@trawl/types"
+import { browserObservations } from "./browserInspectorState"
+import type { CaptureStore } from "./captureStore"
+import { captures, historyScreenshotLimits } from "./captures"
 import { applyDomainProfile, refreshDomainProfile } from "./domainProfile"
+import { createHistoryCapture } from "./historyCapture"
 import { log, requestId, safeMessage, safeUrl } from "./logger"
 import { type MetricsStore, metrics } from "./metrics"
 
@@ -27,9 +31,13 @@ export async function runLoggedScrape(
   id = requestId(),
   metricsStore: MetricsStore = metrics,
   onResult?: (result: ScrapeResult) => void,
+  observation?: () => void,
+  captureStore: CaptureStore | undefined = captures,
+  retainCapture?: (result?: ScrapeResult) => boolean,
 ): Promise<ScrapeResult> {
   const started = Date.now()
   const profiledReq = applyDomainProfile(req)
+  const captured = captureStore?.enabled ? createHistoryCapture(captureStore, req, historyScreenshotLimits) : undefined
 
   log("info", "scrape", {
     event: "request.start",
@@ -43,8 +51,44 @@ export async function runLoggedScrape(
   })
 
   const originalAttempt = deps.onTierAttempt
+  const observations = browserObservations
   const tracedDeps: OrchestratorDeps = {
     ...deps,
+    ...(observations
+      ? {
+          observePage: (page, tier, browser, remaining) => {
+            let original: (() => void) | undefined
+            try {
+              original = deps.observePage?.(page, tier, browser, remaining)
+            } catch {}
+            const stop = observations.register(page, {
+              requestId: id,
+              sessionId: req.sessionId,
+              source,
+              tier,
+              browserId: browser.id,
+              headful: browser.headful,
+              remaining,
+            })
+            return () => {
+              try {
+                stop()
+              } finally {
+                original?.()
+              }
+            }
+          },
+        }
+      : {}),
+    ...(captured?.observe
+      ? {
+          captureHistory: async (page, tier, budgetMs, shot) => {
+            const start = Date.now()
+            await deps.captureHistory?.(page, tier, budgetMs, shot)
+            await captured.observe?.(page, tier, Math.max(0, budgetMs - (Date.now() - start)), shot)
+          },
+        }
+      : {}),
     onTierAttempt: (attempt: TierResult) => {
       originalAttempt?.(attempt)
       log("info", "scrape", {
@@ -58,6 +102,7 @@ export async function runLoggedScrape(
     },
   }
 
+  const finish = observation ?? metricsStore.startRequest(id, source, req.url, req.method ?? "GET")
   let scraped = false
   let waf: WafDetection | undefined
   try {
@@ -70,6 +115,8 @@ export async function runLoggedScrape(
     })
     onResult?.(result)
     metricsStore.record({
+      requestId: id,
+      method: req.method ?? "GET",
       source,
       url: req.url,
       durationMs: Date.now() - started,
@@ -78,6 +125,14 @@ export async function runLoggedScrape(
       statusCode: result.statusCode,
       waf,
     })
+    if (captured) {
+      try {
+        const entry = metricsStore.request(id)
+        if (entry && retainCapture?.(result) !== false) captured.commit(id, entry.at, result)
+      } catch {
+        /* Optional artifacts must not change the response or request accounting. */
+      }
+    }
     log("info", "scrape", {
       event: "request.success",
       request: id,
@@ -98,6 +153,8 @@ export async function runLoggedScrape(
     const last = error instanceof ScrapeError ? error.timings.at(-1) : undefined
     if (!scraped) refreshDomainProfile(req, error instanceof ScrapeError ? error.timings : [], { failure: true })
     metricsStore.record({
+      requestId: id,
+      method: req.method ?? "GET",
       source,
       url: req.url,
       durationMs: Date.now() - started,
@@ -105,6 +162,15 @@ export async function runLoggedScrape(
       waf,
       ...(error instanceof RequestValidationError ? { statusCode: error.statusCode } : {}),
     })
+    if (captured) {
+      try {
+        const entry = metricsStore.request(id)
+        if (entry && retainCapture?.() !== false)
+          captured.failed(id, entry.at, error instanceof ScrapeError ? error.blockedEvidence : undefined)
+      } catch {
+        /* Retained failure evidence is optional, just like successful captures. */
+      }
+    }
     log(error instanceof PoolExhaustedError ? "warn" : "error", "scrape", {
       event: "request.failure",
       request: id,
@@ -116,5 +182,7 @@ export async function runLoggedScrape(
       ...wafLogFields(waf),
     })
     throw error
+  } finally {
+    finish?.()
   }
 }

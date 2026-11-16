@@ -1,4 +1,5 @@
 import type {
+  DashboardSnapshot,
   ExtractResponse,
   HealthResponse,
   ReadResponse,
@@ -6,9 +7,20 @@ import type {
   ServerInfoResponse,
   StatsResponse,
 } from "../../types/src/api"
+import type { InstanceCapabilities, InstanceSettings } from "../../types/src/observability"
+import { BrowserObserver } from "./browser"
 import { TrawlError } from "./errors"
+import { isCapabilities, isSettings, Logs, Requests } from "./observability"
 import { prepareScrapeRequest } from "./request"
-import { isExtractResponse, isHealth, isReadResponse, isScrapeResponse, isServerInfo, isStats } from "./responses"
+import {
+  isDashboardSnapshot,
+  isExtractResponse,
+  isHealth,
+  isReadResponse,
+  isScrapeResponse,
+  isServerInfo,
+  isStats,
+} from "./responses"
 import { Sessions } from "./sessions"
 import { Transport } from "./transport"
 import type {
@@ -25,11 +37,17 @@ import type {
 
 export class Trawl {
   readonly sessions: Sessions
+  readonly requests: Requests
+  readonly logs: Logs
+  readonly browser: BrowserObserver
   #transport: Transport
 
   constructor(options: TrawlOptions = {}) {
     this.#transport = new Transport(options)
     this.sessions = new Sessions(this.#transport)
+    this.requests = new Requests(this.#transport)
+    this.logs = new Logs(this.#transport)
+    this.browser = new BrowserObserver(this.#transport)
   }
 
   async scrape(options: ScrapeRequest, request: RequestOptions = {}): Promise<ScrapeResponse> {
@@ -85,12 +103,25 @@ export class Trawl {
     return this.#transport.request("/", options, isServerInfo)
   }
 
+  capabilities(options: RequestOptions = {}): Promise<InstanceCapabilities> {
+    return this.#transport.request("/capabilities", options, isCapabilities)
+  }
+
+  settings(options: RequestOptions = {}): Promise<InstanceSettings> {
+    return this.#transport.request("/settings", options, isSettings)
+  }
+
   health(options: RequestOptions = {}): Promise<HealthResponse> {
     return this.#transport.request("/health", options, isHealth)
   }
 
   stats(options: RequestOptions = {}): Promise<StatsResponse> {
     return this.#transport.request("/stats", options, isStats)
+  }
+
+  metrics(minutes = 60, options: RequestOptions = {}): Promise<DashboardSnapshot> {
+    if (![15, 60, 1440, 10080, 43200].includes(minutes)) throw new TypeError("Unsupported metrics range")
+    return this.#transport.request(`/dashboard/metrics?minutes=${minutes}`, options, isDashboardSnapshot)
   }
 }
 

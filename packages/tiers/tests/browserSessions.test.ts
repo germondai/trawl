@@ -41,6 +41,7 @@ function fixture(
     ttlMs?: number
     now?: () => number
     networkProxy?: (upstream?: string) => Promise<string>
+    observeSessionPage?: ConstructorParameters<typeof BrowserSessions>[0]["observeSessionPage"]
   } = {},
 ) {
   const contexts: SessionTestContext[] = []
@@ -504,6 +505,35 @@ test("shutdown while a context is opening closes the late context and releases i
 })
 
 describe("kept pages", () => {
+  test("kept-page observation persists while idle and is released even when its cleanup throws", async () => {
+    let observed = 0,
+      cleaned = 0,
+      busy = () => true
+    const f = fixture({
+      observeSessionPage: (page, id, browser, isBusy) => {
+        observed++
+        busy = isBusy
+        expect(id).toBe("watched")
+        expect(browser.id).toBe(7)
+        expect(page.isClosed()).toBe(false)
+        return () => {
+          cleaned++
+          throw new Error("Owned optional observer cleanup failure")
+        }
+      },
+    })
+    await f.sessions.create({ id: "watched", keepPage: true })
+    expect(observed).toBe(1)
+    expect(cleaned).toBe(0)
+    expect(busy()).toBe(false)
+    await f.sessions.use("watched", "", budget(), async () => {
+      expect(busy()).toBe(true)
+    })
+    expect(observed).toBe(1)
+    expect(cleaned).toBe(0)
+    await f.sessions.destroy("watched")
+    expect(cleaned).toBe(1)
+  })
   test("a kept page persists across operations while default sessions close theirs", async () => {
     const f = fixture()
     await f.sessions.create({ id: "kept", keepPage: true })
@@ -584,16 +614,8 @@ describe("kept pages", () => {
   test("a busy kept-page session rejects eval and cookies", async () => {
     const f = fixture()
     await f.sessions.create({ id: "busy", keepPage: true })
-    let release = () => {}
-    const pending = f.sessions.use(
-      "busy",
-      "",
-      budget(),
-      () =>
-        new Promise<void>((resolve) => {
-          release = resolve
-        }),
-    )
+    const { promise, resolve: release } = Promise.withResolvers<void>()
+    const pending = f.sessions.use("busy", "", budget(), () => promise)
     await expect(f.sessions.evaluate("busy", "1", budget())).rejects.toMatchObject({ statusCode: 409 })
     await expect(f.sessions.cookies("busy", budget())).rejects.toMatchObject({ statusCode: 409 })
     release()

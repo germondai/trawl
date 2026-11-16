@@ -312,7 +312,7 @@ export class BrowserPool {
     const browser = await Camoufox({
       // `"virtual"` launches headful Camoufox behind Xvfb; camoufox-js tears the display
       // down with the browser. This mode is used by the optional DataDome pool.
-      headless: this.virtualDisplay ? "virtual" : true,
+      headless: this.virtualDisplay ? (process.platform === "linux" ? "virtual" : false) : true,
       // Let the API finish its drain before Playwright closes the browser on a signal.
       handleSIGTERM: this.drainTimeoutMs === 0,
       handleSIGINT: this.drainTimeoutMs === 0,

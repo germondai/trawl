@@ -16,8 +16,8 @@
 
 import net from "node:net"
 import tls from "node:tls"
-import { brotliDecompressSync, gunzipSync, inflateSync } from "node:zlib"
 import { anubisInspectionText, detectChallengeType, isChallengeWall } from "@trawl/tiers"
+import { decodedBody } from "./decodedBody"
 import { isGoogleSorryRedirect } from "./googleSorry"
 import { responseHasBody } from "./httpResponse"
 import { STREAM_THRESHOLD_BYTES, shouldStream } from "./streaming"
@@ -570,15 +570,7 @@ function decodeChunkedBody(wire: Buffer): Buffer {
 }
 
 function decodeForInspection(body: Buffer, contentEncoding?: string): string {
-  let decoded = body
-  try {
-    const encoding = contentEncoding?.split(",", 1)[0]?.trim().toLowerCase()
-    if (encoding === "gzip" || encoding === "x-gzip") decoded = gunzipSync(body)
-    else if (encoding === "deflate") decoded = inflateSync(body)
-    else if (encoding === "br") decoded = brotliDecompressSync(body)
-  } catch {
-    // If an upstream mislabeled or truncated the encoding, inspect the raw bytes.
-  }
+  const decoded = decodedBody(body, contentEncoding) ?? body
   const preview = decoded.toString("utf8", 0, Math.min(decoded.length, 65536))
   return anubisInspectionText(decoded, preview)
 }

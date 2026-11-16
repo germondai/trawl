@@ -16,6 +16,46 @@ const deps = (): OrchestratorDeps => ({
 })
 
 describe("request logging", () => {
+  test("nested scraping reuses an overflowed outer observation without duplicate starts", async () => {
+    const store = new MetricsStore(true, ":memory:", true)
+    const held = Array.from({ length: 256 }, (_, index) =>
+      store.startRequest(`held-${index}`, "native", "https://owned.example"),
+    )
+    const finish = store.startRequest("overflowed-outer", "flaresolverr", "https://owned.example")
+    const output = spyOn(console, "log").mockImplementation(() => {})
+    try {
+      await runLoggedScrape(
+        "flaresolverr",
+        { url: "https://owned.example" },
+        deps(),
+        async () => ({
+          url: "https://owned.example",
+          html: "ok",
+          cookies: [],
+          userAgent: "fixture",
+          statusCode: 200,
+          tier: 1,
+          sessionCached: false,
+          timings: [],
+          totalMs: 1,
+        }),
+        "overflowed-outer",
+        store,
+        undefined,
+        finish,
+      )
+      const starts = store.events
+        .snapshot(500)
+        .entries.filter(({ data }) => data.type === "started" && data.request.id === "overflowed-outer")
+      expect(starts).toHaveLength(1)
+      expect(store.history().activeTruncated).toBe(false)
+    } finally {
+      output.mockRestore()
+      finish?.()
+      for (const release of held) release?.()
+      store.close()
+    }
+  })
   test("logs WAF metadata and records provider metrics on success and failure", async () => {
     const store = new MetricsStore()
     const lines: string[] = []

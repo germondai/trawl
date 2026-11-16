@@ -6,7 +6,12 @@ import { solvePageCaptchas } from "../solvers"
 import { isAnubisVerificationUrl } from "../utils/anubis"
 import { waitForAnubisResolution } from "../utils/anubisWait"
 import { reportBlocked } from "../utils/blockedEvidence"
-import { captureBrowserDocument, waitForBrowserLoad } from "../utils/browserCapture"
+import {
+  captureBrowserDocument,
+  captureHistorySnapshot,
+  observeBrowserPage,
+  waitForBrowserLoad,
+} from "../utils/browserCapture"
 import { attachPageCapture, type CaptureOptions } from "../utils/capture"
 import { normalizeSameSite, toCookies } from "../utils/cookies"
 import { DeadlineError, RequestBudget } from "../utils/deadline"
@@ -59,6 +64,7 @@ async function runTier2Task(
       "tier2 page cleanup timed out",
     ))
   let disown = () => {}
+  let stopObserving: (() => void) | undefined
   try {
     budget.check()
     disown = budget.own(close)
@@ -76,6 +82,7 @@ async function runTier2Task(
     }
     openingPage = activeContext.newPage()
     page = await openingPage
+    if (capture.observePage) stopObserving = observeBrowserPage(page, 2, handle, capture, budget)
     budget.check()
     page.setDefaultTimeout?.(Math.max(1, budget.remaining()))
     await installOutboundPolicy(page, validateOutboundUrl)
@@ -304,6 +311,8 @@ async function runTier2Task(
 
     const captured = await captureResponse(mainResponse.response)
 
+    if (capture.historySnapshot) await captureHistorySnapshot(page, 2, capture, budget, shot)
+
     return {
       tier: 2,
       status: "success",
@@ -328,6 +337,7 @@ async function runTier2Task(
       reason: err instanceof Error ? err.message : String(err),
     }
   } finally {
+    stopObserving?.()
     await close()
     disown()
   }

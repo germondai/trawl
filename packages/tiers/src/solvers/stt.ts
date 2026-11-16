@@ -13,6 +13,8 @@
 
 import { randomUUID } from "node:crypto"
 import { unlink } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import type { Page } from "patchright"
 import { runFfmpeg } from "./subprocess"
 
@@ -97,9 +99,9 @@ async function transcribeWhisper(
 // Tries 8000 Hz first (reCAPTCHA audio is typically low-bitrate), then 16000 Hz.
 async function transcribeGoogle(download: AudioDownload, signal?: AbortSignal): Promise<string | undefined> {
   const id = randomUUID().slice(0, 8)
-  const mp3 = `/tmp/trawl-${id}.mp3`
-  const flac8 = `/tmp/trawl-${id}-8k.flac`
-  const flac16 = `/tmp/trawl-${id}-16k.flac`
+  const mp3 = join(tmpdir(), `trawl-${id}.mp3`)
+  const flac8 = join(tmpdir(), `trawl-${id}-8k.flac`)
+  const flac16 = join(tmpdir(), `trawl-${id}-16k.flac`)
   try {
     const res = await download({
       // Use Firefox UA to match Camoufox - Google may serve different content by browser
@@ -180,3 +182,5 @@ async function transcribeGoogle(download: AudioDownload, signal?: AbortSignal): 
 function clean(text: string): string {
   return text.toLowerCase().trim().replace(/\s+/g, " ")
 }
+
+export const sttSettings = Object.freeze({ STT_MODEL })

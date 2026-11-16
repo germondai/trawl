@@ -4,7 +4,12 @@ import type { Cookie } from "@trawl/types"
 import { capturePageFavicons } from "../favicons"
 import { solvePageCaptchas } from "../solvers"
 import { reportBlocked } from "../utils/blockedEvidence"
-import { captureBrowserDocument, waitForBrowserLoad } from "../utils/browserCapture"
+import {
+  captureBrowserDocument,
+  captureHistorySnapshot,
+  observeBrowserPage,
+  waitForBrowserLoad,
+} from "../utils/browserCapture"
 import { persistentBrowserWall } from "../utils/browserWall"
 import { attachPageCapture, type CaptureOptions } from "../utils/capture"
 import { routeChallengeWait } from "../utils/challengeRouter"
@@ -76,6 +81,7 @@ async function runBrowserTierTask<T extends 3 | 4>(
       `tier${tier} context cleanup timed out`,
     ))
   let disown = () => {}
+  let stopObserving: (() => void) | undefined
   // Request captures and overrides must not outlive their operation on a kept page.
   const pageTeardowns: Array<() => unknown> = []
   try {
@@ -95,6 +101,7 @@ async function runBrowserTierTask<T extends 3 | 4>(
       await context.addCookies(normalizeInputCookies(capture.cookies, url))
     }
     const page = capture.sessionPage ?? (await context.newPage())
+    if (capture.observePage) stopObserving = observeBrowserPage(page, tier, handle, capture, budget)
     const storageRestore =
       !capture.sessionPage && capture.sessionStorage?.size
         ? await restoreSessionStorage(page, capture.sessionStorage)
@@ -308,6 +315,8 @@ async function runBrowserTierTask<T extends 3 | 4>(
 
     captured ??= await captureResponse(mainResponse.response)
 
+    if (capture.historySnapshot) await captureHistorySnapshot(page, tier, capture, budget, shot)
+
     return {
       tier,
       status: "success",
@@ -338,6 +347,7 @@ async function runBrowserTierTask<T extends 3 | 4>(
             : String(err),
     }
   } finally {
+    stopObserving?.()
     if (capture.sessionPage) {
       for (const teardown of pageTeardowns) await Promise.resolve(teardown()).catch(() => {})
     }

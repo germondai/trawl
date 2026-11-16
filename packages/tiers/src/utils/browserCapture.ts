@@ -1,8 +1,44 @@
+import type { BrowserHandle } from "@trawl/browser"
 import type { Page } from "patchright"
 import { capturePageScreenshot } from "../screenshot"
 import type { attachPageCapture, CaptureOptions } from "./capture"
 import type { RequestBudget } from "./deadline"
 import { waitForVisibleSelector } from "./waitForVisibleSelector"
+
+export function observeBrowserPage(
+  page: Page,
+  tier: 2 | 3 | 4,
+  handle: BrowserHandle,
+  capture: CaptureOptions,
+  budget: RequestBudget,
+): (() => void) | undefined {
+  try {
+    const stop = capture.observePage?.(page, tier, { id: handle.id, headful: handle.headful }, () => budget.remaining())
+    return stop
+      ? () => {
+          try {
+            stop()
+          } catch {}
+        }
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
+export async function captureHistorySnapshot(
+  page: Page,
+  tier: 2 | 3 | 4,
+  capture: CaptureOptions,
+  budget: RequestBudget,
+  shot?: string,
+) {
+  try {
+    await capture.historySnapshot?.(page, tier, budget.remaining(), shot)
+  } catch {
+    /* Optional history capture cannot turn a successful scrape into a failure. */
+  }
+}
 
 export async function waitForBrowserLoad(
   page: Page,

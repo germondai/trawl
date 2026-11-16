@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { recordApplicationLog } from "./applicationLogs"
 
 export type LogLevel = "error" | "warn" | "info" | "debug" | "silent"
 type LogValue = string | number | boolean | null | undefined
@@ -34,7 +35,7 @@ export function safeMessage(message: string): string {
 }
 
 export function requestId(): string {
-  return randomUUID().slice(0, 8)
+  return randomUUID()
 }
 
 export function log(level: Exclude<LogLevel, "silent">, scope: string, fields: Record<string, LogValue>): void {
@@ -44,6 +45,7 @@ export function log(level: Exclude<LogLevel, "silent">, scope: string, fields: R
     if (value !== undefined) line.push(`${key}=${quote(value)}`)
   }
   const message = line.join(" ")
+  recordApplicationLog(level, scope, fields)
   if (level === "error") console.error(message)
   else if (level === "warn") console.warn(message)
   else console.log(message)

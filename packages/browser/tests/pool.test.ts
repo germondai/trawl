@@ -639,7 +639,7 @@ describe("Firefox launch preferences", () => {
     const result = Bun.spawnSync({ cmd: [process.execPath, "-e", script], cwd: import.meta.dir })
     expect(result.exitCode, result.stderr.toString()).toBe(0)
     const options = JSON.parse(result.stdout.toString().trim().split("\n").at(-1) ?? "")
-    expect(options.headless).toBe(virtualDisplay ? "virtual" : true)
+    expect(options.headless).toBe(virtualDisplay ? (process.platform === "linux" ? "virtual" : false) : true)
     expect(options.geoip).toBe(geoipIp ?? true)
     expect(options.prefs).toMatchObject({
       "network.dns.blockDotOnion": false,

@@ -207,3 +207,34 @@ JSON API. Core SDK operations target TRAWL 1.9.1 and newer. The new `read()` and
 `extract()` endpoints require the server changes currently under Unreleased;
 earlier releases return HTTP 404. The client does not silently repeat the operation
 through another endpoint.
+
+## Dashboard metrics
+
+```ts
+const snapshot = await trawl.metrics(60)
+console.log(snapshot.requests, snapshot.averageMs)
+```
+
+The server must have its dashboard enabled. Supply its dashboard token as `apiKey` when required. Supported ranges in minutes: 15, 60, 1440, 10080, 43200. Keep credentials in backend code; frontend connections need an appropriate authenticated proxy.
+
+## Instance observability
+
+The unpublished client also supports `capabilities()`, read-only `settings()`,
+`requests.list()` / `requests.get()` / `requests.events()` and
+`logs.list()` / `logs.events()`. These require compatible server support and the
+appropriate observability token. Stream iterators accept an AbortSignal and replay
+cursor, report reset events explicitly, and close when the caller exits the iterator.
+See the instance observability API reference for replay and retention limits.
+
+When `capabilities().captures` is true, `requests.captures(id)` returns saved-content
+metadata and `requests.artifact(id, 'html' | 'screenshot', { signal })` downloads its
+bytes. Capture is opt-in on the server. Downloads are bounded to 8 MiB with a 15-second
+default deadline and no retries. Treat saved HTML as untrusted; these methods do not
+render it or contact the target again.
+
+Existing-page inspection is separate from a new scrape: `browser.list()` returns
+observed operation/session main pages and `browser.preview(pageId, { signal })`
+returns a bounded JPEG of that page. The host must explicitly enable authenticated
+browser inspection. Previews do not acquire or navigate a browser. Visible sessions
+can use the existing `sessions.create({ headful: true, keepPage: true })` API when
+the host's separate headed pool and graphical environment support it.

@@ -7,6 +7,8 @@ import {
   flareSolverrError,
   scrapeWithCookieFallback,
 } from "../adapters/flaresolverr"
+import type { CaptureStore } from "../captureStore"
+import { captures } from "../captures"
 import { FLARESOLVERR_COOKIE_FALLBACK } from "../config"
 import { getDeps, getPool } from "../deps"
 import { requestId } from "../logger"
@@ -21,6 +23,7 @@ interface V1RouteOptions {
   orchestratorDeps?: typeof getDeps
   metricsStore?: MetricsStore
   cookieFallback?: boolean
+  captureStore?: CaptureStore
 }
 
 export function v1Route({
@@ -29,13 +32,17 @@ export function v1Route({
   orchestratorDeps = getDeps,
   metricsStore = metrics,
   cookieFallback = FLARESOLVERR_COOKIE_FALLBACK,
+  captureStore = captures,
 }: V1RouteOptions = {}) {
   return new Elysia().post("/v1", async ({ body, set }) => {
     const startTimestamp = Date.now()
+    const id = requestId()
+    let finish: (() => void) | undefined
     let scraperStarted = false
     const command = typeof body === "object" && body !== null && "cmd" in body ? body.cmd : undefined
     const sessionCommand =
       command === "sessions.create" || command === "sessions.list" || command === "sessions.destroy"
+    if (!sessionCommand) set.headers["X-Trawl-Request-ID"] = id
 
     try {
       validateFlareSolverrRequest(body)
@@ -45,6 +52,7 @@ export function v1Route({
       if (!["request.get", "request.post", "sessions.create", "sessions.list", "sessions.destroy"].includes(cmd)) {
         set.status = 400
         metricsStore.record({
+          requestId: id,
           source: "flaresolverr",
           url: requestUrl(req),
           durationMs: Date.now() - startTimestamp,
@@ -57,6 +65,7 @@ export function v1Route({
         set.status = 503
         if (!sessionCommand)
           metricsStore.record({
+            requestId: id,
             source: "flaresolverr",
             url: requestUrl(req),
             durationMs: Date.now() - startTimestamp,
@@ -86,6 +95,7 @@ export function v1Route({
       const deps = orchestratorDeps()
       const scrapeReq = req as FlareSolverrScrapeRequest
       const sessionId = scrapeReq.session
+      finish = metricsStore.startRequest(id, "flaresolverr", scrapeRequest.url, scrapeRequest.method ?? "GET")
       if (sessionId) {
         const sessions = deps.sessions
         if (!sessions) throw new RequestValidationError("Browser sessions are unavailable", 503)
@@ -105,7 +115,6 @@ export function v1Route({
         }
       }
       scraperStarted = true
-      const id = requestId()
       const result = await runLoggedScrape(
         "flaresolverr",
         scrapeRequest,
@@ -113,6 +122,9 @@ export function v1Route({
         cookieFallback ? (req, deps) => scrapeWithCookieFallback(req, deps, runScrape, id) : runScrape,
         id,
         metricsStore,
+        undefined,
+        finish,
+        captureStore,
       )
       return {
         status: "ok",
@@ -135,6 +147,7 @@ export function v1Route({
         set.status = err.statusCode
         if (!scraperStarted && !sessionCommand)
           metricsStore.record({
+            requestId: id,
             source: "flaresolverr",
             url: requestUrl(body),
             durationMs: Date.now() - startTimestamp,
@@ -146,6 +159,7 @@ export function v1Route({
       set.status = err instanceof PoolExhaustedError ? 429 : 500
       if (!scraperStarted && !sessionCommand)
         metricsStore.record({
+          requestId: id,
           source: "flaresolverr",
           url: requestUrl(body),
           durationMs: Date.now() - startTimestamp,
@@ -153,6 +167,8 @@ export function v1Route({
           error: err,
         })
       return flareSolverrError(requestUrl(body), err instanceof Error ? err.message : String(err))
+    } finally {
+      finish?.()
     }
   })
 }

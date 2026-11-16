@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test"
+import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { once } from "node:events"
 import { mkdtempSync, rmSync } from "node:fs"
 import http from "node:http"
@@ -6,12 +6,17 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { BrowserHandle } from "@trawl/browser"
 import type { OrchestratorDeps } from "@trawl/tiers"
+import { captures } from "../../captures"
+import { metrics } from "../../metrics"
 import { shutdownMitmProxy, startMitmProxy } from "../server"
 
 const dir = mkdtempSync(join(tmpdir(), "trawl-429-test-"))
 const originalBody = "Please retry later."
 const solvedHtml = `<html><body>${"Search result. ".repeat(20)}</body></html>`
 const videoBody = Buffer.from([0, 255, 1, 2])
+beforeAll(async () => {
+  await captures?.ready
+})
 const origin = Bun.serve({
   port: 0,
   fetch(req) {
@@ -179,6 +184,13 @@ describe("opt-in HTTP 429 escalation", () => {
       expect(responses[0]?.headers).toContain("retry-after: 60")
       expect(responses[0]?.headers).toContain("x-origin-response: original")
       expect(responses[0]?.body.toString()).toBe(originalBody)
+      if (captures?.enabled) {
+        await captures.flush()
+        const latest = metrics.history(1).entries[0]
+        if (!latest) throw new Error("Missing proxy history")
+        const saved = await captures.read(latest.id, latest.at, "html")
+        expect(new TextDecoder().decode(saved)).toBe(originalBody)
+      }
     },
   )
   test.each(["video", "video-delayed"])(

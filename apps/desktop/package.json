@@ -1,0 +1,34 @@
+{
+  "name": "@trawl/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev --host 127.0.0.1 --port 1421",
+    "generate": "nuxt generate",
+    "build": "nuxt generate",
+    "typecheck": "nuxt typecheck",
+    "native:dev": "CARGO_BUILD_JOBS=2 tauri dev",
+    "native:build": "CARGO_BUILD_JOBS=2 tauri build --no-bundle",
+    "native:package": "CARGO_BUILD_JOBS=2 tauri build"
+  },
+  "dependencies": {
+    "nuxt": "4.6.4",
+    "@nuxt/ui": "4.12.0",
+    "tailwindcss": "4.3.5",
+    "@vueuse/nuxt": "15.0.0",
+    "@pinia/nuxt": "1.0.3",
+    "pinia": "^4.1.0",
+    "@iconify-json/lucide": "1.2.155",
+    "@trawl/client": "workspace:*",
+    "@trawl/config": "workspace:*",
+    "@tauri-apps/api": "2.12.4",
+    "@tauri-apps/plugin-autostart": "2.7.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.4",
+    "typescript": "^6.0.3",
+    "vue-tsc": "^3.3.14",
+    "@types/bun": "^1.4.4"
+  }
+}

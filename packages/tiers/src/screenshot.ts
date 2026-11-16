@@ -124,3 +124,10 @@ export async function capturePageScreenshot(
     return undefined
   }
 }
+
+export const screenshotSettings = Object.freeze({
+  SCREENSHOT_SETTLE_MS: SETTLE_MS,
+  SCREENSHOT_TIMEOUT_MS: CAPTURE_TIMEOUT_MS,
+  SCREENSHOT_JPEG_QUALITY: JPEG_QUALITY,
+  SCREENSHOT_MAX_BYTES: MAX_BYTES,
+})

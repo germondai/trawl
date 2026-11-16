@@ -77,6 +77,7 @@ export default defineConfig({
           { text: "Read and Extract", link: "/api-reference/page-content" },
           { text: "Custom Headers", link: "/api-reference/custom-headers" },
           { text: "Health & Stats", link: "/api-reference/health-stats" },
+          { text: "Instance Observability", link: "/api-reference/observability" },
         ],
       },
       {

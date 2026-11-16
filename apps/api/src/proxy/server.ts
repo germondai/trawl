@@ -8,11 +8,13 @@ import {
   ScrapeError,
   scrape,
 } from "@trawl/tiers"
-import { safeUrl } from "../logger"
+import { captures } from "../captures"
+import { requestId, safeUrl } from "../logger"
 import { metrics } from "../metrics"
 import { runLoggedScrape } from "../requestLogging"
 import { MitmCa } from "./ca"
 import { ChallengeCache, type ChallengeMode } from "./challengeCache"
+import { decodedBody } from "./decodedBody"
 import {
   directForwardHttp,
   directForwardHttps,
@@ -30,6 +32,23 @@ import { responseFromBlockedEvidence, responseFromScrapeResult } from "./respons
 const MAX_HEADER_BYTES = 64 * 1024
 
 const challengeCache = new ChallengeCache({ ttlMs: 5 * 60 * 1000 })
+
+function captureDirect(id: string, response?: ForwardResultBuffered) {
+  if (!captures?.enabled) return
+  try {
+    const entry = metrics.request(id)
+    if (!entry) return
+    const text =
+      response && /^(?:text\/|application\/(?:json|[^;]*xml))/i.test(response.contentType)
+        ? decodedBody(response.body, response.headers["content-encoding"], captures.policy.artifactBytes)?.toString(
+            "utf8",
+          )
+        : undefined
+    captures.capture({ requestId: id, requestAt: entry.at, html: text, contentType: response?.contentType })
+  } catch {
+    // Optional history never changes proxy delivery or buffering policy.
+  }
+}
 
 export const shouldBypassTier0 = (alwaysScrape: boolean | undefined, cachedMode: ChallengeMode | undefined): boolean =>
   alwaysScrape === true || cachedMode === "cf"
@@ -368,96 +387,137 @@ async function proxyRequest(
   const useHttps = url.startsWith("https://")
   let tier0: ForwardResult
   const tier0Started = Date.now()
-  metrics.recordTierZeroAttempt()
-  const controller = new AbortController()
-  const disconnect = () => controller.abort()
-  stream.once("close", disconnect)
+  const traceId = requestId()
+  const finish = metrics.startRequest(traceId, "proxy", url, method)
+  const trace = { id: traceId, finish }
   try {
-    if (useHttps) {
-      const parsed = new URL(url)
-      tier0 = await directForwardHttps({
-        host: parsed.hostname,
-        port: parsed.port ? Number(parsed.port) : 443,
-        method,
-        path: `${parsed.pathname}${parsed.search}`,
-        headers: sanitized,
-        body,
-        skipChallengeDetection: false,
-        signal: controller.signal,
-      })
-    } else {
-      tier0 = await directForwardHttp({
-        url,
-        method,
-        headers: sanitized,
-        body,
-        skipChallengeDetection: false,
-        signal: controller.signal,
-      })
+    metrics.recordTierZeroAttempt()
+    const controller = new AbortController()
+    const disconnect = () => controller.abort()
+    stream.once("close", disconnect)
+    try {
+      if (useHttps) {
+        const parsed = new URL(url)
+        tier0 = await directForwardHttps({
+          host: parsed.hostname,
+          port: parsed.port ? Number(parsed.port) : 443,
+          method,
+          path: `${parsed.pathname}${parsed.search}`,
+          headers: sanitized,
+          body,
+          skipChallengeDetection: false,
+          signal: controller.signal,
+        })
+      } else {
+        tier0 = await directForwardHttp({
+          url,
+          method,
+          headers: sanitized,
+          body,
+          skipChallengeDetection: false,
+          signal: controller.signal,
+        })
+      }
+    } catch (err) {
+      tier0 = { mode: "error", error: err instanceof Error ? err : new Error(String(err)) }
+    } finally {
+      stream.off("close", disconnect)
     }
-  } catch (err) {
-    tier0 = { mode: "error", error: err instanceof Error ? err : new Error(String(err)) }
-  } finally {
-    stream.off("close", disconnect)
-  }
-  if (stream.destroyed) {
-    if (tier0.mode === "stream") tier0.socket.destroy()
-    return
-  }
-
-  if (tier0.mode === "error") {
-    if (opts.debug) console.log(`[proxy] Tier 0 error for ${safeUrl(url)}: ${tier0.error.message}`)
-    if (tier0.requestSent !== false && !["GET", "HEAD", "OPTIONS", "TRACE", "QUERY"].includes(method)) {
-      writeResponseFromBuffer(
-        stream,
-        502,
-        { "content-type": "text/plain; charset=utf-8", "proxy-status": "trawl; error=http_protocol_error" },
-        Buffer.from("Upstream request failed; request was not replayed"),
-        "text/plain; charset=utf-8",
+    if (stream.destroyed) {
+      if (tier0.mode === "stream") tier0.socket.destroy()
+      metrics.record({
+        requestId: traceId,
         method,
-      )
+        source: "proxy",
+        url,
+        durationMs: Date.now() - tier0Started,
+        statusCode: 499,
+      })
       return
     }
-    return await serveViaScrape(stream, url, method, clientHeaders, body, opts)
-  }
 
-  if (opts.escalate429 && tier0.status === 429 && (tier0.mode === "stream" || !tier0.challengeDetected)) {
-    if (opts.debug) console.log(`[proxy] Tier 0 HTTP 429 for ${safeUrl(url)} -> optional scrape fallback`)
-    // Keep the original response for a failed solve. Rate limiting alone does not
-    // establish a persistent challenge on this host, so do not update its cache.
-    if (tier0.mode === "stream") {
-      tier0.socket.setTimeout(0)
-      stream.once("close", () => tier0.mode === "stream" && tier0.socket.destroy())
+    if (tier0.mode === "error") {
+      if (opts.debug) console.log(`[proxy] Tier 0 error for ${safeUrl(url)}: ${tier0.error.message}`)
+      if (tier0.requestSent !== false && !["GET", "HEAD", "OPTIONS", "TRACE", "QUERY"].includes(method)) {
+        metrics.record({
+          requestId: traceId,
+          method,
+          source: "proxy",
+          url,
+          durationMs: Date.now() - tier0Started,
+          statusCode: 502,
+        })
+        writeResponseFromBuffer(
+          stream,
+          502,
+          { "content-type": "text/plain; charset=utf-8", "proxy-status": "trawl; error=http_protocol_error" },
+          Buffer.from("Upstream request failed; request was not replayed"),
+          "text/plain; charset=utf-8",
+          method,
+        )
+        return
+      }
+      return await serveViaScrape(stream, url, method, clientHeaders, body, opts, undefined, trace)
     }
-    return await serveViaScrape(stream, url, method, clientHeaders, body, opts, tier0)
-  }
 
-  if (tier0.mode === "stream") {
-    if (opts.debug) console.log(`[proxy] Tier 0 stream for ${safeUrl(url)} -> ${tier0.status}`)
+    if (opts.escalate429 && tier0.status === 429 && (tier0.mode === "stream" || !tier0.challengeDetected)) {
+      if (opts.debug) console.log(`[proxy] Tier 0 HTTP 429 for ${safeUrl(url)} -> optional scrape fallback`)
+      // Keep the original response for a failed solve. Rate limiting alone does not
+      // establish a persistent challenge on this host, so do not update its cache.
+      if (tier0.mode === "stream") {
+        tier0.socket.setTimeout(0)
+        stream.once("close", () => tier0.mode === "stream" && tier0.socket.destroy())
+      }
+      return await serveViaScrape(stream, url, method, clientHeaders, body, opts, tier0, trace)
+    }
+
+    if (tier0.mode === "stream") {
+      if (opts.debug) console.log(`[proxy] Tier 0 stream for ${safeUrl(url)} -> ${tier0.status}`)
+      challengeCache.set(domain, "direct")
+      metrics.record({
+        requestId: traceId,
+        method,
+        source: "proxy",
+        url,
+        durationMs: Date.now() - tier0Started,
+        tier: 0,
+        statusCode: tier0.status,
+      })
+      writeResponseFromStream(
+        stream,
+        tier0.status,
+        tier0.headers,
+        tier0.socket,
+        tier0.contentType,
+        body?.length ?? 0,
+        tier0.prefix,
+        method,
+      )
+      captureDirect(traceId)
+      return
+    }
+
+    if (tier0.challengeDetected) {
+      if (opts.debug) console.log(`[proxy] Tier 0 challenge for ${safeUrl(url)} -> escalating to scrape()`)
+      challengeCache.set(domain, "cf")
+      return await serveViaScrape(stream, url, method, clientHeaders, body, opts, undefined, trace)
+    }
+
     challengeCache.set(domain, "direct")
-    metrics.record({ source: "proxy", url, durationMs: Date.now() - tier0Started, tier: 0, statusCode: tier0.status })
-    writeResponseFromStream(
-      stream,
-      tier0.status,
-      tier0.headers,
-      tier0.socket,
-      tier0.contentType,
-      body?.length ?? 0,
-      tier0.prefix,
+    metrics.record({
+      requestId: traceId,
       method,
-    )
-    return
+      source: "proxy",
+      url,
+      durationMs: Date.now() - tier0Started,
+      tier: 0,
+      statusCode: tier0.status,
+    })
+    writeResponseFromBuffer(stream, tier0.status, tier0.headers, tier0.body, tier0.contentType, method)
+    captureDirect(traceId, tier0)
+  } finally {
+    finish?.()
   }
-
-  if (tier0.challengeDetected) {
-    if (opts.debug) console.log(`[proxy] Tier 0 challenge for ${safeUrl(url)} -> escalating to scrape()`)
-    challengeCache.set(domain, "cf")
-    return await serveViaScrape(stream, url, method, clientHeaders, body, opts)
-  }
-
-  challengeCache.set(domain, "direct")
-  metrics.record({ source: "proxy", url, durationMs: Date.now() - tier0Started, tier: 0, statusCode: tier0.status })
-  writeResponseFromBuffer(stream, tier0.status, tier0.headers, tier0.body, tier0.contentType, method)
 }
 
 // Tier 1+ fallback: reissue through the existing browser-backed scrape pipeline.
@@ -509,9 +569,11 @@ export async function serveViaScrape(
   body: Buffer | undefined,
   opts: MitmProxyOptions,
   rateLimitResponse?: ForwardResultBuffered | ForwardResultStream,
+  trace?: { id: string; finish?: () => void },
 ): Promise<void> {
   try {
     if (!isValidMethod(method)) {
+      if (trace) metrics.record({ requestId: trace.id, method, source: "proxy", url, durationMs: 0, statusCode: 400 })
       writeResponse(stream, 400, Buffer.from(`unsupported method: ${method}`), "text/plain; charset=utf-8")
       return
     }
@@ -528,9 +590,16 @@ export async function serveViaScrape(
       },
       { ...opts.deps, trustedProxyHeaders: true },
       scrape,
+      trace?.id,
+      metrics,
+      undefined,
+      trace?.finish,
+      captures,
+      rateLimitResponse ? (result) => Boolean(result && result.statusCode < 400) : undefined,
     )
     if (rateLimitResponse && scrapeResult.statusCode >= 400) {
       writeOriginalResponse(stream, rateLimitResponse, body?.length ?? 0, method)
+      if (trace) captureDirect(trace.id, rateLimitResponse.mode === "buffer" ? rateLimitResponse : undefined)
       return
     }
     if (rateLimitResponse?.mode === "stream") rateLimitResponse.socket.destroy()
@@ -567,6 +636,7 @@ export async function serveViaScrape(
       if (opts.debug)
         console.log(`[proxy] HTTP 429 fallback failed for ${safeUrl(url)} -> preserving original response`)
       writeOriginalResponse(stream, rateLimitResponse, body?.length ?? 0, method)
+      if (trace) captureDirect(trace.id, rateLimitResponse.mode === "buffer" ? rateLimitResponse : undefined)
       return
     }
     const evidence = err instanceof ScrapeError ? terminalBlockedEvidence(err) : undefined

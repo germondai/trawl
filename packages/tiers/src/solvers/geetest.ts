@@ -4,6 +4,8 @@ import { sleep } from "../utils/deadline"
 
 import { randomUUID } from "node:crypto"
 import { unlink } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import type { Page } from "patchright"
 import { matchGeetestPiece } from "./geetestImage"
 import { runFfmpeg } from "./subprocess"
@@ -211,8 +213,8 @@ async function findSliderGapByScreenshot(
   signal?: AbortSignal,
 ): Promise<number> {
   const id = randomUUID().slice(0, 8)
-  const pngPath = `/tmp/gt-${id}.png`
-  const rawPath = `/tmp/gt-${id}.raw`
+  const pngPath = join(tmpdir(), `gt-${id}.png`)
+  const rawPath = join(tmpdir(), `gt-${id}.raw`)
 
   try {
     // Screenshot the SVG challenge image - this is where the notch is

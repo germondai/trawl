@@ -1,0 +1,26 @@
+{
+  "name": "@trawl/runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "bun scripts/build.ts"
+  },
+  "dependencies": {
+    "@trawl/config": "workspace:*",
+    "adm-zip": "^0.6.1",
+    "proper-lockfile": "4.1.2",
+    "yauzl": "3.4.0"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.8",
+    "@types/bun": "^1.4.4",
+    "@types/proper-lockfile": "^4.1.4",
+    "@types/yauzl": "^3.4.0",
+    "typescript": "^7.0.2"
+  }
+}

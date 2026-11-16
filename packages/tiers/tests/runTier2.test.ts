@@ -51,6 +51,7 @@ describe("runTier2", () => {
     let injectedCookies: unknown
     let userAgent: Record<string, string> | undefined
     let pageClosed = false
+    const lifecycle: string[] = []
     const page = {
       url: () => "https://example.com/final?ok=1",
       setExtraHTTPHeaders: async (headers: Record<string, string>) => {
@@ -61,6 +62,7 @@ describe("runTier2", () => {
       waitForLoadState: async () => {},
       content: async () => "<html><body>pool context content</body></html>",
       close: async () => {
+        lifecycle.push("closed")
         pageClosed = true
       },
     }
@@ -72,7 +74,29 @@ describe("runTier2", () => {
       cookies: async () => session.cookies,
     }
 
-    const result = await runTier2("https://example.com", handleWithContext(context), session, 100)
+    const result = await runTier2(
+      "https://example.com",
+      handleWithContext(context),
+      session,
+      100,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        observePage: (observed, tier, browser, remaining) => {
+          expect(observed as unknown).toBe(page)
+          expect(tier).toBe(2)
+          expect(browser).toEqual({ id: 3, headful: false })
+          expect(remaining()).toBeGreaterThan(0)
+          lifecycle.push("observed")
+          return () => {
+            lifecycle.push("released")
+          }
+        },
+      },
+    )
 
     expect(result.status).toBe("success")
     expect(result.html).toContain("pool context content")
@@ -80,5 +104,6 @@ describe("runTier2", () => {
     expect(injectedCookies).toEqual(session.cookies)
     expect(userAgent).toEqual({ "User-Agent": session.userAgent })
     expect(pageClosed).toBe(true)
+    expect(lifecycle).toEqual(["observed", "released", "closed"])
   })
 })

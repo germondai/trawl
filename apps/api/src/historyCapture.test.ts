@@ -1,0 +1,185 @@
+import { expect, test } from "bun:test"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import type { OrchestratorDeps } from "@trawl/tiers"
+import type { ScrapeResult } from "@trawl/types"
+import { CaptureStore, defaultCapturePolicy } from "./captureStore"
+import { createHistoryCapture } from "./historyCapture"
+
+type Page = Parameters<NonNullable<OrchestratorDeps["captureHistory"]>>[0]
+const jpeg = Buffer.from([255, 216, 255, 192, 0, 8, 8, 1, 224, 2, 128, 0, 255, 217])
+const at = "2026-11-16T10:00:00.000Z"
+const result = (tier: 1 | 2 | 3 | 4): ScrapeResult => ({
+  url: "https://owned.fixture",
+  html: "<p>owned fixture</p>",
+  cookies: [],
+  userAgent: "fixture",
+  statusCode: 200,
+  tier,
+  sessionCached: false,
+  timings: [],
+  totalMs: 1,
+})
+const limits = { width: 640, height: 480, quality: 50, timeoutMs: 5 }
+
+test("HTML and HTTP-only history do not ask a browser to take a screenshot", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trawl-history-"))
+  const store = new CaptureStore(directory, { ...defaultCapturePolicy, mode: "both" })
+  try {
+    await store.ready
+    const capture = createHistoryCapture(store, { url: "https://owned.fixture" }, limits)
+    capture.commit("http-only", at, result(1))
+    await store.flush()
+    expect(store.manifest("http-only", at).artifacts.map((value) => [value.kind, value.state])).toEqual([
+      ["html", "ready"],
+      ["screenshot", "unavailable"],
+    ])
+    const htmlStore = { ...store, policy: { ...store.policy, mode: "html" } } as unknown as CaptureStore
+    expect(createHistoryCapture(htmlStore, { url: "https://owned.fixture" }, limits).observe).toBeUndefined()
+  } finally {
+    await store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("capture uses its actual page without resizing or changing the returned scrape result", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trawl-history-"))
+  const store = new CaptureStore(directory, { ...defaultCapturePolicy, mode: "both" })
+  const calls: unknown[] = []
+  const page = {
+    viewportSize: () => ({ width: 1920, height: 1080 }),
+    screenshot: async (options: unknown) => {
+      calls.push(options)
+      return jpeg
+    },
+  } as unknown as Page
+  try {
+    await store.ready
+    const capture = createHistoryCapture(store, { url: "https://owned.fixture" }, limits)
+    await capture.observe?.(page, 3, 2000)
+    const response = result(3)
+    capture.commit("browser", at, response)
+    await store.flush()
+    expect(calls).toEqual([
+      {
+        type: "jpeg",
+        quality: 50,
+        scale: "css",
+        caret: "initial",
+        timeout: 5,
+        clip: { x: 0, y: 0, width: 640, height: 480 },
+      },
+    ])
+    expect(store.manifest("browser", at).artifacts[1]?.state).toBe("ready")
+    expect(response.screenshot).toBeUndefined()
+    expect(response.html).toBe("<p>owned fixture</p>")
+    const reuse = createHistoryCapture(
+      store,
+      { url: "https://owned.fixture", screenshot: true },
+      { ...limits, width: 1920, height: 1080 },
+    )
+    await reuse.observe?.(page, 3, 1, jpeg.toString("base64"))
+    reuse.commit("reuse", at, result(3))
+    await store.flush()
+    expect(calls).toHaveLength(1)
+    expect(store.manifest("reuse", at).artifacts[1]?.state).toBe("ready")
+    const short = createHistoryCapture(store, { url: "https://owned.fixture" }, limits)
+    await short.observe?.(page, 3, 100)
+    short.commit("short-budget", at, result(3))
+    await store.flush()
+    expect(calls).toHaveLength(1)
+    expect(store.manifest("short-budget", at).artifacts[1]?.reason).toBe("insufficient-request-budget")
+    const native = createHistoryCapture(store, { url: "https://owned.fixture" }, limits)
+    await native.observe?.({ ...page, viewportSize: () => null } as unknown as Page, 3, 2000)
+    native.commit("native-viewport", at, result(3))
+    await store.flush()
+    expect(store.manifest("native-viewport", at).artifacts[1]?.state).toBe("ready")
+    expect(calls).toHaveLength(2)
+  } finally {
+    await store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("timed-out screenshots keep their slots until the underlying page operation settles", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trawl-history-"))
+  const store = new CaptureStore(directory, { ...defaultCapturePolicy, mode: "screenshot" })
+  const release: ((bytes: Buffer) => void)[] = []
+  let calls = 0
+  const page = {
+    viewportSize: () => ({ width: 640, height: 480 }),
+    screenshot: () => {
+      calls++
+      return new Promise<Buffer>((resolve) => release.push(resolve))
+    },
+  } as unknown as Page
+  try {
+    await store.ready
+    const first = createHistoryCapture(store, { url: "https://owned.fixture" }, limits)
+    const second = createHistoryCapture(store, { url: "https://owned.fixture" }, limits)
+    await Promise.all([first.observe?.(page, 3, 2000), second.observe?.(page, 3, 2000)])
+    const third = createHistoryCapture(store, { url: "https://owned.fixture" }, limits)
+    await third.observe?.(page, 3, 2000)
+    third.commit("busy", at, result(3))
+    await store.flush()
+    expect(calls).toBe(2)
+    expect(store.manifest("busy", at).artifacts[0]?.reason).toBe("capture-busy")
+  } finally {
+    for (const resolve of release) resolve(jpeg)
+    await Promise.resolve()
+    await store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("failure evidence remains marked as truncated and belongs to the failed request", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trawl-history-"))
+  const store = new CaptureStore(directory, { ...defaultCapturePolicy, mode: "html" })
+  try {
+    await store.ready
+    createHistoryCapture(store, { url: "https://owned.fixture" }, limits).failed("failed", at, {
+      tier: 3,
+      status: "blocked",
+      url: "https://owned.fixture",
+      html: "<p>wall</p>",
+      htmlTruncated: true,
+    })
+    await store.flush()
+    expect(store.manifest("failed", at).artifacts[0]).toMatchObject({ state: "ready", truncated: true })
+  } finally {
+    await store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("failure evidence cannot bypass configured screenshot dimensions", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trawl-history-"))
+  const store = new CaptureStore(directory, { ...defaultCapturePolicy, mode: "screenshot" })
+  try {
+    await store.ready
+    const large = Buffer.from(jpeg)
+    large[7] = 5
+    large[8] = 220
+    const evidence = { tier: 3 as const, status: "blocked" as const, url: "https://owned.fixture", html: "<p>wall</p>" }
+    const capture = createHistoryCapture(
+      store,
+      { url: evidence.url, screenshot: true, screenshotFullPage: true },
+      limits,
+    )
+    capture.failed("oversized-failure", at, { ...evidence, screenshot: large.toString("base64") })
+    createHistoryCapture(store, { url: evidence.url }, limits).failed("bounded-failure", at, {
+      ...evidence,
+      screenshot: jpeg.toString("base64"),
+    })
+    await store.flush()
+    expect(store.manifest("oversized-failure", at).artifacts[0]).toMatchObject({
+      state: "unavailable",
+      reason: "screenshot-dimensions-limit",
+    })
+    expect(store.manifest("bounded-failure", at).artifacts[0]?.state).toBe("ready")
+  } finally {
+    await store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})

@@ -79,3 +79,9 @@ export function trackMainDocumentResponses(
     },
   })
 }
+
+export const redirectSettings = Object.freeze({
+  REDIRECT_MAX_ENTRIES: MAX_REDIRECT_ENTRIES,
+  REDIRECT_MAX_URL_CHARS: MAX_REDIRECT_URL_CHARS,
+  REDIRECT_MAX_TOTAL_CHARS: MAX_REDIRECT_TOTAL_CHARS,
+})

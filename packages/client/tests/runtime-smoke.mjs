@@ -6,6 +6,7 @@ function assert(value, message) {
 
 async function run() {
   let requests = 0
+  const pageId = "10000000-0000-4000-8000-000000000000"
   const targetBody = { query: "owned žluťoučký", values: [1, 2] }
   const page = {
     url: "https://target.example",
@@ -26,6 +27,43 @@ async function run() {
       assert(request.headers.get("authorization") === "Bearer owned-test-key", "Missing API authorization")
       assert(request.redirect === "manual", "Unexpected redirect policy")
       requests++
+      if (request.url.endsWith(`/browser/pages/${pageId}/preview`))
+        return new Response(new Uint8Array([255, 216, 255, 217]))
+      if (request.url.endsWith("/browser/pages"))
+        return Response.json({
+          pages: [
+            {
+              id: pageId,
+              browserId: 1,
+              display: "headless",
+              state: "session-idle",
+              origin: page.url,
+              observedAt: "2026-11-16T10:00:00.000Z",
+            },
+          ],
+          truncated: false,
+          limits: { width: 1280, height: 720, maxBytes: 1048576, intervalMs: 1000, timeoutMs: 350 },
+          headedDebug: { supported: true, configured: false, display: "host-window" },
+        })
+      if (request.url.endsWith("/requests/owned/captures/html")) return new Response(page.html)
+      if (request.url.endsWith("/requests/owned/captures"))
+        return Response.json({
+          requestId: "owned",
+          requestAt: "2026-11-16T10:00:00.000Z",
+          mode: "html",
+          artifacts: [
+            {
+              kind: "html",
+              state: "ready",
+              bytes: 13,
+              storedBytes: 13,
+              sha256: "a".repeat(64),
+              encoding: "identity",
+              contentType: "text/html",
+              capturedAt: "2026-11-16T10:00:00.000Z",
+            },
+          ],
+        })
       if (["/read", "/extract", "/scrape"].some((path) => request.url.endsWith(path))) {
         const input = await request.clone().json()
         assert(input.body === JSON.stringify(targetBody), "Wrong serialized target body")
@@ -76,13 +114,17 @@ async function run() {
   assert((await session.eval("document.title")) === "Owned title", "Wrong eval response")
   assert((await session.cookies()).length === 0, "Wrong cookies response")
   await session.close()
+  assert((await client.browser.list()).pages[0].id === pageId, "Wrong observed page")
+  assert((await client.browser.preview(pageId))[0] === 255, "Wrong preview bytes")
+  assert((await client.requests.captures("owned")).artifacts[0].state === "ready", "Wrong capture metadata")
+  assert(new TextDecoder().decode(await client.requests.artifact("owned", "html")) === page.html, "Wrong saved HTML")
   try {
     await client.info()
     throw new Error("Missing API failure")
   } catch (error) {
     assert(error instanceof TrawlError && error.status === 503, "Wrong API error")
   }
-  assert(requests === 11, "Unexpected request retry")
+  assert(requests === 15, "Unexpected request retry")
   return { requests, passed: true }
 }
 

@@ -7,6 +7,7 @@ import {
   WafDetector,
 } from "@trawl/tiers"
 import type { SessionData } from "@trawl/types"
+import { browserObservations } from "./browserInspectorState"
 import {
   ACQUIRE_TIMEOUT_MS,
   BROWSER_BLOCK_ADS,
@@ -39,6 +40,7 @@ import {
   USER_PREFS,
   WAF_DETECTION_ENABLED,
 } from "./config"
+import { log, safeMessage } from "./logger"
 import { isLocalMitmProxy, localProxyCa } from "./proxy/localTrust"
 import { PublicEgressProxy } from "./public-egress"
 import { readRuntimeMemory } from "./runtimeMemory"
@@ -143,7 +145,7 @@ export const createSessionCacheRecovery = ({
       createCache: () => new MemorySessionCache({ ttlSeconds, maxEntries: memoryMaxEntries }),
       connectTimeoutMs: 0,
       retryDelayMs: 0,
-      onConnected: () => console.log("[api] session cache: memory  (Tier 2 fast-path enabled, per-instance)"),
+      onConnected: () => log("info", "api", { event: "session-cache.connected", driver: "memory" }),
     })
   }
   if (!redisUrl) return
@@ -152,13 +154,14 @@ export const createSessionCacheRecovery = ({
     createCache: () => new SessionCache({ redisUrl, ttlSeconds }),
     connectTimeoutMs: redisConnectTimeoutMs,
     retryDelayMs: redisRetryDelayMs,
-    onConnected: () => console.log("[api] session cache connected  (Tier 2 fast-path enabled)"),
+    onConnected: () => log("info", "api", { event: "session-cache.connected", driver: "redis" }),
     onUnavailable: (err) => {
-      const retry = redisRetryDelayMs > 0 ? `; retrying in ${redisRetryDelayMs}ms` : ""
-      console.warn(
-        `[api] session cache unavailable - Tier 2 disabled${retry}:`,
-        err instanceof Error ? err.message : err,
-      )
+      log("warn", "api", {
+        event: "session-cache.unavailable",
+        driver: "redis",
+        retryDelayMs: redisRetryDelayMs,
+        reason: safeMessage(err instanceof Error ? err.message : String(err)),
+      })
     },
   })
 }
@@ -247,7 +250,12 @@ export const initPool = async ({
   // Publish the pool before its first await. Tier 1 can serve immediately and
   // browser-backed requests can wait in acquire() while capacity warms.
   state.pool = pool
+  const observations = browserObservations
   state.sessions = new BrowserSessions({
+    observeSessionPage: observations
+      ? (page, sessionId, browser, busy) =>
+          observations.register(page, { sessionId, browserId: browser.id, headful: browser.headful, busy })
+      : undefined,
     acquireBrowser: (domain, budgetMs, options) => getDeps().acquireBrowser(domain, budgetMs, options),
     releaseBrowser: (handle) => getDeps().releaseBrowser(handle),
     maxSessions: BROWSER_SESSION_MAX_ENTRIES,
@@ -264,7 +272,7 @@ export const initPool = async ({
     if (state.headfulPool) {
       await state.headfulPool.init()
       state.headfulPool.startHealthCheck()
-      console.log(`[api] headful pool ${poolState} (${headfulPoolSize} browser${headfulPoolSize === 1 ? "" : "s"})`)
+      log("info", "api", { event: "browser.headful-pool-ready", state: poolState, poolSize: headfulPoolSize })
     }
   } catch (error) {
     await state.sessions?.shutdown()
@@ -272,7 +280,7 @@ export const initPool = async ({
     throw error
   }
 
-  console.log(`[api] ready - all ${poolSize} browser${poolSize === 1 ? "" : "s"} ${poolState}`)
+  log("info", "api", { event: "server.ready", state: poolState, poolSize })
 }
 
 export const getDeps = (): OrchestratorDeps => {
@@ -283,7 +291,7 @@ export const getDeps = (): OrchestratorDeps => {
     acquireBrowser: async (d: string, budgetMs?: number, options?: AcquireOptions) => {
       if (options?.headful) {
         const headful = state.headfulPool
-        if (!headful) throw new Error("DataDome requires BROWSER_HEADFUL_POOL_SIZE greater than 0")
+        if (!headful) throw new Error("Headed browsing requires BROWSER_HEADFUL_POOL_SIZE greater than 0")
         const handle = await headful.acquire(d, budgetMs, options?.signal, options?.browserId)
         handleOwners.set(handle, headful)
         return handle

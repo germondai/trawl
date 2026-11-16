@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "types": ["bun"],
+    "paths": {
+      "@trawl/client": ["../client/src/index.ts"]
+    }
+  },
+  "include": ["src", "tests"]
+}

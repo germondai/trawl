@@ -8,12 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+- Add opt-in authenticated inspection of existing browser pages, bounded single/live desktop previews and explicit headed debug sessions using the separate configured pool. Preserve page ownership, viewport profiles and normal session cleanup.
+- Add optional bounded request HTML/screenshots, authenticated artifact downloads and offline desktop previews. Keep capture disabled by default, preserve HTTP-only execution and make saved content independent of later target availability.
+- Add a desktop request workbench using the native client, with JSON bodies, sessions, output helpers, bounded authenticated native transport, explicit cancellation semantics and links to retained request details. Keep instance drafts in memory and bound response/diagnostic previews.
+- Add opt-in authenticated instance settings, paginated request history with durable IDs, and independent request/log SSE streams. The unpublished SDK and desktop support live metadata, read-only remote settings and bounded reconnectable subscriptions; existing dashboard routes remain available.
+- Prepare the unpublished CLI, standalone native runtime and Tauri desktop application for v2, with shared configuration, verified browser setup, local lifecycle controls and remote dashboard connections.
+- Add grouped, searchable desktop settings and a framed workspace with a collapsible sidebar. Add managed browser status, repair, compatible version updates and uninstall while preserving settings/history and rejecting active browser replacement.
+- Add guarded desktop page history, a stable animated sidebar, bundled Urbanist, DOM-aligned macOS window controls, display-aware frame restoration and generation-scoped startup recovery. Preserve tray WebView destruction and prevent placeholder configuration from being saved during startup.
+- Add interactive desktop activity inspection, a browser-capacity breakdown, copyable instance addresses and request metadata details without recording response content. Overview previews the five latest requests with a Show all action opening Requests.
+- Add typed dashboard metrics to the client. Native distributions remain in development; platform validation and signing are required before release.
 - Add `BROWSER_GEOIP_IP` to start browsers with a known public egress IP when external IP-discovery services are unavailable. Keep automatic discovery by default, validate configured addresses and provide an actionable startup error (#288).
 - Solve the AWS WAF CAPTCHA wall through its audio puzzle in the browser tier, using the existing speech-to-text configuration. Require an accepted answer and verified clearance, bound transcription and token validation to the local budget, and preserve configured external fallback. Transcripts without a usable answer request a fresh puzzle, and at most three answers are submitted per wall (#283).
 - Add `STT_MODEL` to choose the model name sent to `STT_URL` (default `whisper-1`).
 
 ### Changed
 - Increase the default browser acquisition wait from 15 to 30 seconds so bursts can wait longer for a free browser. Keep explicit `BROWSER_ACQUIRE_TIMEOUT_MS` overrides and the request's overall deadline.
+
+### Fixed
+- Restore desktop macOS window-control alignment after native titlebar relayouts without requiring a WebView resize.
+- Allow container clients to reach managed loopback instances through the exact Docker and OrbStack host aliases while retaining cross-origin browser and Host validation.
 
 ## [1.11.1] - 2026-11-12
 

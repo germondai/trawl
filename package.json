@@ -16,8 +16,10 @@
     "fix": "biome check . --write",
     "typecheck": "bun --filter '*' typecheck",
     "test": "bun test",
-    "build": "bun --cwd packages/client build && bun --cwd apps/web build && bun --cwd apps/docs build",
-    "verify": "bun run check && bun run typecheck && bun run test && bun run build"
+    "build": "bun --cwd packages/client build && bun --cwd packages/cli build && bun --cwd apps/desktop build && bun --cwd apps/web build && bun --cwd apps/docs build",
+    "verify": "bun run check && bun run typecheck && bun run test && bun run build",
+    "build:native": "bun --cwd packages/runtime build",
+    "dev:desktop": "bun --cwd apps/desktop native:dev"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.7"

@@ -1,0 +1,33 @@
+[package]
+name = "trawl-desktop"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+
+[profile.release.build-override]
+# Build-time proc macros must remain loadable by macOS dyld after linking.
+strip = "none"
+
+[lib]
+name = "trawl_desktop"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+tokio = { version = "1", features = ["process", "io-util", "time", "sync", "fs", "net"] }
+libc = "0.2"
+
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "=0.6.2"
+objc2 = "=0.6.5"
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSApplication", "NSWindow", "NSView", "NSButton", "NSScreen", "block2"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["NSNotification", "NSOperation", "NSString", "block2"] }

@@ -5,6 +5,8 @@ export type {
   ConsoleLogEntry,
   Cookie,
   CreateBrowserSession,
+  DashboardEvent,
+  DashboardSnapshot,
   ExtractionField,
   ExtractionOptions,
   ExtractResponse,
@@ -25,10 +27,14 @@ export type {
   TierResult,
   WafDetection,
 } from "../../types/src/api"
+export type * from "../../types/src/artifacts"
+export type * from "../../types/src/browserObservation"
+export type * from "../../types/src/observability"
 export { Trawl } from "./client"
 export type { TrawlErrorDetails } from "./errors"
 export { TrawlError } from "./errors"
 export { TrawlSession } from "./sessions"
+export type { StreamEvent, StreamOptions } from "./stream"
 export type {
   EvalOptions,
   ExtractRequest,

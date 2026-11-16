@@ -206,6 +206,7 @@ export interface WafDetection {
 }
 
 export interface ScrapeResponse {
+  requestId?: string
   waf?: WafDetection
   url: string
   html: string
@@ -260,6 +261,7 @@ export interface ScrapeResponse {
 }
 
 export interface PageMetadata {
+  requestId?: string
   waf?: WafDetection
   url: string
   statusCode: number
@@ -413,4 +415,32 @@ export interface SessionEvalResponse<T = unknown> {
 
 export interface SessionCloseResponse {
   status: "ok"
+}
+export interface DashboardEvent {
+  id?: string
+  at: string
+  domain: string
+  source: string
+  durationMs: number
+  success: boolean
+  tier: number | null
+  statusCode: number | null
+  category: string | null
+  severity: string | null
+}
+
+export interface DashboardSnapshot {
+  startedAt: string | null
+  rangeMinutes: number
+  retainedEvents: number
+  requests: number
+  successes: number
+  failures: number
+  averageMs: number
+  bySource: Record<string, number>
+  byTier: Record<string, { attempts: number; successes: number }>
+  bucketMs: number
+  timeline: { minute: string; requests: number; failures: number; averageMs: number }[]
+  domains: { domain: string; requests: number; failures: number }[]
+  recentEvents: DashboardEvent[]
 }

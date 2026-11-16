@@ -16,12 +16,19 @@ interface Entry {
   browserId?: number
   busy: boolean
   releaseRetention?: () => void
+  stopObservation?: () => void
   requestReplacement?: (reason: string) => void
   closing?: Promise<void>
   opening?: Promise<Context>
   sessionStorage: Map<string, [string, string][]>
 }
 interface Options {
+  observeSessionPage?: (
+    page: Page,
+    sessionId: string,
+    browser: Pick<BrowserHandle, "id" | "headful">,
+    busy: () => boolean,
+  ) => () => void
   acquireBrowser(domain: string, budgetMs: number, options: AcquireOptions): Promise<BrowserHandle>
   releaseBrowser(handle: BrowserHandle): void
   maxSessions?: number
@@ -37,6 +44,14 @@ export function validateSessionId(id: unknown): asserts id is string {
   if (typeof id !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(id)) {
     throw new RequestValidationError("session ID must contain 1-128 letters, numbers, underscores or hyphens", 400)
   }
+}
+
+function stopObservation(entry: Entry) {
+  const stop = entry.stopObservation
+  entry.stopObservation = undefined
+  try {
+    stop?.()
+  } catch {}
 }
 
 // Contexts are owned by this process. Redis clearance cookies cannot preserve
@@ -247,6 +262,7 @@ export class BrowserSessions {
         entry.browser = handle.browser
         entry.browserId = handle.id
         entry.context.once?.("close", () => {
+          stopObservation(entry)
           if (this.entries.get(id) === entry) this.entries.delete(id)
           entry.releaseRetention?.()
         })
@@ -255,7 +271,17 @@ export class BrowserSessions {
         throw new RequestValidationError("Session is no longer available", 410)
       const context = entry.context
       if (entry.options.keepPage && (!entry.page || entry.page.isClosed())) {
-        entry.page = await budget.run(() => context.newPage())
+        stopObservation(entry)
+        const page: Page = await budget.run(() => context.newPage())
+        entry.page = page
+        try {
+          entry.stopObservation = this.deps.observeSessionPage?.(
+            page,
+            id,
+            { id: handle.id, headful: handle.headful },
+            () => entry.busy,
+          )
+        } catch {}
       }
       return await budget.run(() => operation(acquired, context, entry.sessionStorage, entry.page))
     } catch (error) {
@@ -357,6 +383,7 @@ export class BrowserSessions {
   }
 
   private async remove(entry: Entry, handle?: BrowserHandle, opening?: Promise<Context>): Promise<void> {
+    stopObservation(entry)
     if (this.entries.get(entry.info.id) === entry) this.entries.delete(entry.info.id)
     if (entry.closing) return entry.closing
     entry.sessionStorage.clear()

@@ -1,7 +1,11 @@
 import { TIER1_TRANSPORT, verifyTier1Transport } from "@trawl/tiers"
 import { createApiApp } from "./app"
+import { applicationLogs } from "./applicationLogs"
+import { browserObservations } from "./browserInspectorState"
+import { captures } from "./captures"
 import {
   HEADFUL_POOL_SIZE,
+  HOST,
   MITM_ALWAYS_SCRAPE,
   MITM_CA_DIR,
   MITM_DEBUG,
@@ -19,14 +23,18 @@ import {
 } from "./config"
 import { getDeps, initPool } from "./deps"
 import { registerLifecycleHandlers, stopServer } from "./lifecycle"
+import { log } from "./logger"
+import { metrics } from "./metrics"
 import { type MitmProxyHandle, shutdownMitmProxy, startMitmProxy } from "./proxy/server"
 import { startMemoryMonitor } from "./runtimeMemory"
 
 if (SCRAPE_MIN_TIER === 1) await verifyTier1Transport()
+await captures?.ready
 
-const app = createApiApp().listen(PORT)
+const app = createApiApp().listen({ port: PORT, hostname: HOST })
 
-console.log(`[api] TRAWL starting on :${PORT}  (pool: ${POOL_SIZE} browser${POOL_SIZE === 1 ? "" : "s"})`)
+log("info", "api", { event: "server.start", port: PORT, poolSize: POOL_SIZE })
+if (captures?.failure) log("warn", "api", { event: "capture.unavailable" })
 if (SCRAPE_MIN_TIER > 1) console.log(`[api] scraper tier floor: ${SCRAPE_MIN_TIER}`)
 if (SCRAPE_MIN_TIER === 1 && TIER1_TRANSPORT !== "bun") console.log(`[api] Tier 1 transport: ${TIER1_TRANSPORT}`)
 if (SCRAPE_PROXY_SELECTION !== "failover") console.log(`[api] proxy selection: ${SCRAPE_PROXY_SELECTION}`)
@@ -53,16 +61,22 @@ if (MITM_ENABLED) {
 }
 
 poolReady.catch((err) => {
+  log("error", "api", { event: "server.startup-failed", errorKind: err instanceof Error ? err.name : "unknown" })
   console.error("[api] startup failed:", err)
   process.exit(1)
 })
 
 registerLifecycleHandlers({
   onShutdown: async () => {
+    log("info", "api", { event: "server.stopping" })
     stopMemoryMonitor()
+    applicationLogs.close()
+    metrics.events.close()
     await Promise.all([
       stopServer(app.server, SHUTDOWN_DRAIN_MS),
       state.proxyHandle ? shutdownMitmProxy(state.proxyHandle) : undefined,
     ])
+    await captures?.close()
+    browserObservations?.close()
   },
 })

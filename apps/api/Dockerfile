@@ -17,7 +17,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY package.json bun.lock* ./
 COPY packages/client/package.json ./packages/client/
+COPY packages/config/package.json ./packages/config/
 COPY packages/types/package.json   ./packages/types/
+COPY packages/config/  /app/packages/config/
 COPY packages/browser/package.json ./packages/browser/
 COPY packages/tiers/package.json   ./packages/tiers/
 COPY apps/api/package.json         ./apps/api/

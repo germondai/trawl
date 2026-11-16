@@ -9,3 +9,5 @@ apps/docs/.vitepress/dist/
 dist/
 .turbo/
 __pycache__/
+.artifacts/
+target/

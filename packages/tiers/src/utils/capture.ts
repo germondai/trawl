@@ -1,3 +1,4 @@
+import type { BrowserHandle } from "@trawl/browser"
 import type { CapturedResponseEntry, ConsoleLogEntry, InputCookie, NetworkLogEntry } from "@trawl/types"
 import type { ConsoleMessage, Page, Request } from "patchright"
 import type { ExternalCaptchaSession } from "../solvers/externalCaptcha"
@@ -29,6 +30,15 @@ const CONSOLE_LEVELS: Record<string, ConsoleLogEntry["level"]> = {
 // MainDocumentResponseTracker (the response listener already exists there) rather than
 // by this module - it travels in the same bag so a tier takes one capture argument.
 export interface CaptureOptions extends ResponseCaptureOptions {
+  /** Internal observer of the existing page; its cleanup must not close or mutate that page. */
+  observePage?: (
+    page: Page,
+    tier: 2 | 3 | 4,
+    browser: Pick<BrowserHandle, "id" | "headful">,
+    remaining: () => number,
+  ) => () => void
+  /** Internal optional history hook. It observes the successful page before its tier releases it. */
+  historySnapshot?: (page: Page, tier: 2 | 3 | 4, budgetMs: number, screenshot?: string) => Promise<void>
   networkProxy?: (upstream?: string) => Promise<string>
   cookies?: InputCookie[]
   sessionContext?: Awaited<ReturnType<typeof import("@trawl/browser").newFreshContext>>
@@ -216,3 +226,11 @@ export function attachPageCapture(page: Page, options: CaptureOptions): PageCapt
     },
   }
 }
+
+export const diagnosticSettings = Object.freeze({
+  DIAGNOSTICS_MAX_CONSOLE_ENTRIES: MAX_CONSOLE_ENTRIES,
+  DIAGNOSTICS_MAX_NETWORK_ENTRIES: MAX_NETWORK_ENTRIES,
+  DIAGNOSTICS_MAX_STRING_CHARS: MAX_STRING_CHARS,
+  DIAGNOSTICS_MAX_TOTAL_CHARS: MAX_TOTAL_CHARS,
+  DIAGNOSTICS_SIZE_TIMEOUT_MS: SIZES_TIMEOUT_MS,
+})

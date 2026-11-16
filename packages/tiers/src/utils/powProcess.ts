@@ -13,7 +13,11 @@ export async function runPowProcess(input: unknown, timeoutMs = 1000, signal?: A
   const abort = () => child?.kill("SIGKILL")
   try {
     child = Bun.spawn(
-      [process.execPath, "--no-env-file", fileURLToPath(new URL("./nativePowSolver.ts", import.meta.url))],
+      [
+        process.execPath,
+        "--no-env-file",
+        process.env.TRAWL_POW_WORKER_PATH || fileURLToPath(new URL("./nativePowSolver.ts", import.meta.url)),
+      ],
       {
         stdin: "pipe",
         stdout: "pipe",
