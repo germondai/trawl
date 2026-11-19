@@ -1,7 +1,12 @@
 import { isIP } from "node:net"
+import { telemetryEndpoint } from "@trawl/telemetry"
 import { type ExternalCaptchaOptions, ProxyPool, type ProxySelection, parseCaptchaProfiles } from "@trawl/tiers"
 
 export const REDIS_URL = process.env.REDIS_URL?.trim() || undefined
+export const TELEMETRY_ENABLED = /^(1|true|yes)$/i.test(process.env.TELEMETRY_ENABLED?.trim() ?? "")
+export const TELEMETRY_ENDPOINT = TELEMETRY_ENABLED
+  ? telemetryEndpoint(process.env.TELEMETRY_ENDPOINT?.trim() ?? "")
+  : ""
 export type SessionCacheDriver = "redis" | "memory"
 const configuredSessionCacheDriver = process.env.SESSION_CACHE_DRIVER?.trim().toLowerCase() || "redis"
 if (configuredSessionCacheDriver !== "redis" && configuredSessionCacheDriver !== "memory") {
@@ -140,12 +145,13 @@ if (OBSERVABILITY_ENABLED && !METRICS_DASHBOARD_TOKEN) {
 }
 
 export const HISTORY_CAPTURE_MODE = process.env.HISTORY_CAPTURE_MODE?.trim().toLowerCase() || "none"
+export const HISTORY_CAPTURE_REQUESTS = /^(1|true|yes)$/i.test(process.env.HISTORY_CAPTURE_REQUESTS?.trim() ?? "")
 export const BROWSER_INSPECTION_ENABLED = /^(1|true|yes)$/i.test(process.env.BROWSER_INSPECTION_ENABLED?.trim() ?? "")
 if (BROWSER_INSPECTION_ENABLED && !OBSERVABILITY_ENABLED)
   throw new Error("Browser inspection requires OBSERVABILITY_ENABLED and its dashboard token")
 if (!["none", "html", "screenshot", "both"].includes(HISTORY_CAPTURE_MODE))
   throw new Error("HISTORY_CAPTURE_MODE must be none, html, screenshot or both")
-if (HISTORY_CAPTURE_MODE !== "none" && !OBSERVABILITY_ENABLED)
+if ((HISTORY_CAPTURE_MODE !== "none" || HISTORY_CAPTURE_REQUESTS) && !OBSERVABILITY_ENABLED)
   throw new Error("History captures require OBSERVABILITY_ENABLED and its dashboard token")
 export const HISTORY_CAPTURE_MAX_BYTES = integerInRange(process.env.HISTORY_CAPTURE_MAX_BYTES, 2097152, 1024, 8388608)
 export const HISTORY_CAPTURE_STORAGE_BYTES = integerInRange(

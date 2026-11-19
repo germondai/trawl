@@ -5,6 +5,7 @@ import type {
   InstanceSettings,
   LogSnapshot,
   RequestHistoryEntry,
+  RequestHistoryQuery,
   RequestHistoryResponse,
   RequestLifecycle,
 } from "../../types/src/observability"
@@ -25,14 +26,14 @@ const isCaptures = (value: unknown): value is RequestCaptures =>
   typeof value.mode === "string" &&
   ["none", "html", "screenshot", "both"].includes(value.mode) &&
   Array.isArray(value.artifacts) &&
-  value.artifacts.length <= 2 &&
-  (value.mode !== "none" || value.artifacts.length === 0) &&
+  value.artifacts.length <= 3 &&
+  (value.mode !== "none" || value.artifacts.every((item) => isRecord(item) && item.kind === "request")) &&
   new Set(value.artifacts.map((item) => (isRecord(item) ? item.kind : null))).size === value.artifacts.length &&
   value.artifacts.every(
     (item) =>
       isRecord(item) &&
       typeof item.kind === "string" &&
-      ["html", "screenshot"].includes(item.kind) &&
+      ["html", "screenshot", "request"].includes(item.kind) &&
       typeof item.state === "string" &&
       ["pending", "ready", "unavailable", "too-large", "expired", "failed"].includes(item.state) &&
       (item.bytes === undefined || size(item.bytes)) &&
@@ -61,6 +62,11 @@ export const isCapabilities = (value: unknown): value is InstanceCapabilities =>
   value.version === 1 &&
   value.authentication === "bearer" &&
   (value.clientRequestIds === undefined || typeof value.clientRequestIds === "boolean") &&
+  (value.requestQuery === undefined || typeof value.requestQuery === "boolean") &&
+  (value.requestOptions === undefined ||
+    (isRecord(value.requestOptions) &&
+      typeof value.requestOptions.binaryBodies === "boolean" &&
+      typeof value.requestOptions.targetAuth === "boolean")) &&
   ["settings", "requests", "requestEvents", "logs", "logEvents", "captures", "browserInspection"].every(
     (key) => typeof value[key] === "boolean",
   )
@@ -83,7 +89,23 @@ export const isHistoryEntry = (value: unknown): value is RequestHistoryEntry =>
   (value.method === null || typeof value.method === "string") &&
   [value.statusCode, value.tier].every((value) => value === null || number(value)) &&
   [value.category, value.severity, value.tierStatus].every((value) => value === null || typeof value === "string") &&
-  (value.waf === undefined || isWafDetection(value.waf))
+  (value.waf === undefined || isWafDetection(value.waf)) &&
+  (value.diagnostics === undefined ||
+    (isRecord(value.diagnostics) &&
+      [value.diagnostics.requestBodyBytes, value.diagnostics.responseBytes].every(
+        (value) => value === undefined || size(value),
+      ) &&
+      (value.diagnostics.contentType === undefined || boundedString(value.diagnostics.contentType, 128)) &&
+      (value.diagnostics.responseKind === undefined ||
+        ["html", "json", "text", "file", "stream", "binary"].includes(String(value.diagnostics.responseKind))) &&
+      Array.isArray(value.diagnostics.challenges) &&
+      value.diagnostics.challenges.length <= 8 &&
+      value.diagnostics.challenges.every((value) => boundedString(value, 40)) &&
+      Array.isArray(value.diagnostics.timings) &&
+      value.diagnostics.timings.length <= 8 &&
+      value.diagnostics.timings.every(
+        (value) => isRecord(value) && number(value.tier) && boundedString(value.status, 40) && number(value.durationMs),
+      )))
 const isActive = (value: unknown): value is ActiveRequest =>
   isRecord(value) &&
   [value.id, value.startedAt, value.domain, value.source, value.method].every((value) => typeof value === "string")
@@ -96,6 +118,8 @@ export const isRequestLifecycle = (value: unknown): value is RequestLifecycle =>
       isHistoryEntry(value.request))
 export const isHistory = (value: unknown): value is RequestHistoryResponse =>
   isRecord(value) &&
+  (value.total === undefined || size(value.total)) &&
+  (value.page === undefined || size(value.page)) &&
   Array.isArray(value.entries) &&
   value.entries.every(isHistoryEntry) &&
   (value.nextCursor === null || typeof value.nextCursor === "string") &&
@@ -122,7 +146,10 @@ const isLogs = (value: unknown): value is LogSnapshot =>
 
 export class Requests {
   constructor(private readonly transport: Transport) {}
-  list(query: { limit?: number; before?: string } = {}, options: RequestOptions = {}): Promise<RequestHistoryResponse> {
+  list(
+    query: RequestHistoryQuery & { limit?: number; before?: string } = {},
+    options: RequestOptions = {},
+  ): Promise<RequestHistoryResponse> {
     const params = new URLSearchParams()
     if (query.limit !== undefined) {
       if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 100)
@@ -133,6 +160,31 @@ export class Requests {
       validateId(query.before)
       params.set("before", query.before)
     }
+    if (query.page !== undefined) {
+      if (!Number.isInteger(query.page) || query.page < 1 || query.page > 50000)
+        throw new TypeError("page must be from 1 to 50000")
+      params.set("page", String(query.page))
+    }
+    if (query.search !== undefined) {
+      if (query.search.length > 200 || /\p{Cc}/u.test(query.search)) throw new TypeError("Invalid history search")
+      params.set("search", query.search)
+    }
+    for (const [name, allowed] of [
+      ["source", ["native", "flaresolverr", "mcp", "proxy"]],
+      ["result", ["success", "failed"]],
+      ["sort", ["newest", "oldest", "slowest", "fastest"]],
+    ] as const) {
+      const value = query[name]
+      if (value === undefined) continue
+      if (!(allowed as readonly string[]).includes(value)) throw new TypeError(`Invalid history ${name}`)
+      params.set(name, value)
+    }
+    if (query.tier !== undefined) {
+      if (!Number.isInteger(query.tier) || query.tier < 0 || query.tier > 4) throw new TypeError("Invalid history tier")
+      params.set("tier", String(query.tier))
+    }
+    if (query.before !== undefined && [...params.keys()].some((name) => name !== "before" && name !== "limit"))
+      throw new TypeError("before cannot be combined with history query filters")
     return this.transport.request(`/requests${params.size ? `?${params}` : ""}`, options, isHistory)
   }
   get(id: string, options: RequestOptions = {}): Promise<RequestHistoryEntry> {
@@ -149,7 +201,7 @@ export class Requests {
   }
   artifact(id: string, kind: ArtifactKind, options: RequestOptions = {}): Promise<Uint8Array> {
     validateId(id)
-    if (!["html", "screenshot"].includes(kind)) throw new TypeError("Invalid artifact kind")
+    if (!["html", "screenshot", "request"].includes(kind)) throw new TypeError("Invalid artifact kind")
     return this.transport.bytes(`/requests/${id}/captures/${kind}`, options)
   }
   events(options: StreamOptions = {}): AsyncGenerator<StreamEvent<RequestLifecycle>> {

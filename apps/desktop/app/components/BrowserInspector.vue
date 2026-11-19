@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { type BrowserObservationSnapshot, TrawlError } from "@trawl/client"
+import { browserSnapshotKey } from "~/utils/browser-snapshot"
 import { validateJpegPreview } from "~/utils/jpeg-preview"
 
 const emit = defineEmits<{ history: [id: string]; workbench: [] }>()
 const desktop = useDesktopStore()
 const workbench = useWorkbenchStore()
 const visible = useDocumentVisibility()
+const stopped = computed(() => desktop.activeId === "local" && !desktop.status.running)
 const supported = computed(() => Boolean(desktop.native && desktop.capabilities?.browserInspection))
 const enabled = computed(() => supported.value && visible.value === "visible")
 const key = computed(() => `${desktop.activeId}:${desktop.active?.baseURL}`)
@@ -13,7 +15,11 @@ const record = shallowRef<{ key: string; value: BrowserObservationSnapshot }>()
 const snapshot = computed(() => (enabled.value && record.value?.key === key.value ? record.value.value : undefined))
 const metadataError = shallowRef("")
 const loading = shallowRef(false)
-const revision = shallowRef(0)
+const { revision, refresh, finish } = useRefreshRevision()
+usePageRefresh(async () => {
+  await refresh()
+  await refreshFrame()
+})
 const selectedId = shallowRef("")
 const selected = computed(() => snapshot.value?.pages.find((page) => page.id === selectedId.value))
 const items = computed(
@@ -24,7 +30,7 @@ const items = computed(
     })) ?? [],
 )
 const live = shallowRef(false)
-const frameRevision = shallowRef(0)
+const { revision: frameRevision, refresh: refreshFrame, finish: finishFrame } = useRefreshRevision()
 const frameLoading = shallowRef(false)
 const frameError = shallowRef("")
 const debugBusy = shallowRef(false)
@@ -88,10 +94,11 @@ watch(
 
 watch(
   [key, enabled, revision],
-  async ([identity, allowed], _, onCleanup) => {
+  async ([identity, allowed, refreshCount], _, onCleanup) => {
     const controller = new AbortController()
     let timer: ReturnType<typeof setTimeout> | undefined, wake: (() => void) | undefined
     onCleanup(() => {
+      finish(refreshCount)
       controller.abort()
       clearTimeout(timer)
       wake?.()
@@ -99,6 +106,7 @@ watch(
     metadataError.value = ""
     loading.value = false
     if (!allowed) {
+      finish(refreshCount)
       record.value = undefined
       selectedId.value = ""
       live.value = false
@@ -106,12 +114,14 @@ watch(
     }
     try {
       while (!controller.signal.aborted) {
-        loading.value = true
+        loading.value = !record.value
         const value = await desktop.client().browser.list({ signal: controller.signal, timeoutMs: 5000 })
         if (controller.signal.aborted || key.value !== identity) return
-        record.value = { key: identity, value }
+        if (record.value?.key !== identity || browserSnapshotKey(record.value.value) !== browserSnapshotKey(value))
+          record.value = { key: identity, value }
         if (selectedId.value && !value.pages.some((page) => page.id === selectedId.value)) selectedId.value = ""
         loading.value = false
+        finish(refreshCount)
         await new Promise<void>((resolve) => {
           wake = resolve
           timer = setTimeout(resolve, 2000)
@@ -123,6 +133,7 @@ watch(
       if (!controller.signal.aborted && key.value === identity)
         metadataError.value = cause instanceof Error ? cause.message : "Browser pages are unavailable"
     } finally {
+      finish(refreshCount)
       if (!controller.signal.aborted && key.value === identity) loading.value = false
     }
   },
@@ -143,12 +154,14 @@ watch(
     const controller = new AbortController()
     let timer: ReturnType<typeof setTimeout> | undefined, wake: (() => void) | undefined
     onCleanup(() => {
+      finishFrame(refreshCount)
       controller.abort()
       clearTimeout(timer)
       wake?.()
     })
     frameLoading.value = false
     if (!allowed || !selected.value) {
+      finishFrame(refreshCount)
       image.value = undefined
       frameError.value = ""
       return
@@ -156,6 +169,7 @@ watch(
     const selectedNew = selection !== previous?.[0],
       requested = refreshCount !== previous?.[4]
     if (!refreshing && !selectedNew && !requested) {
+      finishFrame(refreshCount)
       if (identity !== previous?.[1]) {
         image.value = undefined
         frameError.value = "The page changed. Refresh the image to inspect its current state."
@@ -182,6 +196,7 @@ watch(
           ([409, 429, 503].includes(cause.status ?? 0) || cause.kind === "network" || cause.kind === "timeout")
         if (!live.value || !transient) break
       } finally {
+        finishFrame(refreshCount)
         if (!controller.signal.aborted && frameKey.value === identity) frameLoading.value = false
       }
       if (!live.value) break
@@ -200,20 +215,21 @@ watch(
   <section class="panel" aria-label="Active browser pages">
     <div class="panel-heading gap-3 flex-wrap">
       <h2>Active browser pages</h2>
-      <UButton
-        v-if="supported"
-        color="neutral"
-        variant="ghost"
-        icon="i-lucide-refresh-cw"
-        :loading="loading"
-        @click="revision++"
-        >Refresh pages</UButton
-      >
     </div>
     <div class="panel-body form-stack">
-      <p v-if="!supported" class="muted">
-        Browser inspection is unavailable on this instance. On a compatible host, enable BROWSER_INSPECTION_ENABLED
-        together with authenticated observability, then restart.
+      <div v-if="stopped" class="form-stack">
+        <p class="muted">Start the local server to inspect its browser pages.</p>
+        <p v-if="desktop.effective.BROWSER_INSPECTION_ENABLED === 'false'" class="text-xs muted">
+          Browser inspection is disabled. Enable <SettingLink name="BROWSER_INSPECTION_ENABLED" /> before starting.
+        </p>
+      </div>
+      <p v-else-if="desktop.activeId !== 'local' && !desktop.health" class="muted">
+        This instance is unavailable. Reconnect to inspect browser pages.
+      </p>
+      <p v-else-if="!supported" class="muted">
+        Enable <SettingLink name="BROWSER_INSPECTION_ENABLED" /> together with
+        <SettingLink name="OBSERVABILITY_ENABLED">authenticated observability</SettingLink>
+        on this instance, then restart.
       </p>
       <template v-else>
         <p v-if="metadataError" class="notice" role="status">{{ metadataError }}</p>
@@ -271,14 +287,6 @@ watch(
             </dl>
             <div class="flex items-center justify-between gap-4 flex-wrap">
               <USwitch v-model="live" :label="live && frameError ? 'Live preview paused' : 'Live preview'" />
-              <UButton
-                color="neutral"
-                variant="outline"
-                icon="i-lucide-refresh-cw"
-                :loading="frameLoading"
-                @click="frameRevision++"
-                >Refresh image</UButton
-              >
             </div>
             <UButton
               v-if="selected.sessionId?.startsWith('desktop-debug-')"
@@ -325,12 +333,13 @@ watch(
             @click="debugSession()"
             >Open headed debug session</UButton
           >
-          <p class="text-xs muted">
-            {{
-              snapshot.headedDebug.configured
-                ? "Opens a visible browser window on the instance host, then selects its retained session in New request. The session stays open until you close it here or it expires; leaving this view does not cancel accepted creation."
-                : "Set Browser headful pool size above zero in the host settings and restart while idle to enable visible debug sessions. This is additional browser capacity."
-            }}
+          <p v-if="snapshot.headedDebug.configured" class="text-xs muted">
+            Opens a visible browser on the instance host and selects its session in New request. Close it here or let it
+            expire.
+          </p>
+          <p v-else class="text-xs muted">
+            Set <SettingLink name="BROWSER_HEADFUL_POOL_SIZE">Extra headful browsers</SettingLink> above zero and
+            restart while idle to enable visible debug sessions.
           </p>
         </div>
         <p v-if="debugError" class="notice" role="status">{{ debugError }}</p>

@@ -48,7 +48,7 @@ export async function startManaged(
       failure = error
     })
   }
-  const deadline = Date.now() + 10000
+  const deadline = Date.now() + 60000
   while (Date.now() < deadline) {
     if (failure) throw failure
     const status = await control("status", paths)
@@ -71,7 +71,16 @@ export async function stopManaged(paths = runtimePaths(), requiredOwner?: "deskt
     30000
   while (Date.now() < deadline) {
     signal?.throwIfAborted()
-    if (!(await control("status", paths))) return { running: false }
+    try {
+      if (!(await control("status", paths))) return { running: false }
+    } catch (error) {
+      // An acknowledged shutdown can close a status probe while the process exits.
+      if (
+        !(error instanceof Error) ||
+        (error.message !== "Incomplete control response" && (error as NodeJS.ErrnoException).code !== "ECONNRESET")
+      )
+        throw error
+    }
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
   throw new Error("Server shutdown timed out; the process was not killed by an unverified PID")

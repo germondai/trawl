@@ -33,6 +33,7 @@ import {
   requireContentTypeForBody,
   sanitizeHeaders,
 } from "./utils/sanitize"
+import { prepareTargetRequest } from "./utils/targetRequest"
 import { tier1UserAgent } from "./utils/tier1Transport"
 import { snapshotWafEvidence, type WafEvidence, wafUnavailable } from "./utils/waf"
 
@@ -233,6 +234,8 @@ async function scrapeWithinBudget(
   observeResponse?: (evidence: WafEvidence & { tier: TierResult["tier"] }) => void,
 ): Promise<ScrapeResult> {
   const totalStart = Date.now()
+  const target = prepareTargetRequest(req)
+  req = { ...req, url: target.url }
   const namedSession = req.sessionId ? deps.sessions?.options(req.sessionId) : undefined
   if (req.sessionId && !deps.sessions) throw new RequestValidationError("Browser sessions are unavailable", 503)
   if (namedSession) {
@@ -308,15 +311,24 @@ async function scrapeWithinBudget(
     mhtml: req.mhtml,
   }
 
-  const sanitizedHeaders = deps.trustedProxyHeaders ? proxySanitizeHeaders(req.headers) : sanitizeHeaders(req.headers)
+  const sanitizedHeaders = {
+    ...(deps.trustedProxyHeaders ? proxySanitizeHeaders(req.headers) : sanitizeHeaders(req.headers)),
+  }
+  if (target.credential) {
+    for (const name of Object.keys(sanitizedHeaders))
+      if (name.toLowerCase() === target.credential.name.toLowerCase()) delete sanitizedHeaders[name]
+    sanitizedHeaders[target.credential.name] = target.credential.value
+  }
   if (deps.trustedProxyHeaders && sanitizedHeaders) {
     delete sanitizedHeaders.host
     delete sanitizedHeaders["content-length"]
   }
-  requireContentTypeForBody(sanitizedHeaders, Boolean(req.body))
+  requireContentTypeForBody(sanitizedHeaders, Boolean(target.body))
   const proxyAuthorization = deps.trustedProxyHeaders ? sanitizedHeaders?.authorization : undefined
   const privateRequest =
-    importedCookies || Boolean(deps.trustedProxyHeaders && (sanitizedHeaders?.cookie || proxyAuthorization))
+    Boolean(req.targetAuth) ||
+    importedCookies ||
+    Boolean(deps.trustedProxyHeaders && (sanitizedHeaders?.cookie || proxyAuthorization))
   const browserHeaders = deps.trustedProxyHeaders ? sanitizeHeaders(req.headers) : sanitizedHeaders
   if (deps.trustedProxyHeaders && sanitizedHeaders?.cookie) {
     const secure = new URL(req.url).protocol === "https:"
@@ -417,7 +429,7 @@ async function scrapeWithinBudget(
                 req.proxy as string,
                 browserHeaders,
                 req.method,
-                req.body,
+                target.body,
                 deps.validateOutboundUrl,
                 req.screenshot,
                 sessionCapture,
@@ -430,7 +442,7 @@ async function scrapeWithinBudget(
                 namedSession?.proxy,
                 browserHeaders,
                 req.method,
-                req.body,
+                target.body,
                 deps.validateOutboundUrl,
                 req.screenshot,
                 sessionCapture,
@@ -524,7 +536,7 @@ async function scrapeWithinBudget(
       req.url,
       { ...sanitizedHeaders, "User-Agent": httpUserAgent },
       req.method,
-      req.body,
+      target.body,
       tier1Proxy,
       deps.validateOutboundUrl,
       ignoreCertificateErrors,
@@ -537,6 +549,7 @@ async function scrapeWithinBudget(
         : undefined,
       observeResponse ? (evidence) => observeResponse({ ...evidence, tier: 1 }) : undefined,
       deps.networkProxy ? await budget.run(async () => deps.networkProxy?.(tier1Proxy)) : undefined,
+      target.credential?.name,
     )
     if (
       httpSession &&
@@ -667,7 +680,7 @@ async function scrapeWithinBudget(
         remaining,
         browserHeaders,
         req.method,
-        req.body,
+        target.body,
         deps.validateOutboundUrl,
         req.screenshot,
         capture,
@@ -684,7 +697,7 @@ async function scrapeWithinBudget(
           maxTimeout - (Date.now() - totalStart),
           browserHeaders,
           req.method,
-          req.body,
+          target.body,
           deps.validateOutboundUrl,
           req.screenshot,
           capture,
@@ -771,7 +784,7 @@ async function scrapeWithinBudget(
           proxy3,
           browserHeaders,
           req.method,
-          req.body,
+          target.body,
           deps.validateOutboundUrl,
           req.screenshot,
           tier3Capture,
@@ -788,7 +801,7 @@ async function scrapeWithinBudget(
             proxy3,
             browserHeaders,
             req.method,
-            req.body,
+            target.body,
             deps.validateOutboundUrl,
             req.screenshot,
             tier3Capture,
@@ -887,7 +900,7 @@ async function scrapeWithinBudget(
         proxy4,
         browserHeaders,
         req.method,
-        req.body,
+        target.body,
         deps.validateOutboundUrl,
         req.screenshot,
         capture,
@@ -904,7 +917,7 @@ async function scrapeWithinBudget(
           proxy4,
           browserHeaders,
           req.method,
-          req.body,
+          target.body,
           deps.validateOutboundUrl,
           req.screenshot,
           capture,

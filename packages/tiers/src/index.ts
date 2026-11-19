@@ -59,5 +59,6 @@ export {
   type SupportedMethod,
   sanitizeHeaders,
 } from "./utils/sanitize"
+export { prepareTargetRequest } from "./utils/targetRequest"
 export { TIER1_TRANSPORT, verifyTier1Transport } from "./utils/tier1Transport"
 export { sanitizeWafDetails, WafDetector } from "./utils/waf"

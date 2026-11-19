@@ -157,8 +157,8 @@ export function routeContinueOverrides(
   route: RouteLike,
   extraHeaders: Record<string, string> | undefined,
   method: string | undefined,
-  body: string | undefined,
-): { headers: Record<string, string>; method?: string; postData?: string } {
+  body: string | Buffer<ArrayBuffer> | undefined,
+): { headers: Record<string, string>; method?: string; postData?: string | Buffer<ArrayBuffer> } {
   const req = route.request()
   const headers = { ...req.headers(), ...extraHeaders }
   return method === "POST" && req.method() === "GET" ? { headers, method: "POST", postData: body } : { headers }

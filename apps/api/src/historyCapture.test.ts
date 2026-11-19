@@ -22,6 +22,68 @@ const result = (tier: 1 | 2 | 3 | 4): ScrapeResult => ({
   totalMs: 1,
 })
 const limits = { width: 640, height: 480, quality: 50, timeoutMs: 5 }
+test("active request snapshots share admission limits and release slots when discarded", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trawl-request-admission-"))
+  const store = new CaptureStore(directory, {
+    ...defaultCapturePolicy,
+    request: true,
+    artifactBytes: 1024,
+    totalBytes: 512,
+  })
+  try {
+    await store.ready
+    const first = createHistoryCapture(store, { url: "https://owned.fixture/first", body: "x".repeat(100) }, limits)
+    const second = createHistoryCapture(store, { url: "https://owned.fixture/second", body: "x".repeat(100) }, limits)
+    const denied = createHistoryCapture(store, { url: "https://owned.fixture/denied", body: "x".repeat(100) }, limits)
+    denied.commit("denied", at, result(1))
+    await store.flush()
+    expect(store.manifest("denied", at).artifacts[0]?.reason).toBe("capture-busy")
+    first.dispose()
+    first.dispose()
+    const replacement = createHistoryCapture(store, { url: "https://owned.fixture/replacement" }, limits)
+    second.dispose()
+    replacement.commit("admitted", at, result(1))
+    await store.flush()
+    expect(store.manifest("admitted", at).artifacts[0]?.state).toBe("ready")
+  } finally {
+    await store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+test("request-only capture snapshots payloads on success and failure without taking screenshots", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trawl-request-history-"))
+  const store = new CaptureStore(directory, { ...defaultCapturePolicy, request: true, artifactBytes: 1024 })
+  try {
+    await store.ready
+    const request = {
+      url: "https://owned.fixture/path?value=1",
+      method: "POST" as const,
+      headers: { authorization: "target-fixture-token" },
+      body: '{"input":true}',
+    }
+    const captured = createHistoryCapture(store, request, limits)
+    expect(captured.observe).toBeUndefined()
+    request.body = "later mutation"
+    captured.commit("saved-input", at, result(1))
+    createHistoryCapture(store, request, limits).failed("failed-input", at)
+    createHistoryCapture(store, { ...request, body: "x".repeat(2000) }, limits).commit("large-input", at, result(1))
+    await store.flush()
+    expect(store.manifest("saved-input", at).artifacts).toMatchObject([
+      { kind: "request", state: "ready", contentType: "application/json" },
+    ])
+    const value = await store.read("saved-input", at, "request")
+    expect(JSON.parse(new TextDecoder().decode(value)).parameters).toMatchObject({
+      body: '{"input":true}',
+      headers: { authorization: "target-fixture-token" },
+    })
+    expect(store.manifest("failed-input", at).artifacts[0]?.state).toBe("ready")
+    expect(store.manifest("large-input", at).artifacts[0]?.state).toBe("too-large")
+    expect(await store.read("large-input", at, "request")).toBeUndefined()
+  } finally {
+    await store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
 
 test("HTML and HTTP-only history do not ask a browser to take a screenshot", async () => {
   const directory = mkdtempSync(join(tmpdir(), "trawl-history-"))

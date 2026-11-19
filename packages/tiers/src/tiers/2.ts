@@ -42,7 +42,7 @@ async function runTier2Task(
   maxTimeout: number,
   extraHeaders?: Record<string, string>,
   method?: string,
-  body?: string,
+  body?: string | Buffer<ArrayBuffer>,
   validateOutboundUrl?: OutboundUrlValidator,
   screenshot?: boolean,
   capture: CaptureOptions = {},

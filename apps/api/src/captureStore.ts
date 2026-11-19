@@ -8,6 +8,7 @@ import type { ArtifactKind, CaptureMode, RequestArtifact, RequestCaptures } from
 
 export interface CapturePolicy {
   mode: CaptureMode
+  request?: boolean
   artifactBytes: number
   totalBytes: number
   records: number
@@ -16,6 +17,7 @@ export interface CapturePolicy {
 }
 export const defaultCapturePolicy: Readonly<CapturePolicy> = Object.freeze({
   mode: "none",
+  request: false,
   artifactBytes: 2 * 1024 * 1024,
   totalBytes: 128 * 1024 * 1024,
   records: 500,
@@ -41,6 +43,8 @@ interface Input {
   screenshotReason?: string
   capturedAt?: string
   htmlTruncated?: boolean
+  request?: string
+  requestReason?: string
 }
 interface Job {
   manifest: RequestCaptures
@@ -50,7 +54,7 @@ interface Job {
 const INDEX_RECORDS = 50000
 const INDEX_RETENTION_MS = 30 * 86400000
 const APPLICATION_ID = 0x54524350
-const kinds = ["html", "screenshot"] as const
+const kinds = ["html", "screenshot", "request"] as const
 const validId = (value: string) => /^[A-Za-z0-9_-]{1,80}$/.test(value)
 const hash = (value: Uint8Array) => createHash("sha256").update(value).digest("hex")
 
@@ -61,6 +65,8 @@ export class CaptureStore {
   private db: Database | undefined
   private jobs: Job[] = []
   private reserved = 0
+  private activeInputs = 0
+  private inputBytes = 0
   private used = 0
   private readers = 0
   private rowCount = 0
@@ -72,13 +78,40 @@ export class CaptureStore {
   private timer: ReturnType<typeof setInterval> | undefined
 
   get enabled(): boolean {
-    return this.initialized && !this.closed && Boolean(this.db) && !this.failure && this.policy.mode !== "none"
+    return (
+      this.initialized &&
+      !this.closed &&
+      Boolean(this.db) &&
+      !this.failure &&
+      (this.policy.mode !== "none" || this.policy.request === true)
+    )
   }
   get available(): boolean {
     return this.initialized && !this.closed && !this.failure
   }
   get hasCapacity(): boolean {
-    return this.enabled && this.jobs.length + Number(Boolean(this.worker)) < 4
+    return this.enabled && this.activeInputs + this.jobs.length + Number(Boolean(this.worker)) < 4
+  }
+
+  /** Bound immutable request snapshots while their scrape is still running. */
+  reserveRequestInput(bytes: number): (() => void) | undefined {
+    if (
+      !Number.isSafeInteger(bytes) ||
+      bytes < 0 ||
+      bytes > this.policy.artifactBytes ||
+      !this.hasCapacity ||
+      this.reserved + this.inputBytes + bytes > this.policy.totalBytes
+    )
+      return
+    this.activeInputs++
+    this.inputBytes += bytes
+    let held = true
+    return () => {
+      if (!held) return
+      held = false
+      this.activeInputs--
+      this.inputBytes -= bytes
+    }
   }
 
   constructor(
@@ -88,6 +121,7 @@ export class CaptureStore {
   ) {
     if (
       !["none", "html", "screenshot", "both"].includes(policy.mode) ||
+      (policy.request !== undefined && typeof policy.request !== "boolean") ||
       ![policy.artifactBytes, policy.totalBytes, policy.records, policy.retentionMs].every(
         (value) => Number.isSafeInteger(value) && value > 0,
       ) ||
@@ -107,7 +141,7 @@ export class CaptureStore {
   private async initialize() {
     const path = join(this.directory, "index.sqlite")
     // A new metadata-only deployment creates no artifact directory or database.
-    if (this.policy.mode === "none" && !existsSync(path)) {
+    if (this.policy.mode === "none" && !this.policy.request && !existsSync(path)) {
       this.initialized = true
       return
     }
@@ -161,8 +195,11 @@ export class CaptureStore {
     const entries = await opendir(this.directory)
     let count = 0
     for await (const entry of entries) {
-      if (++count > 10032) throw new Error("Capture directory exceeds its file limit")
-      if (/^[A-Za-z0-9_-]{1,80}\.(html|screenshot)\.(capture|tmp)$/.test(entry.name) && !referenced.has(entry.name))
+      if (++count > 15032) throw new Error("Capture directory exceeds its file limit")
+      if (
+        /^[A-Za-z0-9_-]{1,80}\.(html|screenshot|request)\.(capture|tmp)$/.test(entry.name) &&
+        !referenced.has(entry.name)
+      )
         await unlink(join(this.directory, entry.name)).catch(() => {})
     }
     await this.prune()
@@ -188,7 +225,7 @@ export class CaptureStore {
       value.requestAt !== row.request_at ||
       value.mode !== row.mode ||
       !Array.isArray(value.artifacts) ||
-      value.artifacts.length > 2 ||
+      value.artifacts.length > 3 ||
       value.artifacts.some(
         (artifact) =>
           !kinds.includes(artifact.kind) ||
@@ -250,7 +287,7 @@ export class CaptureStore {
       !this.initialized ||
       !this.db ||
       this.failure ||
-      this.policy.mode === "none" ||
+      (this.policy.mode === "none" && !this.policy.request) ||
       !validId(input.requestId)
     )
       return
@@ -260,7 +297,11 @@ export class CaptureStore {
       const includeHtml =
         this.policy.mode !== "screenshot" ||
         (this.policy.fallbackHtml && (!input.screenshot || input.screenshot.byteLength > this.policy.artifactBytes))
-      const selected = kinds.filter((kind) => (kind === "html" ? includeHtml : this.policy.mode !== "html"))
+      const selected = kinds.filter((kind) =>
+        kind === "request"
+          ? this.policy.request === true
+          : this.policy.mode !== "none" && (kind === "html" ? includeHtml : this.policy.mode !== "html"),
+      )
       const manifest: RequestCaptures = {
         requestId: input.requestId,
         requestAt: input.requestAt,
@@ -270,12 +311,20 @@ export class CaptureStore {
       const parts = new Map<ArtifactKind, Uint8Array>()
       let reservation = 0
       for (const kind of selected) {
-        const raw = kind === "html" ? input.html : input.screenshot
+        const raw = kind === "request" ? input.request : kind === "html" ? input.html : input.screenshot
         const artifact: RequestArtifact = {
           kind,
           state:
-            kind === "screenshot" && input.screenshotReason === "artifact-byte-limit" ? "too-large" : "unavailable",
-          reason: kind === "screenshot" ? (input.screenshotReason ?? "no-browser-screenshot") : "no-content",
+            (kind === "screenshot" && input.screenshotReason === "artifact-byte-limit") ||
+            (kind === "request" && input.requestReason === "artifact-byte-limit")
+              ? "too-large"
+              : "unavailable",
+          reason:
+            kind === "request"
+              ? (input.requestReason ?? "no-request")
+              : kind === "screenshot"
+                ? (input.screenshotReason ?? "no-browser-screenshot")
+                : "no-content",
         }
         if (raw !== undefined) {
           const length = typeof raw === "string" ? Buffer.byteLength(raw) : raw.byteLength
@@ -288,15 +337,18 @@ export class CaptureStore {
             delete artifact.reason
             artifact.capturedAt = input.capturedAt ?? new Date(this.now()).toISOString()
             artifact.contentType =
-              kind === "screenshot" ? "image/jpeg" : (input.contentType ?? "text/html; charset=utf-8").slice(0, 128)
+              kind === "request"
+                ? "application/json"
+                : kind === "screenshot"
+                  ? "image/jpeg"
+                  : (input.contentType ?? "text/html; charset=utf-8").slice(0, 128)
             reservation += length
           }
         }
         manifest.artifacts.push(artifact)
         if (kind === "html" && input.htmlTruncated) artifact.truncated = true
       }
-      const admitted =
-        this.jobs.length + Number(Boolean(this.worker)) < 4 && this.reserved + reservation <= this.policy.totalBytes
+      const admitted = this.hasCapacity && this.reserved + this.inputBytes + reservation <= this.policy.totalBytes
       if (!admitted)
         for (const artifact of manifest.artifacts)
           if (artifact.state === "pending") {
@@ -316,7 +368,8 @@ export class CaptureStore {
       }
       for (const artifact of manifest.artifacts)
         if (artifact.state === "pending") {
-          const raw = artifact.kind === "html" ? input.html : input.screenshot
+          const raw =
+            artifact.kind === "request" ? input.request : artifact.kind === "html" ? input.html : input.screenshot
           if (raw !== undefined)
             parts.set(artifact.kind, typeof raw === "string" ? Buffer.from(raw) : Uint8Array.from(raw))
         }
@@ -383,7 +436,7 @@ export class CaptureStore {
       if (!raw) continue
       let bytes = raw
       let encoding: "identity" | "gzip" = "identity"
-      if (artifact.kind === "html") {
+      if (artifact.kind === "html" || artifact.kind === "request") {
         const compressed = gzipSync(raw, { level: 1 })
         if (compressed.byteLength < raw.byteLength) {
           bytes = compressed

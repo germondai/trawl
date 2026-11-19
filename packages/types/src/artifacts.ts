@@ -1,5 +1,13 @@
 export type CaptureMode = "none" | "html" | "screenshot" | "both"
-export type ArtifactKind = "html" | "screenshot"
+export type ArtifactKind = "html" | "screenshot" | "request"
+
+export interface CapturedRequest {
+  version: 1
+  source: string
+  operation: "scrape" | "read" | "extract"
+  parameters: Record<string, unknown>
+  bodyEncoding?: "base64"
+}
 export type ArtifactState = "pending" | "ready" | "unavailable" | "too-large" | "expired" | "failed"
 
 export interface RequestArtifact {

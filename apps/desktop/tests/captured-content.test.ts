@@ -33,7 +33,14 @@ test("capture viewing isolates instances, validates bytes and releases waits on 
       },
     }),
   })
-  const globals = { computed, shallowRef, watch, useDesktopStore: () => desktop, useDocumentVisibility: () => visible }
+  const globals = {
+    usePageRefresh: () => {},
+    computed,
+    shallowRef,
+    watch,
+    useDesktopStore: () => desktop,
+    useDocumentVisibility: () => visible,
+  }
   const previous = Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const)
   for (const [key, value] of Object.entries(globals)) Reflect.set(globalThis, key, value)
   const scope = effectScope()

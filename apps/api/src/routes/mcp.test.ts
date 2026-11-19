@@ -29,6 +29,45 @@ function rpc(method: string, params?: unknown, id = 1): Request {
 }
 
 describe("MCP route", () => {
+  test("read and extract preserve original operation options in the history capture context", async () => {
+    const contexts: unknown[] = []
+    const app = mcpRoute({
+      poolReady: () => true,
+      runScrape: async (_input, context) => {
+        contexts.push(context)
+        return baseResult
+      },
+    })
+    await app.handle(
+      rpc("tools/call", { name: "read", arguments: { url: "https://1.1.1.1", format: "text", maxCharacters: 1000 } }),
+    )
+    await app.handle(
+      rpc("tools/call", {
+        name: "extract",
+        arguments: {
+          url: "https://1.1.1.1",
+          itemSelector: "a",
+          fields: { label: { selector: ":scope" } },
+          maxItems: 7,
+          render: true,
+          waitForSelector: "a",
+        },
+      }),
+    )
+    expect(contexts).toMatchObject([
+      { operation: "read", parameters: { url: "https://1.1.1.1", format: "text", maxCharacters: 1000 } },
+      {
+        operation: "extract",
+        parameters: {
+          itemSelector: "a",
+          fields: { label: { selector: ":scope" } },
+          maxItems: 7,
+          render: true,
+          contentWaitForSelector: "a",
+        },
+      },
+    ])
+  })
   test("rejects mapped private addresses before invoking any scraper tool", async () => {
     let calls = 0
     const app = mcpRoute({

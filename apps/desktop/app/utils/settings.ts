@@ -51,6 +51,13 @@ export const settingSections = [
     groups: ["metrics", "log", "history"],
   },
   {
+    id: "telemetry",
+    label: "Usage sharing",
+    description:
+      "Optional, explicitly enabled sharing with your configured statistics collector. No raw logs or request content.",
+    groups: ["telemetry"],
+  },
+  {
     id: "mcp",
     label: "MCP tools",
     description: "Expose native scraping tools to compatible AI clients.",
@@ -138,4 +145,17 @@ export function settingValueHint(setting: Setting, value: string): string {
   if (setting.name.endsWith("_BYTES") && number > 0)
     return `${(number / 1048576).toLocaleString(undefined, { maximumFractionDigits: 2 })} MiB`
   return value.length > 64 ? `${value.slice(0, 61)}…` : value
+}
+export function rebaseSettingsDraft(
+  draft: Record<string, string>,
+  before: Record<string, string>,
+  after: Record<string, string>,
+) {
+  const merged = { ...after }
+  for (const name of new Set([...Object.keys(before), ...Object.keys(draft)])) {
+    if (draft[name] === before[name]) continue
+    if (name in draft) merged[name] = draft[name] as string
+    else delete merged[name]
+  }
+  return merged
 }

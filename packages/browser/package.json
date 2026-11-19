@@ -10,6 +10,7 @@
   "dependencies": {
     "@trawl/types": "workspace:*",
     "camoufox-js": "0.13.0",
+    "camoufox": "0.5.9",
     "playwright-core": "1.62.1"
   },
   "devDependencies": {

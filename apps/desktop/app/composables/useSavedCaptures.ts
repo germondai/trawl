@@ -1,21 +1,26 @@
 import type { RequestCaptures, RequestHistoryEntry } from "@trawl/client"
+import { useRefreshRevision } from "./useRefreshRevision"
 
 export function useSavedCaptures(request: () => Pick<RequestHistoryEntry, "id" | "at">) {
   const desktop = useDesktopStore()
   const visible = useDocumentVisibility()
-  const revision = shallowRef(0)
+  const { revision, refresh, finish } = useRefreshRevision()
+  usePageRefresh(refresh)
   const loading = shallowRef(false)
   const error = shallowRef("")
   const key = computed(() => `${desktop.activeId}:${desktop.active?.baseURL}:${request().id}:${request().at}`)
   const record = shallowRef<{ key: string; value: RequestCaptures }>()
-  const enabled = computed(() => desktop.native && desktop.capabilities?.captures && visible.value === "visible")
+  const enabled = computed(
+    () => desktop.native && desktop.capabilities?.captures && Boolean(request().id) && visible.value === "visible",
+  )
   watch(
     [key, enabled, revision],
-    async ([identity, allowed], _, onCleanup) => {
+    async ([identity, allowed, refreshCount], _, onCleanup) => {
       const controller = new AbortController()
       let timer: ReturnType<typeof setTimeout> | undefined
       let wake: (() => void) | undefined
       onCleanup(() => {
+        finish(refreshCount)
         controller.abort()
         clearTimeout(timer)
         wake?.()
@@ -23,6 +28,7 @@ export function useSavedCaptures(request: () => Pick<RequestHistoryEntry, "id" |
       error.value = ""
       loading.value = false
       if (!allowed) {
+        finish(refreshCount)
         record.value = undefined
         return
       }
@@ -47,6 +53,7 @@ export function useSavedCaptures(request: () => Pick<RequestHistoryEntry, "id" |
         if (!controller.signal.aborted && key.value === identity)
           error.value = cause instanceof Error ? cause.message : "Could not read saved-content metadata"
       } finally {
+        finish(refreshCount)
         if (!controller.signal.aborted && key.value === identity) loading.value = false
       }
     },
@@ -56,8 +63,6 @@ export function useSavedCaptures(request: () => Pick<RequestHistoryEntry, "id" |
     manifest: computed(() => (enabled.value && record.value?.key === key.value ? record.value.value : undefined)),
     loading,
     error,
-    refresh: () => {
-      revision.value++
-    },
+    refresh,
   }
 }

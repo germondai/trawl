@@ -1,17 +1,32 @@
 <script setup lang="ts">
 import type { Setting, UserConfig } from "@trawl/config/catalog"
-import { sectionFor, settingLabel, settingSections, settingValueHint } from "~/utils/settings"
+import { useNavigationSelection } from "~/composables/useNavigationSteps"
+import type { SettingTarget } from "~/utils/setting-navigation"
+import { rebaseSettingsDraft, sectionFor, settingLabel, settingSections, settingValueHint } from "~/utils/settings"
 
+const props = defineProps<{ focusSetting?: SettingTarget }>()
+
+const emit = defineEmits<{ focused: [] }>()
 const desktop = useDesktopStore()
 const query = shallowRef("")
 const selected = shallowRef<(typeof settingSections)[number]["id"]>("general")
+useNavigationSelection("settings-category", selected)
+const { highlighted } = useSettingFocus(
+  () => props.focusSetting,
+  () => desktop.catalog,
+  query,
+  selected,
+  () => emit("focused"),
+)
 const draft = ref<Record<string, string>>({ ...desktop.config.env })
+const baseline = ref<Record<string, string>>({ ...desktop.config.env })
 const changed = computed(() =>
-  [...new Set([...Object.keys(draft.value), ...Object.keys(desktop.config.env)])].filter(
-    (name) => draft.value[name] !== desktop.config.env[name],
+  [...new Set([...Object.keys(draft.value), ...Object.keys(baseline.value)])].filter(
+    (name) => draft.value[name] !== baseline.value[name],
   ),
 )
-const dirty = computed(() => changed.value.length > 0)
+const changeCount = computed(() => changed.value.length)
+const dirty = computed(() => changeCount.value > 0)
 watch(
   dirty,
   (value) => {
@@ -25,7 +40,9 @@ onBeforeUnmount(() => {
 watch(
   () => desktop.config.env,
   (env) => {
-    if (!dirty.value) draft.value = { ...env }
+    const next = rebaseSettingsDraft(draft.value, baseline.value, env)
+    baseline.value = { ...env }
+    draft.value = next
   },
   { deep: true },
 )
@@ -57,55 +74,39 @@ function reset(name: string) {
   delete draft.value[name]
 }
 function discard() {
+  baseline.value = { ...desktop.config.env }
   draft.value = { ...desktop.config.env }
 }
 async function save() {
-  const config: UserConfig = { ...desktop.config, env: { ...draft.value } }
+  const config: UserConfig = {
+    ...desktop.config,
+    env: { ...draft.value },
+  }
   if (await desktop.save(config)) discard()
-}
-async function profile(name: "balanced" | "economy") {
-  if (await desktop.action(() => desktop.management({ action: "profile", profile: name }))) discard()
 }
 </script>
 <template>
-  <div class="section-intro">
-    <p>
-      Configure the local engine by topic. Saved changes apply after a server restart; environment variables and launch
-      flags take priority.
-    </p>
-  </div>
-  <div class="profile-strip">
-    <div>
-      <strong>Resource profile</strong>
-      <p>
-        Standard keeps browsers warm. Economy launches on demand, sleeps after 30 minutes idle and disables WAF
-        diagnostics.
-      </p>
-    </div>
-    <div class="actions">
-      <UButton
-        color="neutral"
-        variant="outline"
-        :disabled="desktop.busy || !desktop.native || dirty"
-        @click="profile('balanced')"
-        >Standard</UButton
-      ><UButton
-        color="neutral"
-        variant="outline"
-        :disabled="desktop.busy || !desktop.native || dirty"
-        @click="profile('economy')"
-        >Economy</UButton
-      >
-    </div>
-  </div>
+  <ResourceProfiles v-if="!desktop.mobile" v-model:environment="draft" />
   <div class="settings-toolbar">
     <UInput
       v-model="query"
-      icon="i-lucide-search"
+      leading-icon="i-lucide-search"
+      :ui="{ trailing: 'p-0' }"
       placeholder="Search settings"
       aria-label="Search settings"
       class="settings-search"
-    /><span class="settings-count">{{
+      ><template v-if="query" #trailing
+        ><UButton
+          v-if="query"
+          color="neutral"
+          variant="link"
+          icon="i-lucide-x"
+          class="search-clear"
+          aria-label="Clear settings search"
+          @click="query = ''"
+        /></template
+      ></UInput
+    ><span class="settings-count">{{
       query.trim() ? `${resultCount} matches` : `${desktop.catalog.length} settings`
     }}</span>
   </div>
@@ -139,6 +140,8 @@ async function profile(name: "balanced" | "economy") {
         <UFormField
           v-for="setting in section.settings"
           :key="setting.name"
+          :id="`setting-${setting.name}`"
+          :data-target="highlighted === setting.name"
           :name="setting.name"
           :label="settingLabel(setting)"
           :description="setting.description"
@@ -147,7 +150,8 @@ async function profile(name: "balanced" | "economy") {
           :ui="{ wrapper: 'setting-copy', container: 'setting-control', description: 'setting-description' }"
         >
           <template #description
-            ><span>{{ setting.description }}</span><code class="setting-name mono">{{ setting.name }}</code></template
+            ><SettingText :text="setting.description" />
+            <code class="setting-name mono">{{ setting.name }}</code></template
           >
           <USwitch
             v-if="setting.kind === 'boolean'"
@@ -207,8 +211,8 @@ async function profile(name: "balanced" | "economy") {
   <Teleport to="#settings-save-slot" defer>
     <section v-if="dirty" class="settings-save-bar" aria-label="Unsaved settings">
       <span
-        >{{ changed.length }}
-        unsaved {{ changed.length === 1 ? "change" : "changes"
+        >{{ changeCount }}
+        unsaved {{ changeCount === 1 ? "change" : "changes"
         }}<small>Restart the server after saving to apply changes.</small></span
       >
       <div class="actions">

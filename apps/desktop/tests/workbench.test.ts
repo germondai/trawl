@@ -1,7 +1,87 @@
 import { expect, test } from "bun:test"
 import { Trawl } from "@trawl/client"
 import { jpegPreviewBytes } from "../app/utils/jpeg-preview"
-import { newWorkbenchDraft, sendWorkbench, workbenchRequest } from "../app/utils/workbench"
+import {
+  capturedWorkbenchDraft,
+  newWorkbenchDraft,
+  replacesWorkbenchDraft,
+  sendWorkbench,
+  workbenchRequest,
+} from "../app/utils/workbench"
+
+test("read replay preserves output limits and proxy headers cannot be silently stripped", async () => {
+  let sent: unknown
+  const draft = capturedWorkbenchDraft({
+    version: 1,
+    source: "mcp",
+    operation: "read",
+    parameters: { url: "https://owned.fixture", format: "text", maxCharacters: 1000 },
+  })
+  await sendWorkbench(
+    {
+      read: async (request: unknown) => {
+        sent = request
+        return {}
+      },
+    } as unknown as Trawl,
+    draft,
+    new AbortController().signal,
+  )
+  expect(sent).toMatchObject({ format: "text", maxCharacters: 1000 })
+  for (const name of ["Authorization", "Cookie", "User-Agent"])
+    expect(() =>
+      capturedWorkbenchDraft({
+        version: 1,
+        source: "proxy",
+        operation: "scrape",
+        parameters: { url: "https://owned.fixture", headers: { [name]: "private" } },
+      }),
+    ).toThrow("cannot replay")
+})
+
+test("captured API and Prowlarr inputs reopen faithfully without replacing an unsent draft implicitly", () => {
+  const payload = '{ "input": true }'
+  const draft = capturedWorkbenchDraft({
+    version: 1,
+    source: "flaresolverr",
+    operation: "scrape",
+    parameters: {
+      url: "https://owned.fixture/",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: payload,
+      sessionId: "fixture-session",
+      proxy: "http://proxy.fixture:8080",
+    },
+  })
+  expect(draft.bodyMode).toBe("text")
+  expect(draft.body).toBe(payload)
+  expect(workbenchRequest(draft)).toMatchObject({
+    method: "POST",
+    body: payload,
+    proxy: "http://proxy.fixture:8080",
+    sessionId: "fixture-session",
+  })
+  expect(replacesWorkbenchDraft(newWorkbenchDraft(), draft)).toBe(false)
+  expect(replacesWorkbenchDraft(draft, { ...draft })).toBe(false)
+  expect(replacesWorkbenchDraft({ ...draft, body: "unsent" }, draft)).toBe(true)
+  const binary = capturedWorkbenchDraft({
+    version: 1,
+    operation: "scrape",
+    bodyEncoding: "base64",
+    parameters: { url: "https://owned.fixture/", method: "POST", body: "AP+A" },
+  })
+  expect(binary.bodyMode).toBe("binary")
+  expect(workbenchRequest(binary)).toMatchObject({ body: "AP+A", bodyEncoding: "base64" })
+  const extracted = capturedWorkbenchDraft({
+    version: 1,
+    source: "native",
+    operation: "extract",
+    parameters: { url: "https://owned.fixture/", itemSelector: "a", fields: { text: { selector: ":scope" } } },
+  })
+  expect(extracted.output).toBe("extract")
+  expect(JSON.parse(extracted.extraction)).toMatchObject({ itemSelector: "a" })
+})
 
 test("screenshot previews reject excessive decoded pixels and active document formats", () => {
   const jpeg = Uint8Array.from([0xff, 0xd8, 0xff, 0xc0, 0, 11, 8, 0, 64, 0, 64, 1, 1, 0x11, 0, 0xff, 0xd9])
@@ -142,9 +222,23 @@ test("instance drafts survive navigation within the four-instance bound without 
       desktop.activeId = id
       store.draft.url = "https://" + id + ".fixture"
       store.draft.headers = '{"Authorization":"private-target"}'
+      store.draft.fields.body = [{enabled:true,key:"upload",value:"",description:"",file:{name:"owned.bin",type:"application/octet-stream",data:"AP+A"}}]
+      store.draft.fields.body = store.draft.fields.body.filter(row=>row.enabled)
     }
     desktop.activeId = "a"
     assert.equal(store.draft.url,"https://a.fixture")
+    assert.equal(store.draft.fields.body[0].file.data,"AP+A")
+    const firstTab=store.activeTabId
+    assert.equal(store.addTab(),true)
+    store.draft.url="https://second.fixture"
+    store.activeTabId=firstTab
+    assert.equal(store.draft.url,"https://a.fixture")
+    while(store.tabs.length<8)assert.equal(store.addTab(),true)
+    assert.equal(store.addTab(),false)
+    const activeTab=store.activeTabId
+    store.closeTab(activeTab)
+    assert.equal(store.tabs.length,7)
+    assert.notEqual(store.activeTabId,activeTab)
     desktop.activeId = "e"
     assert.equal(store.draft.url,"")
     desktop.activeId = "b"

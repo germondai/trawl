@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "env": {
+    "HOST": "127.0.0.1",
+    "PORT": "8191",
+    "SCRAPE_MAX_TIMEOUT_MS": "60000",
+    "SCRAPE_MIN_TIER": "1",
+    "SCRAPE_MAX_TIER": "3"
+  },
+  "desktop": {
+    "closeBehavior": "tray",
+    "quitBehavior": "hold",
+    "appVisibility": "dock-and-tray",
+    "smoothScroll": true,
+    "keybindings": {
+      "overview": "CmdOrCtrl+1",
+      "history": "CmdOrCtrl+2",
+      "sessions": "CmdOrCtrl+3",
+      "workbench": "CmdOrCtrl+N",
+      "browser": "CmdOrCtrl+4",
+      "resources": "CmdOrCtrl+5",
+      "logs": "CmdOrCtrl+6",
+      "connections": "CmdOrCtrl+,",
+      "settings": "CmdOrCtrl+.",
+      "server": "CmdOrCtrl+S",
+      "restart": "CmdOrCtrl+Shift+R",
+      "refresh": "CmdOrCtrl+R",
+      "sidebar": "CmdOrCtrl+B",
+      "search": "CmdOrCtrl+K",
+      "close": "CmdOrCtrl+W",
+      "quit": "CmdOrCtrl+Q",
+      "trayOpen": "CmdOrCtrl+O",
+      "trayServer": "CmdOrCtrl+S",
+      "trayRestart": "CmdOrCtrl+R",
+      "trayInstance1": "CmdOrCtrl+1",
+      "trayInstance2": "CmdOrCtrl+2",
+      "trayInstance3": "CmdOrCtrl+3",
+      "trayInstance4": "CmdOrCtrl+4",
+      "trayInstance5": "CmdOrCtrl+5",
+      "trayInstance6": "CmdOrCtrl+6",
+      "trayInstance7": "CmdOrCtrl+7",
+      "trayInstance8": "CmdOrCtrl+8",
+      "trayInstance9": "CmdOrCtrl+9"
+    },
+    "autostart": false,
+    "startServerOnLaunch": false,
+    "localName": "Local instance",
+    "instanceOrder": [],
+    "connections": []
+  }
+}

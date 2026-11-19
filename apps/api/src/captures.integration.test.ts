@@ -14,6 +14,64 @@ const secret = "owned-capture-fixture-token-at-least-32-characters"
 const read = (path: string, authorized = true, signal?: AbortSignal) =>
   new Request(`http://localhost${path}`, { headers: authorized ? { authorization: `Bearer ${secret}` } : {}, signal })
 
+test("proxy escalation retains original binary input as base64, and request capture requires private observability", () => {
+  const directory = mkdtempSync(join(tmpdir(), "trawl-proxy-input-"))
+  try {
+    const denied = Bun.spawnSync({
+      cmd: [process.execPath, "--no-env-file", "-e", 'await import("./config.ts")'],
+      cwd: import.meta.dir,
+      env: { PATH: process.env.PATH, HISTORY_CAPTURE_REQUESTS: "true" },
+    })
+    expect(denied.exitCode).not.toBe(0)
+    expect(denied.stderr.toString()).toContain("require OBSERVABILITY_ENABLED")
+    const result = Bun.spawnSync({
+      cmd: [
+        process.execPath,
+        "--no-env-file",
+        "-e",
+        `
+        import assert from "node:assert/strict"
+        import { PassThrough } from "node:stream"
+        const { captures } = await import("./captures.ts")
+        const { metrics } = await import("./metrics.ts")
+        const { serveViaScrape } = await import("./proxy/server.ts")
+        await captures.ready
+        const target = Bun.serve({hostname:"127.0.0.1",port:0,fetch:() => new Response("<html><p>"+"Owned content. ".repeat(30)+"</p></html>",{headers:{"content-type":"text/html"}})})
+        const stream = new PassThrough()
+        stream.resume()
+        try {
+          const body = Buffer.from([0,255,128,65])
+          await serveViaScrape(stream,target.url.href,"POST",{"content-type":"application/octet-stream"},body,{
+            host:"127.0.0.1",port:0,caDir:"",maxTier:1,maxTimeout:3000,
+            deps:{ acquireBrowser:async()=>{throw new Error("Unexpected browser")},releaseBrowser:()=>{},loadSession:async()=>undefined,saveSession:async()=>{},invalidateSession:async()=>{} }
+          })
+          await captures.flush()
+          const entry = metrics.snapshot().recentEvents[0]
+          assert.ok(entry)
+          const raw = await captures.read(entry.id,entry.at,"request")
+          const input = JSON.parse(new TextDecoder().decode(raw))
+          assert.equal(input.source,"proxy")
+          assert.equal(input.bodyEncoding,"base64")
+          assert.equal(input.parameters.body,body.toString("base64"))
+        } finally { target.stop(true); stream.destroy(); await captures.close(); metrics.close() }
+      `,
+      ],
+      cwd: import.meta.dir,
+      env: {
+        PATH: process.env.PATH,
+        OBSERVABILITY_ENABLED: "true",
+        METRICS_DASHBOARD_TOKEN: secret,
+        METRICS_DB_PATH: join(directory, "metrics.sqlite"),
+        HISTORY_CAPTURE_REQUESTS: "true",
+      },
+      timeout: 10000,
+    })
+    expect(result.exitCode, result.stderr.toString()).toBe(0)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test("captured resources require authentication and retained history, bound transfers and survive restart", async () => {
   const directory = mkdtempSync(join(tmpdir(), "trawl-capture-api-"))
   let captures = new CaptureStore(directory, { ...defaultCapturePolicy, mode: "html" })
@@ -81,7 +139,7 @@ test("captured resources require authentication and retained history, bound tran
 
 test("native GET, JSON POST and Prowlarr retain existing content without extra target requests or browser launches", async () => {
   const directory = mkdtempSync(join(tmpdir(), "trawl-capture-http-"))
-  const captures = new CaptureStore(directory, { ...defaultCapturePolicy, mode: "both" })
+  const captures = new CaptureStore(directory, { ...defaultCapturePolicy, mode: "both", request: true })
   const metrics = new MetricsStore(true, ":memory:", true)
   let calls = 0
   let launches = 0
@@ -155,9 +213,24 @@ test("native GET, JSON POST and Prowlarr retain existing content without extra t
       if (!id) throw new Error("Missing request ID")
       await captures.flush()
       const metadata = await (await app.handle(read(`/requests/${id}/captures`))).json()
-      expect(metadata.artifacts.map((value: { state: string }) => value.state)).toEqual(["ready", "unavailable"])
+      expect(metadata.artifacts.map((value: { state: string }) => value.state)).toEqual([
+        "ready",
+        "unavailable",
+        "ready",
+      ])
       const saved = await (await app.handle(read(`/requests/${id}/captures/html`))).text()
       expect(saved).toBe(path === "/v1" ? payload.solution.response : payload.html)
+      expect((await app.handle(read(`/requests/${id}/captures/request`, false))).status).toBe(401)
+      const inputResponse = await app.handle(read(`/requests/${id}/captures/request`))
+      expect(inputResponse.headers.get("content-type")).toBe("application/json")
+      const input = await inputResponse.json()
+      expect(input).toMatchObject({
+        version: 1,
+        source: path === "/v1" ? "flaresolverr" : "native",
+        operation: "scrape",
+        parameters: { url: target.url.href },
+      })
+      if ("body" in body) expect(input.parameters.body).toBe(body.body)
     }
     expect(calls).toBe(3)
     expect(launches).toBe(0)

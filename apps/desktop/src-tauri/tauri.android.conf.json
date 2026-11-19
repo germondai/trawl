@@ -1,0 +1,25 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "TRAWL",
+        "url": "index.html",
+        "visible": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data: blob:; connect-src ipc: http://ipc.localhost https://ipc.localhost; font-src 'self' data:; object-src 'none'; frame-src blob:; base-uri 'self'; form-action 'none'"
+    }
+  },
+  "bundle": {
+    "resources": [],
+    "android": {
+      "minSdkVersion": 24
+    }
+  },
+  "build": {
+    "beforeBuildCommand": "bun run mobile:assets && bun run generate"
+  }
+}

@@ -18,6 +18,10 @@ For an existing session, `POST /sessions/:id/scrape` accepts the same options an
 ```typescript
 interface ScrapeRequest {
   url: string
+  method?: string                       // target HTTP method, default GET
+  body?: string                         // text, or canonical base64 with bodyEncoding
+  bodyEncoding?: "base64"               // decode bytes before contacting the target
+  targetAuth?: TargetAuth               // explicit HTTP-only target credentials, see below
   detectWaf?: boolean                    // identify WAF providers offline, default true
   maxTimeout?: number                    // ms, default SCRAPE_MAX_TIMEOUT_MS (60000)
   solveEmbeddedCaptchas?: boolean         // attempt embedded form widgets, default true
@@ -87,6 +91,38 @@ not relax that guard.
 | `followMetaRefresh`         | boolean  | false    | Follow HTTP(S) meta refresh redirects with delays up to 10 seconds, allowing at most 3 browser-followed hops. Tier 1 escalates eligible HTML forwarders to a browser; Tiers 2-4 follow in the existing context. Reload-only refreshes are ignored. Navigation failures, loops, and exhausted budgets fail the attempt instead of returning the forwarder. |
 | `allowShortContent`         | boolean  | false    | Return a browser-tier (3-4) document under 100 characters as a success instead of failing it with `page returned empty content`, for callers that judge a tiny page themselves. Browser network-error pages and challenge walls are still rejected. |
 | `favicons`                  | boolean  | false    | Fetch the apex `/favicon.ico` and every declared link whose `rel` contains `icon` from inside the page on the browser tiers (2-4) and return them as `favicons`. Tier 1 never produces them; use `skipHttp: true` to force a browser attempt - see the note below                                                                                         |
+
+### Binary bodies and target authentication
+
+Set `bodyEncoding: "base64"` with a canonical base64 string to send exact target bytes.
+Supported body methods are POST, PUT, PATCH, DELETE and QUERY. Decoded bodies are limited
+to 1 MiB, and existing HTTP request/transport byte limits still apply to the larger base64
+envelope. Supply a target Content-Type. POST can use the existing browser replay path;
+other binary methods require `maxTier: 1`, without a browser session, imported cookies,
+`skipHttp` or screenshots. A request outside these constraints returns 400.
+
+`targetAuth` accepts one of:
+
+```ts
+type TargetAuth =
+  | { type: "basic"; username: string; password: string }
+  | { type: "bearer"; token: string }
+  | { type: "api-key"; name: string; value: string; in: "header" | "query" }
+```
+
+Target Auth requires explicit `maxTier: 1`, without browser sessions, imported cookies,
+`skipHttp` or screenshots. It never loads or saves shared clearance sessions. A header
+credential replaces a matching target header and is stripped on cross-origin redirects.
+A query API key is encoded into the initial target URL. Raw reserved headers remain
+restricted; use this typed option for target Authorization. These credentials are separate
+from the bearer key that authenticates your connection to TRAWL.
+
+`GET /capabilities` advertises `requestOptions.binaryBodies` and `requestOptions.targetAuth`.
+The desktop refuses these features when the instance does not advertise support. Its
+file editor limits attachments to 128 KiB combined and multipart bodies to 256 KiB;
+files and credentials remain in memory until the draft/window is closed. The server's
+optional request capture can retain target credentials and binary payloads under its
+existing authenticated storage policy. See [observability](/api-reference/observability).
 
 ### Embedded CAPTCHA widgets
 

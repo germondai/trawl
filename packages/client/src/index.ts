@@ -24,6 +24,7 @@ export type {
   ServerInfoResponse,
   StatsResponse,
   SupportedMethod,
+  TargetAuth,
   TierResult,
   WafDetection,
 } from "../../types/src/api"

@@ -1,6 +1,11 @@
 import { TrawlError } from "@trawl/client"
 import { jsonPreview } from "~/utils/json-preview"
-import { sendWorkbench, type WorkbenchDraft, type WorkbenchResult } from "~/utils/workbench"
+import {
+  requireWorkbenchCapabilities,
+  sendWorkbench,
+  type WorkbenchDraft,
+  type WorkbenchResult,
+} from "~/utils/workbench"
 
 export function useWorkbenchRun() {
   const desktop = useDesktopStore()
@@ -34,6 +39,7 @@ export function useWorkbenchRun() {
     state.value = "pending"
     const start = performance.now()
     try {
+      requireWorkbenchCapabilities(draft, desktop.capabilities)
       const api = desktop.client((value, proposed) => {
         if (
           current === generation &&
@@ -44,7 +50,7 @@ export function useWorkbenchRun() {
           requestIdConfirmed.value = !proposed
         }
       })
-      const response = await sendWorkbench(api, structuredClone(toRaw(draft)), abort.signal)
+      const response = await sendWorkbench(api, JSON.parse(JSON.stringify(draft)), abort.signal)
       if (current !== generation || desktop.activeId !== id) return
       result.value = response
       requestId.value = response.requestId ?? requestId.value
@@ -84,21 +90,20 @@ export function useWorkbenchRun() {
       }
     }
   }
-  watch(
-    () => desktop.activeId,
-    () => {
-      stop()
-      result.value = undefined
-      requestId.value = ""
-      requestIdConfirmed.value = false
-      error.value = ""
-      failureDetails.value = ""
-      state.value = "idle"
-    },
-  )
+  function reset() {
+    stop()
+    result.value = undefined
+    requestId.value = ""
+    requestIdConfirmed.value = false
+    error.value = ""
+    failureDetails.value = ""
+    state.value = "idle"
+    elapsed.value = 0
+  }
+  watch(() => desktop.activeId, reset)
   watch(useDocumentVisibility(), (value) => {
-    if (value !== "visible") stop()
+    if (value !== "visible" && !desktop.native) stop()
   })
   onScopeDispose(stop)
-  return { result, state, error, failureDetails, requestId, requestIdConfirmed, elapsed, send, stop }
+  return { result, state, error, failureDetails, requestId, requestIdConfirmed, elapsed, send, stop, reset }
 }

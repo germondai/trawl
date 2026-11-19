@@ -1,21 +1,31 @@
 <script setup lang="ts">
 import type { ActiveRequest, DashboardEvent, RequestHistoryEntry } from "@trawl/client"
-import { executionTier } from "~/utils/dashboard"
+import { useNavigationModal } from "~/composables/useNavigationSteps"
 
 const props = defineProps<{
-  events: DashboardEvent[]
+  events: (DashboardEvent & Partial<RequestHistoryEntry>)[]
   instanceId: string
   showDate?: boolean
   openRequestId?: string
   activeRequests?: ActiveRequest[]
 }>()
-const emit = defineEmits<{ closeRequest: [] }>()
+const emit = defineEmits<{ closeRequest: []; replay: [] }>()
 const desktop = useDesktopStore()
-const selection = shallowRef<DashboardEvent | null>(null)
+const selection = shallowRef<DashboardEvent | string | null>(props.openRequestId ?? null)
+useNavigationModal(selection, null)
+watch(
+  () => props.openRequestId,
+  (id) => {
+    if (id) selection.value = id
+    else if (typeof selection.value === "string") selection.value = null
+  },
+)
 const detail = shallowRef<RequestHistoryEntry>()
 const detailError = shallowRef("")
-const selected = computed<(DashboardEvent & Partial<RequestHistoryEntry>) | null>(() => detail.value ?? selection.value)
-const selectedId = computed(() => selection.value?.id ?? props.openRequestId)
+const selected = computed<(DashboardEvent & Partial<RequestHistoryEntry>) | null>(
+  () => detail.value ?? (typeof selection.value === "string" ? null : selection.value),
+)
+const selectedId = computed(() => (typeof selection.value === "string" ? selection.value : selection.value?.id))
 const running = computed(() => props.activeRequests?.find((row) => row.id === selectedId.value))
 const retained = computed(() => props.events.find((row) => row.id === selectedId.value))
 const unavailable = computed(
@@ -36,7 +46,7 @@ watch(
     onCleanup(() => controller.abort())
     detail.value = undefined
     detailError.value = ""
-    const id = row?.id ?? openId
+    const id = typeof row === "string" ? row : row?.id
     if (!id || !desktop.capabilities?.requests) return
     if (running.value) return
     try {
@@ -51,8 +61,14 @@ watch(
 )
 function close() {
   selection.value = null
-  emit("closeRequest")
 }
+watch(
+  selection,
+  (value) => {
+    if (value === null) emit("closeRequest")
+  },
+  { flush: "sync" },
+)
 watch(
   () => props.instanceId,
   () => {
@@ -75,6 +91,7 @@ const time = (value: string) =>
           <tr>
             <th>Recorded at</th>
             <th>Target</th>
+            <th>Source</th>
             <th>Result</th>
             <th>Tier</th>
             <th>Duration</th>
@@ -98,10 +115,12 @@ const time = (value: string) =>
                 @click="selection = event"
               />
             </td>
+            <td class="muted">{{ event.source }}</td>
             <td>
               <span class="status"
                 ><span class="dot" :class="{ ready: event.success, failed: !event.success }" />
-                {{ event.success ? "Success" : event.category || "Failed" }}</span
+                {{ event.success ? "Success" : event.category || "Failed"
+                }}<span v-if="event.statusCode" class="mono text-xs muted">{{ event.statusCode }}</span></span
               >
             </td>
             <td class="mono muted">{{ event.tier ?? "n/a" }}</td>
@@ -112,10 +131,10 @@ const time = (value: string) =>
     </div>
   </section>
   <UModal
-    :open="Boolean(selected || openRequestId)"
+    :open="Boolean(selection)"
     title="Request details"
     description="Recorded metadata for this request."
-    :ui="{ content: canViewCaptures ? 'sm:max-w-4xl' : '' }"
+    :ui="{ content: 'sm:max-w-5xl h-[min(860px,calc(100dvh-48px))]', close: 'top-1/2 -translate-y-1/2 end-6' }"
     @update:open="if (!$event) close();"
   >
     <template #body
@@ -140,67 +159,16 @@ const time = (value: string) =>
         <p v-if="detailError" class="text-xs muted" role="status">
           {{ detailError }}. Showing the original recorded metadata.
         </p>
-        <dl class="request-details">
-          <div v-if="selected.id">
-            <dt>Request ID</dt>
-            <dd class="mono break-all">{{ selected.id }}</dd>
-          </div>
-          <div v-if="selected.method">
-            <dt>Method</dt>
-            <dd class="mono">{{ selected.method }}</dd>
-          </div>
-          <div>
-            <dt>Recorded at</dt>
-            <dd>{{ new Date(selected.at).toLocaleString() }}</dd>
-          </div>
-          <div>
-            <dt>Timestamp (UTC)</dt>
-            <dd class="mono">{{ selected.at }}</dd>
-          </div>
-          <div>
-            <dt>Duration</dt>
-            <dd class="mono">{{ selected.durationMs.toLocaleString() }} ms</dd>
-          </div>
-          <div>
-            <dt>HTTP status</dt>
-            <dd class="mono">{{ selected.statusCode ?? "Not recorded" }}</dd>
-          </div>
-          <div>
-            <dt>Execution tier</dt>
-            <dd>{{ selected.tier !== null ? `${selected.tier} · ` : "" }}{{ executionTier(selected.tier) }}</dd>
-          </div>
-          <div>
-            <dt>Request source</dt>
-            <dd>{{ selected.source }}</dd>
-          </div>
-          <div v-if="selected.tierStatus">
-            <dt>Tier outcome</dt>
-            <dd>{{ selected.tierStatus }}</dd>
-          </div>
-          <div v-if="selected.waf">
-            <dt>WAF diagnostics</dt>
-            <dd>{{ selected.waf.products.join(", ") || selected.waf.state }}</dd>
-          </div>
-          <div v-if="selected.category">
-            <dt>Failure category</dt>
-            <dd>{{ selected.category }}</dd>
-          </div>
-          <div v-if="selected.severity">
-            <dt>Severity</dt>
-            <dd>{{ selected.severity }}</dd>
-          </div>
-        </dl>
-        <CapturedContent
-          v-if="selected.id && canViewCaptures"
-          :key="selected.id"
-          :request-id="selected.id"
-          :request-at="selected.at"
+        <RequestInspector
+          :key="selected.id ?? selected.at"
+          :entry="selected"
+          :captures="Boolean(canViewCaptures)"
+          @replay="
+            close();
+            emit('replay');
+          "
         />
-        <p v-else class="request-retention-note">
-          Saved response content is unavailable on this instance. The recorded metadata remains readable.
-        </p>
       </template></template
     >
-    <template #footer><UButton color="neutral" variant="outline" @click="close">Close details</UButton></template>
   </UModal>
 </template>

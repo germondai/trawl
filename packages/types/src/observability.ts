@@ -6,14 +6,26 @@ export interface InstanceCapabilities {
   settings: boolean
   requests: boolean
   requestEvents: boolean
+  requestQuery?: boolean
   logs: boolean
   logEvents: boolean
   captures: boolean
   browserInspection: boolean
   clientRequestIds?: boolean
+  requestOptions?: { binaryBodies: boolean; targetAuth: boolean }
+}
+
+export interface RequestDiagnostics {
+  requestBodyBytes?: number
+  responseBytes?: number
+  contentType?: string
+  responseKind?: "html" | "json" | "text" | "file" | "stream" | "binary"
+  challenges: string[]
+  timings: { tier: number; status: string; durationMs: number }[]
 }
 
 export interface RequestHistoryEntry extends DashboardEvent {
+  diagnostics?: RequestDiagnostics
   waf?: WafDetection
   id: string
   method: string | null
@@ -32,7 +44,18 @@ export type RequestLifecycle =
   | { type: "started"; request: ActiveRequest }
   | { type: "completed" | "failed"; request: RequestHistoryEntry; persisted: boolean }
 
+export interface RequestHistoryQuery {
+  page?: number
+  search?: string
+  source?: "native" | "flaresolverr" | "mcp" | "proxy"
+  result?: "success" | "failed"
+  tier?: number
+  sort?: "newest" | "oldest" | "slowest" | "fastest"
+}
+
 export interface RequestHistoryResponse {
+  total?: number
+  page?: number
   entries: RequestHistoryEntry[]
   nextCursor: string | null
   cursor: string

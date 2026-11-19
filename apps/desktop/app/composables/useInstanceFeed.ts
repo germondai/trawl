@@ -1,7 +1,9 @@
 import type { JournalEntry, StreamEvent, StreamOptions, Trawl } from "@trawl/client"
+import { useRefreshRevision } from "./useRefreshRevision"
 
 export function useInstanceFeed<T, Snapshot extends { cursor: string }>(options: {
   enabled: () => boolean
+  polling?: () => boolean
   snapshot: (api: Trawl, signal: AbortSignal) => Promise<Snapshot>
   replace: (snapshot: Snapshot) => void
   events: (api: Trawl, options: StreamOptions) => AsyncGenerator<StreamEvent<T>>
@@ -12,13 +14,10 @@ export function useInstanceFeed<T, Snapshot extends { cursor: string }>(options:
   const visible = useDocumentVisibility()
   const error = shallowRef("")
   const state = shallowRef<"paused" | "connecting" | "live" | "reconnecting">("paused")
-  const revision = shallowRef(0)
-  const refresh = () => {
-    revision.value++
-  }
+  const { revision, refresh, finish } = useRefreshRevision()
   watch(
     [() => desktop.activeId, visible, options.enabled, revision],
-    async ([id, visibility, enabled], previous, onCleanup) => {
+    async ([id, visibility, enabled, refreshCount], previous, onCleanup) => {
       const abort = new AbortController()
       let current = true
       let timer: ReturnType<typeof setTimeout> | undefined
@@ -30,6 +29,7 @@ export function useInstanceFeed<T, Snapshot extends { cursor: string }>(options:
         batch = []
       }
       onCleanup(() => {
+        finish(refreshCount)
         current = false
         abort.abort()
         clearTimeout(timer)
@@ -38,6 +38,7 @@ export function useInstanceFeed<T, Snapshot extends { cursor: string }>(options:
       if (id !== previous?.[0]) options.clear()
       error.value = ""
       if (!desktop.native || visibility !== "visible" || !enabled) {
+        finish(refreshCount)
         state.value = "paused"
         return
       }
@@ -49,6 +50,24 @@ export function useInstanceFeed<T, Snapshot extends { cursor: string }>(options:
           const snapshot = await options.snapshot(api, abort.signal)
           if (!current || desktop.activeId !== id) return
           options.replace(snapshot)
+          finish(refreshCount)
+          if (options.polling?.()) {
+            state.value = "live"
+            error.value = ""
+            await new Promise<void>((resolve) => {
+              const cancel = () => {
+                clearTimeout(wait)
+                resolve()
+              }
+              const wait = setTimeout(() => {
+                abort.signal.removeEventListener("abort", cancel)
+                resolve()
+              }, 2000)
+              abort.signal.addEventListener("abort", cancel, { once: true })
+              if (abort.signal.aborted) cancel()
+            })
+            continue
+          }
           for await (const event of options.events(api, { cursor: snapshot.cursor, signal: abort.signal })) {
             if (!current || desktop.activeId !== id) return
             if (event.type === "reset") {
@@ -68,6 +87,7 @@ export function useInstanceFeed<T, Snapshot extends { cursor: string }>(options:
         } catch (cause) {
           if (!current || desktop.activeId !== id) return
           flush()
+          finish(refreshCount)
           error.value = cause instanceof Error ? cause.message : "Live updates are unavailable"
           state.value = "reconnecting"
         }

@@ -14,6 +14,7 @@
     "@trawl/config": "workspace:*",
     "@trawl/tiers": "workspace:*",
     "@trawl/types": "workspace:*",
+    "@trawl/telemetry": "workspace:*",
     "elysia": "^1.4.32",
     "linkedom": "^0.18.15",
     "node-forge": "^1.4.3",

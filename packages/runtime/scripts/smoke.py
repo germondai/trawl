@@ -117,6 +117,7 @@ if args.observability:
         OBSERVABILITY_ENABLED="true",
         BROWSER_INSPECTION_ENABLED="true",
         HISTORY_CAPTURE_MODE="both",
+        HISTORY_CAPTURE_REQUESTS="true",
     )
 if args.source:
     setup = subprocess.check_output(
@@ -321,7 +322,7 @@ def check_observability(request_id, session_id):
             break
         assert time.monotonic() < deadline, "Capture writer did not finish"
         time.sleep(0.05)
-    assert {item["kind"] for item in manifest["artifacts"]} == {"html", "screenshot"}
+    assert {item["kind"] for item in manifest["artifacts"]} == {"html", "screenshot", "request"}
     visits = Fixture.visits
     observed = request("/browser/pages")["pages"]
     current = next(item for item in observed if item.get("sessionId") == session_id)
@@ -329,9 +330,12 @@ def check_observability(request_id, session_id):
 
     def binary(path, limit):
         req = urllib.request.Request(base + path, headers={"Authorization": "Bearer " + "a" * 64})
-        with urllib.request.urlopen(req, timeout=15) as response:
-            assert response.headers.get("Cache-Control") == "no-store"
-            content = response.read(limit + 1)
+        try:
+            with urllib.request.urlopen(req, timeout=15) as response:
+                assert response.headers.get("Cache-Control") == "no-store"
+                content = response.read(limit + 1)
+        except urllib.error.HTTPError as error:
+            raise AssertionError(f"{path}: HTTP {error.code}: {error.read(1000).decode(errors='replace')}") from error
         assert 0 < len(content) <= limit
         return content
 
@@ -344,6 +348,11 @@ def check_observability(request_id, session_id):
         assert hashlib.sha256(content).hexdigest() == artifact["sha256"]
         if artifact["kind"] == "html":
             assert b"TRAWL native fixture" in content
+        elif artifact["kind"] == "request":
+            saved = json.loads(content)
+            assert saved["version"] == 1 and saved["source"] == "native"
+            assert saved["operation"] == "scrape" and saved["parameters"]["url"] == target
+            assert saved["parameters"]["skipHttp"] is True and saved["parameters"]["screenshot"] is True
         else:
             assert content.startswith(b"\xff\xd8")
     assert Fixture.visits == visits, "History/preview caused another target navigation"

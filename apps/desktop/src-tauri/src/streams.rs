@@ -49,10 +49,10 @@ fn valid_id(id: &str) -> bool {
 }
 
 pub(crate) fn validate_read_path(path: &str) -> Result<(), String> {
-    if path.len() > 512 {
+    let (route, query) = path.split_once('?').unwrap_or((path, ""));
+    if path.len() > if route == "/requests" { 4096 } else { 512 } {
         return Err("API path exceeds its budget".into());
     }
-    let (route, query) = path.split_once('?').unwrap_or((path, ""));
     let detail = route.strip_prefix("/requests/").is_some_and(valid_id);
     if ![
         "/",
@@ -98,6 +98,22 @@ pub(crate) fn validate_read_path(path: &str) -> Result<(), String> {
                 .parse::<u16>()
                 .is_ok_and(|number| (1..=500).contains(&number)),
             ("/requests", "before") => valid_id(&value),
+            ("/requests", "page") => value
+                .parse::<u32>()
+                .is_ok_and(|page| (1..=50000).contains(&page)),
+            ("/requests", "search") => {
+                value.len() <= 800
+                    && value.chars().count() <= 200
+                    && !value.chars().any(char::is_control)
+            }
+            ("/requests", "source") => {
+                ["native", "flaresolverr", "mcp", "proxy"].contains(&value.as_ref())
+            }
+            ("/requests", "result") => ["success", "failed"].contains(&value.as_ref()),
+            ("/requests", "sort") => {
+                ["newest", "oldest", "slowest", "fastest"].contains(&value.as_ref())
+            }
+            ("/requests", "tier") => ["0", "1", "2", "3", "4"].contains(&value.as_ref()),
             _ => false,
         };
         if !valid {
@@ -144,7 +160,7 @@ pub(crate) fn capture_path(path: &str, binary: bool) -> bool {
         && parts[1] == "requests"
         && valid_id(parts[2])
         && parts[3] == "captures"
-        && (!binary || ["html", "screenshot"].contains(&parts[4]))
+        && (!binary || ["html", "screenshot", "request"].contains(&parts[4]))
 }
 
 async fn bounded<T>(
@@ -352,8 +368,13 @@ mod tests {
             let state = Arc::new(AppState {
                 runtime: home.clone(), home: home.clone(), child: tokio::sync::Mutex::new(None),
                 quitting: std::sync::atomic::AtomicBool::new(false), close_behavior: std::sync::atomic::AtomicU8::new(0),
+                requested_page: std::sync::atomic::AtomicU8::new(0),
+                #[cfg(target_os = "macos")]
+                quit_behavior: std::sync::atomic::AtomicU8::new(2),
+                #[cfg(target_os = "macos")]
+                app_visibility: std::sync::atomic::AtomicU8::new(0),
                 http: reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap(),
-                streams: Streams::default(), operations: crate::operations::Operations::default(), startup_error: Mutex::new(None),
+                streams: Streams::default(), operations: crate::operations::Operations::default(), browser_operations: crate::operations::Operations::default(), startup_error: Mutex::new(None),
             });
             let served = tokio::spawn(async move {
                 let (mut connection, _) = listener.accept().await.unwrap();
@@ -392,11 +413,13 @@ mod tests {
     }
     #[test]
     fn permits_only_read_resources_and_validated_queries() {
+        assert!(validate_read_path(&format!("/requests?search={}", "%C4%8D".repeat(200))).is_ok());
         for path in [
             "/settings",
             "/capabilities",
             "/browser/pages",
             "/requests?limit=50&before=request-id",
+            "/requests?limit=20&page=3&search=owned.test&source=proxy&result=success&sort=slowest&tier=3",
             "/requests/test-id",
             "/requests/test-id/captures",
             "/logs?limit=100",
@@ -411,6 +434,13 @@ mod tests {
             "/settings?token=secret",
             "/requests/../settings",
             "/requests?limit=101",
+            "/requests?page=0",
+            "/requests?search=%00",
+            "/requests?source=unknown",
+            "/requests?result=unknown",
+            "/requests?sort=unknown",
+            "/requests?tier=5",
+            "/requests?page=1&page=2",
             "/logs?limit=1&limit=2",
             "https://elsewhere.test",
             "/requests?before=bad%2Fid",

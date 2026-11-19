@@ -5,7 +5,9 @@ import { pathToFileURL } from "node:url"
 import { parseArgs } from "node:util"
 import { flagEnvironment, settingFlags, validateEnvironment } from "@trawl/config"
 import { browserStatus } from "./browser"
+import { browserBuild } from "./browser-assets"
 import { control, startControl } from "./control"
+import { applyDesktopHistoryDefaults } from "./desktop-defaults"
 import { resolveManagedEnvironment } from "./environment"
 import { maintainLogs } from "./logs"
 import { runtimePaths } from "./paths"
@@ -48,6 +50,12 @@ export async function runServer(args: string[]) {
     env.OBSERVABILITY_ENABLED = "true"
     configChanged = true
   }
+  if (owner === "desktop") {
+    const defaults = applyDesktopHistoryDefaults(env, resolved.sources)
+    Object.assign(file.env, defaults)
+    Object.assign(env, defaults)
+    configChanged ||= Object.keys(defaults).length > 0
+  }
   if (configChanged) await writeConfig(file, paths)
   if (owner === "desktop") env.METRICS_DASHBOARD_ENABLED = "true"
   const browser = await browserStatus(paths)
@@ -61,6 +69,8 @@ export async function runServer(args: string[]) {
   const waf = join(resources, process.platform === "win32" ? "trawl-waf.exe" : "trawl-waf")
   Object.assign(process.env, env, {
     CAMOUFOX_INSTALL_DIR: browser.path,
+    TRAWL_BROWSER_LAUNCHER: browserBuild(browser.version)?.launcher ?? "legacy",
+    FPGEN_DATA_DIR: join(browser.path, "fpgen"),
     POWSOLVE_LIB: library,
     WAFMEOW_PATH: waf,
     TRAWL_MANAGED_INSTANCE: "1",
@@ -104,7 +114,8 @@ export async function runServer(args: string[]) {
     if (!(await browserStatus(paths)).installed)
       throw new Error("Browser installation changed during startup; install it before starting the server")
     maintainLogs(paths)
-    await import(pathToFileURL(join(resources, "api.mjs")).href)
+    const api = await import(pathToFileURL(join(resources, "api.mjs")).href)
+    await api.ready
     ready = true
   } catch (error) {
     if (watchingParent) {

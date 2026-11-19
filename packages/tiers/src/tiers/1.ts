@@ -88,7 +88,7 @@ export async function runTier1(
   url: string,
   extraHeaders?: Record<string, string>,
   method?: string,
-  body?: string,
+  body?: string | Buffer<ArrayBuffer>,
   proxy?: string,
   validateOutboundUrl?: OutboundUrlValidator,
   ignoreCertificateErrors?: boolean,
@@ -99,6 +99,7 @@ export async function runTier1(
   headersTimeoutMs?: number,
   observeResponse?: (evidence: WafEvidence) => void,
   networkProxy?: string,
+  credentialHeader?: string,
 ): Promise<Tier1Result> {
   const start = Date.now()
   const deadline = start + timeoutMs
@@ -125,6 +126,7 @@ export async function runTier1(
       observeResponse,
       networkProxy,
       maxResponseBytes,
+      credentialHeader,
     )
   const first = await once(url, extraHeaders)
   if (
@@ -164,7 +166,14 @@ export async function runTier1(
     const headers: Record<string, string> = {}
     for (const [name, value] of Object.entries(extraHeaders ?? {})) headers[name.toLowerCase()] = value
     if (new URL(pageUrl).origin !== new URL(url).origin) {
-      for (const name of ["authorization", "cookie", "proxy-authorization", "host"]) delete headers[name]
+      for (const name of [
+        "authorization",
+        "cookie",
+        "proxy-authorization",
+        "host",
+        ...(credentialHeader ? [credentialHeader.toLowerCase()] : []),
+      ])
+        delete headers[name]
     }
     const cookies =
       sessionCookies ??
@@ -263,7 +272,7 @@ async function runTier1Once(
   url: string,
   extraHeaders?: Record<string, string>,
   method?: string,
-  body?: string,
+  body?: string | Buffer<ArrayBuffer>,
   proxy?: string,
   validateOutboundUrl?: OutboundUrlValidator,
   ignoreCertificateErrors?: boolean,
@@ -275,6 +284,7 @@ async function runTier1Once(
   observeResponse?: (evidence: WafEvidence) => void,
   networkProxy?: string,
   maxResponseBytes?: number,
+  credentialHeader?: string,
 ): Promise<Tier1Result> {
   const start = Date.now()
   const headersAbort = headersTimeoutMs === undefined ? undefined : new AbortController()
@@ -354,7 +364,14 @@ async function runTier1Once(
       redirected = true
       const nextUrl = new URL(location, currentUrl)
       if (nextUrl.origin !== new URL(currentUrl).origin) {
-        for (const name of ["authorization", "cookie", "proxy-authorization", "host"]) delete headers[name]
+        for (const name of [
+          "authorization",
+          "cookie",
+          "proxy-authorization",
+          "host",
+          ...(credentialHeader ? [credentialHeader.toLowerCase()] : []),
+        ])
+          delete headers[name]
       }
       currentUrl = nextUrl.href
       if (

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { chmod, lstat, mkdir, open, readFile, rename, rm, stat } from "node:fs/promises"
 import { dirname } from "node:path"
 import { emptyConfig, redactEnvironment, type UserConfig, validateEnvironment } from "@trawl/config"
+import { validateKeybindings } from "@trawl/config/catalog"
 import { type RuntimePaths, runtimePaths } from "./paths"
 import { protectWindowsStorage } from "./windows-permissions"
 
@@ -38,12 +39,24 @@ export function validateConfig(raw: unknown): UserConfig {
   const desktop = { ...emptyConfig().desktop, ...config.desktop }
   if (
     !["ask", "tray", "quit"].includes(desktop.closeBehavior) ||
+    !["immediate", "double-press", "hold"].includes(desktop.quitBehavior) ||
+    !["dock-and-tray", "dock", "tray"].includes(desktop.appVisibility) ||
+    typeof desktop.smoothScroll !== "boolean" ||
     typeof desktop.autostart !== "boolean" ||
     typeof desktop.startServerOnLaunch !== "boolean" ||
     !Array.isArray(desktop.connections) ||
     desktop.connections.length > 32
   )
     throw new Error("Invalid desktop preferences")
+  if (typeof desktop.localName !== "string" || !desktop.localName.trim() || desktop.localName.length > 100)
+    throw new Error("Invalid local instance name")
+  if (
+    !Array.isArray(desktop.instanceOrder) ||
+    desktop.instanceOrder.length > 33 ||
+    desktop.instanceOrder.some((id) => typeof id !== "string" || !/^[a-zA-Z0-9_-]{1,64}$/.test(id)) ||
+    new Set(desktop.instanceOrder).size !== desktop.instanceOrder.length
+  )
+    throw new Error("Invalid instance order")
   const ids = new Set<string>()
   for (const connection of desktop.connections) {
     if (
@@ -83,8 +96,14 @@ export function validateConfig(raw: unknown): UserConfig {
     env,
     desktop: {
       closeBehavior: desktop.closeBehavior,
+      quitBehavior: desktop.quitBehavior,
+      appVisibility: desktop.appVisibility,
+      smoothScroll: desktop.smoothScroll,
+      keybindings: validateKeybindings(desktop.keybindings),
       autostart: desktop.autostart,
       startServerOnLaunch: desktop.startServerOnLaunch,
+      localName: desktop.localName.trim(),
+      instanceOrder: desktop.instanceOrder,
       connections: desktop.connections.map(({ id, name, baseURL, apiKey }) => ({
         id,
         name,

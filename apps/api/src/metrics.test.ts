@@ -6,6 +6,31 @@ import { join } from "node:path"
 import { ScrapeError } from "@trawl/tiers"
 import { MetricsStore } from "./metrics"
 
+test("dashboard response maximum covers the selected range beyond its recent-event preview", () => {
+  const now = Date.now()
+  const clock = spyOn(Date, "now").mockReturnValue(now - 2 * 60 * 60000)
+  const store = new MetricsStore(true, ":memory:", true)
+  try {
+    store.record({ source: "native", url: "https://owned.example", durationMs: 100000, statusCode: 200 })
+    clock.mockReturnValue(now)
+    for (let index = 0; index < 120; index++)
+      store.record({
+        source: "native",
+        url: "https://owned.example",
+        durationMs: index === 0 ? 50000 : 10,
+        statusCode: 200,
+      })
+    const snapshot = store.snapshot(60)
+    expect(snapshot.maximumMs).toBe(50000)
+    expect(snapshot.averageMs).toBe(Math.round((50000 + 1190) / 120))
+    expect(snapshot.recentEvents.some((entry) => entry.durationMs === 50000)).toBe(false)
+    expect(store.snapshot(1440).maximumMs).toBe(100000)
+  } finally {
+    clock.mockRestore()
+    store.close()
+  }
+})
+
 test("active-list overflow is bounded and clears after every in-flight observation finishes", () => {
   const store = new MetricsStore(true, ":memory:", true)
   const finishes = Array.from({ length: 300 }, (_, index) =>

@@ -1,5 +1,5 @@
 import type { OrchestratorDeps } from "@trawl/tiers"
-import type { BlockedEvidence, ScrapeRequest, ScrapeResult } from "@trawl/types"
+import type { BlockedEvidence, CapturedRequest, ScrapeRequest, ScrapeResult } from "@trawl/types"
 import type { CaptureStore } from "./captureStore"
 
 export interface HistoryScreenshotLimits {
@@ -39,15 +39,71 @@ function fitsScreenshot(bytes: Uint8Array, limits: Readonly<HistoryScreenshotLim
   return false
 }
 
+export function captureRequestInput(
+  store: CaptureStore,
+  requestContext: Omit<CapturedRequest, "version"> & { requestReason?: string },
+): { request?: string; requestReason?: string } {
+  let requestCapture: { request?: string; requestReason?: string } = {}
+  if (store.policy.request) {
+    if (requestContext.requestReason) return { requestReason: requestContext.requestReason }
+    if (!store.hasCapacity) requestCapture = { requestReason: "capture-busy" }
+    else
+      try {
+        let remaining = store.policy.artifactBytes
+        const encoded = JSON.stringify({ version: 1, ...requestContext }, (key, value) => {
+          remaining -= Buffer.byteLength(key) + 4
+          if (typeof value === "string") remaining -= Buffer.byteLength(value)
+          if (remaining < 0) throw new Error("artifact-byte-limit")
+          return value
+        })
+        requestCapture =
+          Buffer.byteLength(encoded) > store.policy.artifactBytes
+            ? { requestReason: "artifact-byte-limit" }
+            : { request: encoded }
+      } catch (cause) {
+        requestCapture = {
+          requestReason:
+            cause instanceof Error && cause.message === "artifact-byte-limit"
+              ? "artifact-byte-limit"
+              : "request-unavailable",
+        }
+      }
+  }
+  return requestCapture
+}
+
 /** Collect only the page owned by this operation. The retained value contains bytes, never a page or context. */
 export function createHistoryCapture(
   store: CaptureStore,
   request: ScrapeRequest,
   limits: Readonly<HistoryScreenshotLimits>,
+  requestContext: Omit<CapturedRequest, "version"> & { requestReason?: string } = {
+    source: "native",
+    operation: "scrape",
+    parameters: request as unknown as Record<string, unknown>,
+  },
 ) {
+  let requestCapture = captureRequestInput(store, requestContext)
+  let releaseInput = requestCapture.request
+    ? store.reserveRequestInput(Buffer.byteLength(requestCapture.request))
+    : undefined
+  if (requestCapture.request && !releaseInput) requestCapture = { requestReason: "capture-busy" }
   let snapshot: Snapshot | undefined
+  const dispose = () => {
+    releaseInput?.()
+    releaseInput = undefined
+    requestCapture = {}
+    snapshot = undefined
+  }
+  const takeInput = () => {
+    const input = requestCapture
+    releaseInput?.()
+    releaseInput = undefined
+    requestCapture = {}
+    return input
+  }
   const observe: Observe | undefined =
-    store.policy.mode === "html"
+    store.policy.mode === "html" || store.policy.mode === "none"
       ? undefined
       : async (page, tier, budgetMs, existing) => {
           snapshot = { tier, at: new Date().toISOString(), reason: "screenshot-unavailable" }
@@ -136,6 +192,7 @@ export function createHistoryCapture(
         }
   return {
     observe,
+    dispose,
     commit(requestId: string, requestAt: string, result: ScrapeResult) {
       const selected = snapshot?.tier === result.tier ? snapshot : undefined
       store.capture({
@@ -146,6 +203,7 @@ export function createHistoryCapture(
         screenshot: selected?.image,
         capturedAt: selected?.at,
         screenshotReason: selected?.reason ?? "no-browser-screenshot",
+        ...takeInput(),
       })
       snapshot = undefined
     },
@@ -168,6 +226,7 @@ export function createHistoryCapture(
         screenshot: image,
         screenshotReason: reason,
         contentType: "text/html; charset=utf-8",
+        ...takeInput(),
       })
       snapshot = undefined
     },

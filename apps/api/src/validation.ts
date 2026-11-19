@@ -1,5 +1,6 @@
 import {
   isValidMethod,
+  prepareTargetRequest,
   RequestValidationError,
   requireContentTypeForBody,
   SUPPORTED_METHODS,
@@ -55,6 +56,7 @@ export function validateScrapeRequest(body: unknown): asserts body is ScrapeRequ
   requireUrl(body)
   if (body.sessionId !== undefined) validateSessionId(body.sessionId)
   const req = body as RequestRecord & Partial<ScrapeRequest>
+  prepareTargetRequest(body as unknown as ScrapeRequest)
   if (!isValidMethod(req.method)) {
     throw new RequestValidationError(
       `Unsupported method: ${String(req.method)} (allowed: ${SUPPORTED_METHODS.join(", ")})`,

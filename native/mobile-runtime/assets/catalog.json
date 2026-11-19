@@ -1,0 +1,57 @@
+[
+  {
+    "name": "PORT",
+    "default": "8191",
+    "kind": "integer",
+    "description": "Port used by the native HTTP API. Change this if another service already uses the port.",
+    "group": "port",
+    "restart": true,
+    "min": 1,
+    "max": 65535
+  },
+  {
+    "name": "SCRAPE_MAX_TIMEOUT_MS",
+    "default": "60000",
+    "kind": "integer",
+    "description": "Default scrape deadline in milliseconds; per-request maxTimeout takes precedence.",
+    "group": "scrape",
+    "restart": true,
+    "min": 1,
+    "max": 180000
+  },
+  {
+    "name": "SCRAPE_MIN_TIER",
+    "default": "1",
+    "kind": "enum",
+    "description": "Minimum execution tier: 1 uses HTTP first; 3 always uses the Android System WebView.",
+    "group": "scrape",
+    "restart": true,
+    "choices": ["1", "3"]
+  },
+  {
+    "name": "HOST",
+    "default": "127.0.0.1",
+    "kind": "string",
+    "description": "HTTP listener address. Managed local instances use 127.0.0.1.",
+    "group": "api",
+    "restart": true
+  },
+  {
+    "name": "SCRAPE_MAX_TIER",
+    "kind": "enum",
+    "default": "3",
+    "choices": ["1", "3"],
+    "group": "scrape",
+    "restart": true,
+    "description": "Maximum execution tier: 1 allows HTTP only; 3 also allows Android System WebView rendering."
+  },
+  {
+    "name": "API_KEY",
+    "kind": "string",
+    "default": "",
+    "secret": true,
+    "group": "api",
+    "restart": false,
+    "description": "Bearer key for clients connecting to this Android server. A private key is generated automatically. Enter your own key of at least 16 characters to connect another client."
+  }
+]

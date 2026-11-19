@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useNavigationSelection } from "~/composables/useNavigationSteps"
+import { capturedDocument } from "~/utils/captured-document"
 import { jpegPreviewBytes } from "~/utils/jpeg-preview"
 import { jsonPreview } from "~/utils/json-preview"
 import { type WorkbenchResult, workbenchText } from "~/utils/workbench"
@@ -6,9 +8,10 @@ import { type WorkbenchResult, workbenchText } from "~/utils/workbench"
 const props = defineProps<{ result: WorkbenchResult; elapsed: number }>()
 const desktop = useDesktopStore()
 const emit = defineEmits<{ history: [id: string] }>()
-const view = shallowRef<"content" | "json" | "image">("content")
+const view = shallowRef<"content" | "json" | "image" | "preview">("content")
 const imageURL = shallowRef("")
 const imageError = shallowRef("")
+const previewLimited = shallowRef(false)
 const limit = 128 * 1024
 const content = computed(() => workbenchText(props.result))
 const displayed = computed(() =>
@@ -18,26 +21,43 @@ const truncated = computed(() =>
   view.value === "json" ? displayed.value.length >= limit : content.value.length > limit,
 )
 const hasImage = computed(() => "screenshot" in props.result && Boolean(props.result.screenshot))
+const hasHTML = computed(
+  () =>
+    "html" in props.result &&
+    typeof props.result.html === "string" &&
+    (props.result.contentType
+      ? /^(?:text\/html|application\/xhtml\+xml)(?:;|$)/i.test(props.result.contentType)
+      : /^\s*</.test(props.result.html)),
+)
 watch(
   () => props.result,
   () => {
-    view.value = hasImage.value ? "image" : "content"
+    view.value = hasImage.value ? "image" : hasHTML.value ? "preview" : "content"
   },
   { immediate: true },
 )
+useNavigationSelection("request-response", view, { transient: true })
 watch(
   [() => props.result, view],
   ([result, mode], _, onCleanup) => {
     imageURL.value = ""
     imageError.value = ""
-    if (mode !== "image" || !("screenshot" in result) || !result.screenshot) return
+    previewLimited.value = false
+    if (mode !== "image" && mode !== "preview") return
     try {
-      const bytes = jpegPreviewBytes(result.screenshot)
-      const url = URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" }))
+      let blob: Blob
+      if (mode === "preview" && "html" in result) {
+        const preview = capturedDocument(result.html)
+        previewLimited.value = preview.limited
+        blob = new Blob([preview.html], { type: "text/html;charset=utf-8" })
+      } else if ("screenshot" in result && result.screenshot) {
+        blob = new Blob([jpegPreviewBytes(result.screenshot)], { type: "image/jpeg" })
+      } else return
+      const url = URL.createObjectURL(blob)
       imageURL.value = url
       onCleanup(() => URL.revokeObjectURL(url))
     } catch (cause) {
-      imageError.value = cause instanceof Error ? cause.message : "Image preview unavailable"
+      imageError.value = cause instanceof Error ? cause.message : "Preview unavailable"
     }
   },
   { immediate: true },
@@ -83,11 +103,21 @@ watch(
       </p>
       <fieldset class="actions response-tabs" aria-label="Response view">
         <UButton
+          v-if="hasHTML"
+          color="neutral"
+          :variant="view === 'preview' ? 'soft' : 'ghost'"
+          :aria-pressed="view === 'preview'"
+          @click="view = 'preview'"
+          >Preview</UButton
+        >
+        <UButton
           color="neutral"
           :variant="view === 'content' ? 'soft' : 'ghost'"
           :aria-pressed="view === 'content'"
           @click="view = 'content'"
-          >Content</UButton
+          >{{
+            hasHTML ? "Source" : "Content"
+          }}</UButton
         >
         <UButton
           color="neutral"
@@ -105,9 +135,20 @@ watch(
           >Screenshot</UButton
         >
       </fieldset>
-      <template v-if="view === 'image'">
+      <template v-if="view === 'image' || view === 'preview'">
         <p v-if="imageError" class="notice" role="status">{{ imageError }}</p>
+        <iframe
+          v-else-if="view === 'preview' && imageURL"
+          :src="imageURL"
+          sandbox=""
+          referrerpolicy="no-referrer"
+          title="Readable response with scripts and external resources removed"
+          class="response-document"
+        />
         <img v-else-if="imageURL" :src="imageURL" alt="Screenshot captured by this request" class="response-image" />
+        <p v-if="previewLimited" class="text-xs muted">
+          Preview limited for responsiveness. The response is unchanged.
+        </p>
       </template>
       <template v-else>
         <!-- biome-ignore lint/a11y/noNoninteractiveTabindex: Keyboard users must be able to scroll long response content. -->
@@ -117,8 +158,8 @@ watch(
         </p>
       </template>
       <p class="text-xs muted">
-        Response data stays in memory until you leave this page or clear it. HTML is shown as source; it is not
-        executed.
+        Response data stays in memory until you leave this page or clear it. HTML preview keeps supported page styles,
+        removes scripts and forms, and blocks network resources. A screenshot preserves the captured appearance.
       </p>
     </div>
   </section>
@@ -162,5 +203,13 @@ watch(
   max-height: 720px;
   object-fit: contain;
   object-position: top left;
+}
+.response-document {
+  width: 100%;
+  height: min(60vh, 640px);
+  min-height: 240px;
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  background: var(--ui-bg);
 }
 </style>

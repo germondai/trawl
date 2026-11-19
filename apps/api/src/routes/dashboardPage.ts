@@ -40,7 +40,7 @@ button,input{font:inherit}button{cursor:pointer;border:1px solid #3a3a42;backgro
 <section class="panel wide"><h2>WAF providers</h2><p id="waf-summary">Provider signatures in observed responses, independent of active challenges</p><div class="table-scroll"><table><thead><tr><th>Provider</th><th class="number">Requests</th><th class="number">Failed</th><th class="number">Rate</th></tr></thead><tbody id="waf-providers"></tbody></table></div></section>
 <section class="panel wide"><div class="panel-head"><div><h2>Recent failures</h2><p>Last 50 failures in the selected period, newest first</p></div><input id="failure-search" class="failure-search" type="search" placeholder="Filter domain, cause, provider or source" aria-label="Filter recent failures"></div><div class="table-scroll"><table><thead><tr><th>Time</th><th>Domain</th><th>Source</th><th>Tier</th><th>Status</th><th>HTTP</th><th>Cause</th><th>WAF</th><th>Severity</th></tr></thead><tbody id="recent"></tbody></table></div></section>
 <section class="panel wide"><div class="panel-head"><div><h2>Recent activity</h2><p>Last 100 completed requests in the selected period</p></div></div><div class="table-scroll"><table><thead><tr><th>Time</th><th>Domain</th><th>Source</th><th>Tier</th><th>HTTP</th><th>Duration</th><th>WAF</th><th>Outcome</th></tr></thead><tbody id="events"></tbody></table></div></section>
-</div><p class="footnote" id="history-note">Hostnames only · local history · no remote telemetry</p><p class="footnote">Only scrape calls that reach TRAWL appear here. Requests sent directly to a target by another application are outside this history.</p>
+</div><p class="footnote" id="history-note">Hostnames only · local history · optional usage sharing is configured separately</p><p class="footnote">Only scrape calls that reach TRAWL appear here. Requests sent directly to a target by another application are outside this history.</p>
 </main>
 <script>
 let token = '';
@@ -256,7 +256,7 @@ function render(data) {
     new Date(item.at).toLocaleString(), item.domain, item.source, item.tier ?? '-',
     item.statusCode ?? '-', number(item.durationMs) + ' ms', wafLabel(item.waf), item.success ? 'Success' : (item.category ?? 'Failure')
   ]), 'No requests recorded in this period');
-  byId('history-note').textContent = 'Hostnames only · local history' + (data.startedAt ? ' since ' + new Date(data.startedAt).toLocaleString() : ' starts with the first request') + ' · ' + number(data.retainedEvents) + ' retained events · no remote telemetry';
+  byId('history-note').textContent = 'Hostnames only · local history' + (data.startedAt ? ' since ' + new Date(data.startedAt).toLocaleString() : ' starts with the first request') + ' · ' + number(data.retainedEvents) + ' retained events · optional usage sharing is configured separately';
   byId('updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
 }
 

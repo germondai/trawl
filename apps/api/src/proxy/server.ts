@@ -9,6 +9,7 @@ import {
   scrape,
 } from "@trawl/tiers"
 import { captures } from "../captures"
+import { captureRequestInput } from "../historyCapture"
 import { requestId, safeUrl } from "../logger"
 import { metrics } from "../metrics"
 import { runLoggedScrape } from "../requestLogging"
@@ -33,7 +34,30 @@ const MAX_HEADER_BYTES = 64 * 1024
 
 const challengeCache = new ChallengeCache({ ttlMs: 5 * 60 * 1000 })
 
-function captureDirect(id: string, response?: ForwardResultBuffered) {
+function proxyRequestContext(input: { url: string; method: string; headers: Record<string, string>; body?: Buffer }) {
+  if ((input.body?.byteLength ?? 0) > (captures?.policy.artifactBytes ?? 0))
+    return { operation: "scrape" as const, parameters: {}, requestReason: "artifact-byte-limit" }
+  let body: string | undefined, bodyEncoding: "base64" | undefined
+  if (input.body) {
+    try {
+      body = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(input.body)
+    } catch {
+      body = input.body.toString("base64")
+      bodyEncoding = "base64"
+    }
+  }
+  return {
+    operation: "scrape" as const,
+    bodyEncoding,
+    parameters: { url: input.url, method: input.method, headers: proxySanitizeHeaders(input.headers), body },
+  }
+}
+
+function captureDirect(
+  id: string,
+  response?: ForwardResultBuffered,
+  input?: { url: string; method: string; headers: Record<string, string>; body?: Buffer },
+) {
   if (!captures?.enabled) return
   try {
     const entry = metrics.request(id)
@@ -44,7 +68,24 @@ function captureDirect(id: string, response?: ForwardResultBuffered) {
             "utf8",
           )
         : undefined
-    captures.capture({ requestId: id, requestAt: entry.at, html: text, contentType: response?.contentType })
+    let savedInput: { request?: string; requestReason?: string } = {}
+    if (captures.policy.request && input) {
+      if ((input.body?.byteLength ?? 0) > captures.policy.artifactBytes)
+        savedInput = { requestReason: "artifact-byte-limit" }
+      else {
+        savedInput = captureRequestInput(captures, {
+          source: "proxy",
+          ...proxyRequestContext(input),
+        })
+      }
+    }
+    captures.capture({
+      requestId: id,
+      requestAt: entry.at,
+      html: text,
+      contentType: response?.contentType,
+      ...savedInput,
+    })
   } catch {
     // Optional history never changes proxy delivery or buffering policy.
   }
@@ -493,7 +534,7 @@ async function proxyRequest(
         tier0.prefix,
         method,
       )
-      captureDirect(traceId)
+      captureDirect(traceId, undefined, { url, method, headers: clientHeaders, body })
       return
     }
 
@@ -514,7 +555,7 @@ async function proxyRequest(
       statusCode: tier0.status,
     })
     writeResponseFromBuffer(stream, tier0.status, tier0.headers, tier0.body, tier0.contentType, method)
-    captureDirect(traceId, tier0)
+    captureDirect(traceId, tier0, { url, method, headers: clientHeaders, body })
   } finally {
     finish?.()
   }
@@ -596,10 +637,17 @@ export async function serveViaScrape(
       trace?.finish,
       captures,
       rateLimitResponse ? (result) => Boolean(result && result.statusCode < 400) : undefined,
+      captures?.policy.request ? proxyRequestContext({ url, method, headers: clientHeaders, body }) : undefined,
     )
     if (rateLimitResponse && scrapeResult.statusCode >= 400) {
       writeOriginalResponse(stream, rateLimitResponse, body?.length ?? 0, method)
-      if (trace) captureDirect(trace.id, rateLimitResponse.mode === "buffer" ? rateLimitResponse : undefined)
+      if (trace)
+        captureDirect(trace.id, rateLimitResponse.mode === "buffer" ? rateLimitResponse : undefined, {
+          url,
+          method,
+          headers: clientHeaders,
+          body,
+        })
       return
     }
     if (rateLimitResponse?.mode === "stream") rateLimitResponse.socket.destroy()
@@ -636,7 +684,13 @@ export async function serveViaScrape(
       if (opts.debug)
         console.log(`[proxy] HTTP 429 fallback failed for ${safeUrl(url)} -> preserving original response`)
       writeOriginalResponse(stream, rateLimitResponse, body?.length ?? 0, method)
-      if (trace) captureDirect(trace.id, rateLimitResponse.mode === "buffer" ? rateLimitResponse : undefined)
+      if (trace)
+        captureDirect(trace.id, rateLimitResponse.mode === "buffer" ? rateLimitResponse : undefined, {
+          url,
+          method,
+          headers: clientHeaders,
+          body,
+        })
       return
     }
     const evidence = err instanceof ScrapeError ? terminalBlockedEvidence(err) : undefined

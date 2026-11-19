@@ -1,6 +1,34 @@
 import { expect, test } from "bun:test"
 import { Trawl, TrawlError } from "../src/index"
 
+test("request-only capture metadata and JSON input use the authenticated artifact API", async () => {
+  const api = new Trawl({
+    apiKey: "owned-token",
+    fetch: async (input, init) => {
+      const request = new Request(input, init)
+      expect(request.headers.get("authorization")).toBe("Bearer owned-token")
+      if (new URL(request.url).pathname.endsWith("/request"))
+        return Response.json({
+          version: 1,
+          source: "native",
+          operation: "scrape",
+          parameters: { url: "https://owned.fixture" },
+        })
+      return Response.json({
+        requestId: "owned-id",
+        requestAt: "2026-11-16T10:00:00.000Z",
+        mode: "none",
+        artifacts: [{ kind: "request", state: "unavailable", reason: "capture-busy" }],
+      })
+    },
+  })
+  expect((await api.requests.captures("owned-id")).artifacts[0]?.kind).toBe("request")
+  expect(JSON.parse(new TextDecoder().decode(await api.requests.artifact("owned-id", "request")))).toMatchObject({
+    version: 1,
+    parameters: { url: "https://owned.fixture" },
+  })
+})
+
 test("artifact metadata and bytes use separate authenticated resources with validated identifiers", async () => {
   const calls: Request[] = []
   const api = new Trawl({

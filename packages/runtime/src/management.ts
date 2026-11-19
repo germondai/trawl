@@ -1,10 +1,14 @@
-import { profiles, redactEnvironment, settings } from "@trawl/config"
+import { redactEnvironment, settings } from "@trawl/config"
+import { resourcePresets } from "@trawl/config/catalog"
 import { installRuntime } from "./assets"
-import { browserStatus, installBrowser, uninstallBrowser } from "./browser"
+import { activateBrowser, browserStatus, installBrowser, uninstallBrowser } from "./browser"
+import { discardBrowserDownload, pruneBrowserDownloads } from "./browser-cache"
 import { control } from "./control"
 import { resolveManagedEnvironment } from "./environment"
 import { startManaged, stopManaged } from "./manager"
 import { runtimePaths } from "./paths"
+import type { ProgressReporter } from "./progress"
+import { clearManagedStorage } from "./storage"
 import { publicConfig, readConfig, tailLog, type UserConfig, validateConfig, writeConfig } from "./store"
 
 export interface ManagementRequest {
@@ -13,13 +17,28 @@ export interface ManagementRequest {
   config?: UserConfig
   source?: string
   profile?: "balanced" | "economy"
+  browserVersion?: string
+  browserId?: string
+  resume?: boolean
+  activate?: boolean
+  storage?: string
 }
-export async function manage(request: ManagementRequest, signal?: AbortSignal): Promise<unknown> {
+export async function manage(
+  request: ManagementRequest,
+  signal?: AbortSignal,
+  progress?: ProgressReporter,
+): Promise<unknown> {
   signal?.throwIfAborted()
   if (!request || typeof request !== "object") throw new Error("Invalid management request")
+  if (request.browserId !== undefined && typeof request.browserId !== "string")
+    throw new Error("Invalid managed browser ID")
+  if (request.resume !== undefined && typeof request.resume !== "boolean") throw Error("Invalid resume preference")
+  if (request.activate !== undefined && typeof request.activate !== "boolean")
+    throw new Error("Invalid activation preference")
   const paths = runtimePaths(request.home)
   switch (request.action) {
     case "bootstrap": {
+      await pruneBrowserDownloads(paths)
       const config = await readConfig(paths)
       const resolved = resolveManagedEnvironment(paths, config.env)
       return {
@@ -67,12 +86,7 @@ export async function manage(request: ManagementRequest, signal?: AbortSignal): 
     case "profile": {
       if (request.profile !== "balanced" && request.profile !== "economy") throw new Error("Unknown profile")
       const config = await readConfig(paths)
-      config.env = { ...config.env, ...profiles[request.profile] }
-      if (request.profile === "balanced") {
-        config.env.BROWSER_COLD_BOOT = "false"
-        config.env.BROWSER_IDLE_TIMEOUT_MS = "0"
-        config.env.WAF_DETECTION_ENABLED = "true"
-      }
+      config.env = { ...config.env, ...resourcePresets[request.profile] }
       await writeConfig(config, paths)
       return publicConfig(config)
     }
@@ -86,14 +100,40 @@ export async function manage(request: ManagementRequest, signal?: AbortSignal): 
       return stopManaged(paths, "desktop", signal)
     case "logs":
       return tailLog(paths)
+    case "clearStorage":
+      return clearManagedStorage(request.storage ?? "", paths)
+    case "discardBrowserDownload":
+      return discardBrowserDownload(paths, request.browserVersion)
     case "browserStatus":
       return browserStatus(paths)
+    case "importBrowser":
+      if (
+        typeof request.source !== "string" ||
+        !request.source ||
+        request.source.length > 8192 ||
+        /[\r\n\0]/.test(request.source)
+      )
+        throw new Error("Invalid browser source directory")
+      return installBrowser(paths, signal, { source: request.source, progress })
+    case "activateBrowser":
+      return activateBrowser(paths, request.browserVersion)
     case "installBrowser":
-      return installBrowser(paths, signal)
+      return installBrowser(paths, signal, {
+        progress,
+        version: request.browserVersion,
+        activate: request.activate,
+        resume: request.resume,
+      })
     case "repairBrowser":
-      return installBrowser(paths, signal, { force: true })
+      return installBrowser(paths, signal, {
+        force: true,
+        resume: request.resume,
+        progress,
+        version: request.browserVersion,
+        activate: request.activate,
+      })
     case "uninstallBrowser":
-      return uninstallBrowser(paths)
+      return uninstallBrowser(paths, progress, request.browserVersion, request.browserId)
     case "installRuntime":
       if (!request.source) throw new Error("Missing verified runtime source")
       await installRuntime(request.source, paths)

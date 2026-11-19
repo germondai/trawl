@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { chmod, cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, join, resolve } from "node:path"
+import { MODEL_PIN } from "fpgen-js"
 import { digestFile, diskPreflight, downloadVerified, replaceDirectory, verifyRuntime } from "../src/assets"
 import { geoipAsset } from "../src/browser-assets"
 import mediaAssets from "../src/media-assets.json"
@@ -28,7 +29,7 @@ try {
       target: "bun",
       format: "esm",
       minify: true,
-      external: ["camoufox-js", "playwright-core", "node-wreq"],
+      external: ["camoufox-js", "camoufox", "playwright-core", "node-wreq"],
     })
     if (!build.success) throw new AggregateError(build.logs, `Cannot bundle ${name}`)
   }
@@ -44,6 +45,8 @@ try {
   await cp(process.execPath, join(output, process.platform === "win32" ? "trawl-engine.exe" : "trawl-engine"))
   const installed = new Map<string, string>()
   async function stage(name: string, from: string, parent = output, optional = false) {
+    // Camoufox uses bun:sqlite in this Bun-only runtime; its Node fallback and build tools are unused.
+    if (name === "better-sqlite3") return
     const require = createRequire(join(from, "package.json"))
     let source: string
     try {
@@ -89,6 +92,7 @@ try {
       )
   }
   await stage("camoufox-js", join(root, "packages/browser"))
+  await stage("camoufox", join(root, "packages/browser"))
   await stage("playwright-core", join(root, "packages/browser"))
   await stage("node-wreq", join(root, "packages/tiers"))
   async function run(command: string[], cwd = root) {
@@ -100,6 +104,27 @@ try {
     })
     if ((await child.exited) !== 0) throw new Error(`${command[0]} build failed`)
   }
+  const modelCache = join(root, ".artifacts/v2/downloads", MODEL_PIN.sha256)
+  await mkdir(dirname(modelCache), { recursive: true })
+  if ((await digestFile(modelCache).catch(() => "")) !== MODEL_PIN.sha256) await downloadVerified(MODEL_PIN, modelCache)
+  await run(
+    [
+      join(output, process.platform === "win32" ? "trawl-engine.exe" : "trawl-engine"),
+      "--eval",
+      'const { sampleWebGL } = await import("./node_modules/camoufox-js/dist/webgl/sample.js"); await sampleWebGL(process.platform === "darwin" ? "mac" : process.platform === "win32" ? "win" : "lin");',
+    ],
+    output,
+  )
+  await run(
+    [
+      join(output, process.platform === "win32" ? "trawl-engine.exe" : "trawl-engine"),
+      "--eval",
+      `const {ensureModel} = await import("fpgen-js"); await ensureModel({dir:"./fpgen",fetchImpl:async()=>new Response(await Bun.file(${JSON.stringify(modelCache)}).arrayBuffer())});`,
+    ],
+    output,
+  )
+  // The optional 156 browser expands this data on installation; remote-only clients keep the compressed model.
+  await rm(join(output, "fpgen/values.dat"))
   await run(["cargo", "build", "--release", "--locked", "--manifest-path", "native/launcher/Cargo.toml"])
   await cp(
     join(root, "native/launcher/target/release", process.platform === "win32" ? "trawl-server.exe" : "trawl-server"),

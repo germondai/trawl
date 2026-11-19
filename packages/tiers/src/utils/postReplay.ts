@@ -56,7 +56,7 @@ export async function installPostReplayRoute(
   page: Page,
   url: string,
   headers: Record<string, string> | undefined,
-  body: string | undefined,
+  body: string | Buffer<ArrayBuffer> | undefined,
   replay: PostReplay,
 ): Promise<() => Promise<void>> {
   page.on("response", replay.observe)

@@ -27,6 +27,10 @@ export interface InputCookie {
 // Single source of truth for the request-method union - @trawl/tiers derives its
 // runtime SUPPORTED_METHODS array from this same literal set (see sanitize.ts).
 export type SupportedMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS" | "TRACE" | "QUERY"
+export type TargetAuth =
+  | { type: "basic"; username: string; password: string }
+  | { type: "bearer"; token: string }
+  | { type: "api-key"; name: string; value: string; in: "header" | "query" }
 
 export interface ScrapeRequest {
   url: string
@@ -42,6 +46,9 @@ export interface ScrapeRequest {
   headers?: Record<string, string>
   method?: SupportedMethod
   body?: string
+  bodyEncoding?: "base64"
+  /** Explicit target credentials; requires HTTP-only maxTier: 1. Instance authentication is separate. */
+  targetAuth?: TargetAuth
   httpReplay?: boolean
   // Strict per-request route: target traffic must use this proxy and never fall back direct.
   proxy?: string
@@ -437,6 +444,7 @@ export interface DashboardSnapshot {
   successes: number
   failures: number
   averageMs: number
+  maximumMs?: number
   bySource: Record<string, number>
   byTier: Record<string, { attempts: number; successes: number }>
   bucketMs: number

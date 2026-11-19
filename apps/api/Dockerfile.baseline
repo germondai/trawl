@@ -19,6 +19,7 @@ COPY package.json bun.lock* ./
 COPY packages/client/package.json ./packages/client/
 COPY packages/config/package.json ./packages/config/
 COPY packages/types/package.json   ./packages/types/
+COPY packages/telemetry/package.json ./packages/telemetry/
 COPY packages/config/  /app/packages/config/
 COPY packages/browser/package.json ./packages/browser/
 COPY packages/tiers/package.json   ./packages/tiers/
@@ -189,6 +190,7 @@ COPY --link --from=camoufox   /opt/camoufox      /opt/camoufox
 COPY --from=deps              /app/node_modules  /app/node_modules
 
 COPY packages/types/   /app/packages/types/
+COPY packages/telemetry/ /app/packages/telemetry/
 COPY packages/browser/ /app/packages/browser/
 COPY packages/tiers/   /app/packages/tiers/
 COPY apps/api/         /app/apps/api/

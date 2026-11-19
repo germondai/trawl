@@ -44,6 +44,7 @@ const state: { proxyHandle?: MitmProxyHandle } = {}
 const stopMemoryMonitor = startMemoryMonitor(POOL_SIZE, HEADFUL_POOL_SIZE)
 
 const poolReady = initPool()
+export const ready = poolReady
 
 // Tier 0 does not need a browser, and browser-backed requests already have a
 // bounded acquire queue. Start accepting proxy traffic while the pool warms.

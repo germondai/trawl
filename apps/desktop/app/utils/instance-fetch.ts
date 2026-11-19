@@ -23,13 +23,13 @@ export function createInstanceFetch(instanceId: string, baseURL: string, observe
       return operation(instanceId, path, request, observeId)
     if (
       (request.method === "POST" && path === "/sessions") ||
-      (request.method === "DELETE" && /^\/sessions\/desktop-debug-[a-f0-9-]{36}$/.test(path))
+      (request.method === "DELETE" && /^\/sessions\/[A-Za-z0-9_-]{1,128}$/.test(path))
     )
       return operation(instanceId, path, request)
     if (request.method !== "GET") throw new Error("Unsupported desktop API request")
     if (path === "/browser/pages") return operation(instanceId, path, request)
     if (
-      /^\/requests\/[A-Za-z0-9_-]{1,80}\/captures\/(html|screenshot)$/.test(path) ||
+      /^\/requests\/[A-Za-z0-9_-]{1,80}\/captures\/(html|screenshot|request)$/.test(path) ||
       /^\/browser\/pages\/[A-Za-z0-9_-]{1,80}\/preview$/.test(path)
     )
       return operation(instanceId, path, request)

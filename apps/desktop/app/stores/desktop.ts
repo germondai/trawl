@@ -6,24 +6,46 @@ import {
   Trawl,
   TrawlError,
 } from "@trawl/client"
-import { emptyConfig, type Setting, settings, type UserConfig } from "@trawl/config/catalog"
+import { emptyConfig, orderedInstanceIds, type Setting, settings, type UserConfig } from "@trawl/config/catalog"
 import { defineStore } from "pinia"
 import { computed, ref, shallowRef } from "vue"
+import { mergeConfigChanges } from "../utils/config-changes"
 import { createInstanceFetch } from "../utils/instance-fetch"
 
 interface Status {
   running: boolean
+  ready?: boolean
   owner?: string
   baseURL?: string
   pid?: number
 }
-interface BrowserInstallation {
+export interface BrowserInstallation {
+  system?: boolean
   installed: boolean
   version?: string
   supportedVersion?: string
   state?: "ready" | "not-installed" | "repair-needed" | "update-available" | "unsupported"
   path?: string
   downloadBytes?: number
+  inventoryLimited?: boolean
+  choices?: {
+    id?: string
+    supported?: boolean
+    present?: boolean
+    latest?: boolean
+    recommended?: boolean
+    deprecated?: boolean
+    nightly?: boolean
+    engine: string
+    name: string
+    version: string
+    downloadBytes: number
+    installed?: boolean
+    active?: boolean
+    pending?: boolean
+    state?: string
+    path?: string
+  }[]
 }
 interface Bootstrap {
   startupError?: string
@@ -35,8 +57,17 @@ interface Bootstrap {
   status: Status
   browser: BrowserInstallation
 }
+export interface InstallationProgress {
+  phase: string
+  completed?: number
+  total?: number
+  unit?: "bytes" | "files"
+  elapsedMs: number
+  etaMs?: number
+}
 export const useDesktopStore = defineStore("desktop", () => {
   const native = isTauri()
+  const mobile = native && typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent)
   const loaded = shallowRef(false)
   const config = ref<UserConfig>(emptyConfig())
   const effective = ref<Record<string, string>>({})
@@ -49,33 +80,44 @@ export const useDesktopStore = defineStore("desktop", () => {
   const health = shallowRef<HealthResponse>()
   const capabilities = shallowRef<InstanceCapabilities | null>()
   const busy = shallowRef(false)
+  let configRevision = 0
+  let configWrites: Promise<unknown> = Promise.resolve()
+  let operationSerial = 0
+  let browserRevision = 0
   const settingsDirty = shallowRef(false)
   const error = shallowRef("")
   const metricError = shallowRef("")
   const activeId = shallowRef("local")
-  const active = computed(() =>
-    activeId.value === "local"
-      ? {
-          id: "local",
-          name: "Local instance",
-          baseURL: status.value.baseURL || `http://127.0.0.1:${effective.value.PORT || "8191"}`,
-        }
-      : config.value.desktop.connections.find(({ id }) => id === activeId.value),
-  )
+  const instances = computed(() => {
+    const local = {
+      id: "local",
+      name: config.value.desktop.localName || "Local instance",
+      baseURL: status.value.baseURL || `http://127.0.0.1:${effective.value.PORT || "8191"}`,
+    }
+    const profiles = new Map([local, ...config.value.desktop.connections].map((profile) => [profile.id, profile]))
+    return orderedInstanceIds(config.value.desktop).map((id) => profiles.get(id)!)
+  })
+  const active = computed(() => instances.value.find(({ id }) => id === activeId.value))
   async function management<T>(request: Record<string, unknown>): Promise<T> {
     if (!native) throw new Error("Open the native TRAWL application to manage this device")
     return invoke<T>("management", { request })
   }
   async function bootstrap() {
     if (!native) return
+    const serial = operationSerial
+    const configSerial = configRevision
+    const browserSerial = ++browserRevision
     const data = await management<Bootstrap>({ action: "bootstrap" })
-    config.value = data.config
-    effective.value = data.effective
-    inherited.value = data.inherited
-    sources.value = data.sources
+    if (serial !== operationSerial) return
+    if (configSerial === configRevision) {
+      config.value = data.config
+      effective.value = data.effective
+      inherited.value = data.inherited
+      sources.value = data.sources
+    }
     catalog.value = data.catalog
     status.value = data.status
-    browser.value = data.browser
+    if (browserSerial === browserRevision) browser.value = data.browser
     loaded.value = true
     if (data.startupError) error.value = data.startupError
   }
@@ -93,7 +135,7 @@ export const useDesktopStore = defineStore("desktop", () => {
   let refreshing: string | undefined
   let generation = 0
   async function refresh(force = false) {
-    if (!native || (!force && busy.value) || refreshing === activeId.value) return
+    if (!native || (!force && busy.value) || (!force && refreshing === activeId.value)) return
     const id = activeId.value
     const serial = ++generation
     refreshing = id
@@ -103,10 +145,11 @@ export const useDesktopStore = defineStore("desktop", () => {
         const value = await invoke<Status>("instance_status")
         if (!current()) return
         status.value = value
-        if (!value.running) {
+        if (!value.running || value.ready === false) {
           health.value = undefined
           metrics.value = undefined
           capabilities.value = undefined
+          if (value.running) error.value = ""
           return
         }
       }
@@ -147,6 +190,7 @@ export const useDesktopStore = defineStore("desktop", () => {
     }
   }
   async function action(operation: () => Promise<unknown>) {
+    operationSerial++
     generation++
     refreshing = undefined
     busy.value = true
@@ -165,9 +209,59 @@ export const useDesktopStore = defineStore("desktop", () => {
   }
   const start = () => action(() => invoke("server_start"))
   const stop = () => action(() => management({ action: "stop" }))
-  const install = () => action(() => management({ action: "installBrowser" }))
-  const save = (value: UserConfig) => action(() => management({ action: "saveConfig", config: value }))
+  async function refreshBrowser() {
+    const revision = ++browserRevision
+    const next = await management<BrowserInstallation>({ action: "browserStatus" })
+    if (revision === browserRevision) browser.value = next
+  }
+  const install = () => useBrowserDownloadsStore().start(browser.value.supportedVersion ?? "152.0.4-beta.30")
+  function enqueueConfig(write: () => Promise<boolean>) {
+    const pending = configWrites.then(write, write)
+    configWrites = pending.catch(() => {})
+    return pending
+  }
+  function snapshot(value: UserConfig): UserConfig {
+    return JSON.parse(JSON.stringify(value))
+  }
+  const save = (value: UserConfig) => {
+    const baseline = snapshot(config.value),
+      draft = snapshot(value)
+    return enqueueConfig(() =>
+      action(async () => {
+        configRevision++
+        const next = await management<UserConfig>({
+          action: "saveConfig",
+          config: mergeConfigChanges(baseline, draft, config.value),
+        })
+        configRevision++
+        config.value = next
+      }),
+    )
+  }
+  function reorderInstance(id: string, direction: -1 | 1) {
+    return enqueueConfig(async () => {
+      const next = snapshot(config.value)
+      const order = orderedInstanceIds(next.desktop),
+        index = order.indexOf(id),
+        target = index + direction
+      if (index < 0 || target < 0 || target >= order.length) return false
+      ;[order[index], order[target]] = [order[target]!, order[index]!]
+      next.desktop.instanceOrder = order
+      configRevision++
+      try {
+        const saved = await management<UserConfig>({ action: "saveConfig", config: next })
+        configRevision++
+        config.value = saved
+        return true
+      } catch (cause) {
+        configRevision++
+        error.value = String(cause)
+        return false
+      }
+    })
+  }
   async function select(id: string) {
+    if (native) await invoke("tray_instance", { id })
     generation++
     refreshing = undefined
     activeId.value = id
@@ -180,6 +274,7 @@ export const useDesktopStore = defineStore("desktop", () => {
   }
   return {
     native,
+    mobile,
     loaded,
     config,
     effective,
@@ -197,15 +292,18 @@ export const useDesktopStore = defineStore("desktop", () => {
     metricError,
     activeId,
     active,
+    instances,
     management,
     client,
     bootstrap,
+    refreshBrowser,
     refresh,
     action,
     start,
     stop,
     install,
     save,
+    reorderInstance,
     select,
   }
 })

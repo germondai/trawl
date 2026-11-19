@@ -1,0 +1,126 @@
+{
+  "overview": {
+    "label": "Overview",
+    "default": "CmdOrCtrl+1"
+  },
+  "history": {
+    "label": "Requests",
+    "default": "CmdOrCtrl+2"
+  },
+  "sessions": {
+    "label": "Sessions",
+    "default": "CmdOrCtrl+3"
+  },
+  "workbench": {
+    "label": "New request",
+    "default": "CmdOrCtrl+N"
+  },
+  "browser": {
+    "label": "Browser",
+    "default": "CmdOrCtrl+4"
+  },
+  "resources": {
+    "label": "Resources",
+    "default": "CmdOrCtrl+5"
+  },
+  "logs": {
+    "label": "Logs",
+    "default": "CmdOrCtrl+6"
+  },
+  "connections": {
+    "label": "App settings",
+    "default": "CmdOrCtrl+,"
+  },
+  "settings": {
+    "label": "Server settings",
+    "default": "CmdOrCtrl+."
+  },
+  "server": {
+    "label": "Start / stop local server",
+    "default": "CmdOrCtrl+S"
+  },
+  "restart": {
+    "label": "Restart local server",
+    "default": "CmdOrCtrl+Shift+R"
+  },
+  "refresh": {
+    "label": "Refresh page",
+    "default": "CmdOrCtrl+R"
+  },
+  "sidebar": {
+    "label": "Toggle sidebar",
+    "default": "CmdOrCtrl+B"
+  },
+  "search": {
+    "label": "Search commands",
+    "default": "CmdOrCtrl+K"
+  },
+  "close": {
+    "label": "Close window",
+    "default": "CmdOrCtrl+W"
+  },
+  "quit": {
+    "label": "Quit TRAWL",
+    "default": "CmdOrCtrl+Q"
+  },
+  "trayOpen": {
+    "label": "Open TRAWL",
+    "default": "CmdOrCtrl+O",
+    "scope": "tray"
+  },
+  "trayServer": {
+    "label": "Start / stop local server",
+    "default": "CmdOrCtrl+S",
+    "scope": "tray"
+  },
+  "trayRestart": {
+    "label": "Restart local server",
+    "default": "CmdOrCtrl+R",
+    "scope": "tray"
+  },
+  "trayInstance1": {
+    "label": "Select instance 1",
+    "default": "CmdOrCtrl+1",
+    "scope": "tray"
+  },
+  "trayInstance2": {
+    "label": "Select instance 2",
+    "default": "CmdOrCtrl+2",
+    "scope": "tray"
+  },
+  "trayInstance3": {
+    "label": "Select instance 3",
+    "default": "CmdOrCtrl+3",
+    "scope": "tray"
+  },
+  "trayInstance4": {
+    "label": "Select instance 4",
+    "default": "CmdOrCtrl+4",
+    "scope": "tray"
+  },
+  "trayInstance5": {
+    "label": "Select instance 5",
+    "default": "CmdOrCtrl+5",
+    "scope": "tray"
+  },
+  "trayInstance6": {
+    "label": "Select instance 6",
+    "default": "CmdOrCtrl+6",
+    "scope": "tray"
+  },
+  "trayInstance7": {
+    "label": "Select instance 7",
+    "default": "CmdOrCtrl+7",
+    "scope": "tray"
+  },
+  "trayInstance8": {
+    "label": "Select instance 8",
+    "default": "CmdOrCtrl+8",
+    "scope": "tray"
+  },
+  "trayInstance9": {
+    "label": "Select instance 9",
+    "default": "CmdOrCtrl+9",
+    "scope": "tray"
+  }
+}

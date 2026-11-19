@@ -109,6 +109,21 @@ test("settings, capabilities and histories use authenticated native endpoints", 
   expect(inputs.every(({ headers }) => headers.get("authorization") === "Bearer fixture-key")).toBe(true)
   expect(() => client.requests.get("../settings")).toThrow("ID")
   expect(() => client.requests.list({ limit: 101 })).toThrow("limit")
+  await client.requests.list({
+    page: 2,
+    search: "owned.test",
+    source: "proxy",
+    result: "success",
+    sort: "slowest",
+    tier: 3,
+  })
+  expect(inputs.at(-1)?.url).toBe(
+    "https://fixture.test/prefix/requests?page=2&search=owned.test&source=proxy&result=success&sort=slowest&tier=3",
+  )
+  expect(() => client.requests.list({ page: 0 })).toThrow("page")
+  expect(() => client.requests.list({ search: "x".repeat(201) })).toThrow("search")
+  expect(() => client.requests.list({ tier: 6 })).toThrow("tier")
+  expect(() => client.requests.list({ before: "id", page: 1 })).toThrow("before")
 })
 
 test("streams over real HTTP with header auth, replay cursors and cleanup on early iterator return", async () => {

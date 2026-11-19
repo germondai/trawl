@@ -17,7 +17,13 @@ if (process.argv.includes("--internal-pow-worker")) {
   try {
     const { readText, readParentRequest } = await import("./input")
     const input = watching ? await readParentRequest(process.stdin, controller) : await readText(process.stdin)
-    const result = await manage(JSON.parse(input), controller.signal)
+    const { installationProgress } = await import("./progress")
+    const progress = process.argv.includes("--progress")
+      ? installationProgress((value) => {
+          process.stderr.write(`${JSON.stringify(value)}\n`)
+        })
+      : undefined
+    const result = await manage(JSON.parse(input), controller.signal, progress)
     process.stdout.write(`${JSON.stringify({ ok: true, result })}\n`)
   } catch (error) {
     process.stdout.write(

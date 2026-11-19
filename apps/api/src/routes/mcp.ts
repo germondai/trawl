@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"
 import { PoolExhaustedError } from "@trawl/browser"
 import { type OrchestratorDeps, RequestValidationError, ScrapeError, scrape } from "@trawl/tiers"
-import type { ScrapeRequest, ScrapeResult } from "@trawl/types"
+import type { CapturedRequest, ScrapeRequest, ScrapeResult } from "@trawl/types"
 import { Elysia } from "elysia"
 import * as z from "zod/v4"
 import pkg from "../../package.json"
@@ -35,7 +35,8 @@ type McpScrapeInput = Pick<
   | "detectWaf"
   | "redirectChain"
 >
-type RunScrape = (input: McpScrapeInput) => Promise<ScrapeResult>
+type RequestContext = Pick<CapturedRequest, "operation" | "parameters">
+type RunScrape = (input: McpScrapeInput, context?: RequestContext) => Promise<ScrapeResult>
 
 interface McpRouteOptions {
   allowedOrigins?: string[]
@@ -135,14 +136,14 @@ function createServer(poolReady: () => boolean, runScrape: RunScrape, metricsSto
     },
   )
 
-  const runSafe = async (input: McpScrapeInput) => {
+  const runSafe = async (input: McpScrapeInput, context?: RequestContext) => {
     const started = Date.now()
     let scraperStarted = false
     try {
       await assertPublicHttpUrl(input.url)
       if (!poolReady()) throw new Error("Browser pool initializing, retry in a few seconds")
       scraperStarted = true
-      const result = await runScrape(input)
+      const result = await runScrape(input, context)
       await assertPublicHttpUrl(result.url)
       return result
     } catch (error) {
@@ -251,7 +252,7 @@ function createServer(poolReady: () => boolean, runScrape: RunScrape, metricsSto
     },
     async ({ format = "markdown", maxCharacters = MCP_HTML_MAX_CHARS, ...input }) => {
       try {
-        const result = await runSafe(input)
+        const result = await runSafe(input, { operation: "read", parameters: { ...input, format, maxCharacters } })
         const { text, ...structuredContent } = readPage(result, { format, maxCharacters })
         return { content: [{ type: "text", text }], structuredContent }
       } catch (error) {
@@ -293,6 +294,10 @@ function createServer(poolReady: () => boolean, runScrape: RunScrape, metricsSto
             ...(render === undefined ? {} : { render }),
             ...(waitForSelector ? { contentWaitForSelector: waitForSelector } : {}),
           }),
+          {
+            operation: "extract",
+            parameters: { ...input, render, contentWaitForSelector: waitForSelector, itemSelector, fields, maxItems },
+          },
         )
         const extracted = extractPage(result, { itemSelector, fields, maxItems })
         return {
@@ -416,7 +421,11 @@ function createServer(poolReady: () => boolean, runScrape: RunScrape, metricsSto
   return server
 }
 
-export function runMcpScrape(input: McpScrapeInput, deps: OrchestratorDeps = getDeps()): Promise<ScrapeResult> {
+export function runMcpScrape(
+  input: McpScrapeInput,
+  deps: OrchestratorDeps = getDeps(),
+  context?: RequestContext,
+): Promise<ScrapeResult> {
   return runLoggedScrape(
     "mcp",
     input,
@@ -430,6 +439,13 @@ export function runMcpScrape(input: McpScrapeInput, deps: OrchestratorDeps = get
       networkProxy: deps.networkProxy ?? ((upstream?: string) => publicEgress.proxyFor(upstream)),
     },
     scrape,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    context,
   )
 }
 
@@ -437,7 +453,7 @@ export function mcpRoute({
   allowedOrigins = MCP_ALLOWED_ORIGINS,
   poolReady = () => Boolean(getPool()),
   metricsStore = metrics,
-  runScrape = runMcpScrape,
+  runScrape = (input, context) => runMcpScrape(input, undefined, context),
 }: McpRouteOptions = {}) {
   const origins = new Set(allowedOrigins)
   const handle = async (request: Request): Promise<Response> => {

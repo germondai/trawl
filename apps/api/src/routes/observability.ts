@@ -8,6 +8,7 @@ import type { CaptureStore } from "../captureStore"
 import { captures } from "../captures"
 import { HEADFUL_POOL_SIZE, METRICS_DASHBOARD_TOKEN, OBSERVABILITY_ENABLED } from "../config"
 import type { EventJournal } from "../eventJournal"
+import { parseHistoryQuery } from "../historyQuery"
 import { readInstanceSettings } from "../instanceSettings"
 import { type MetricsStore, metrics } from "../metrics"
 
@@ -36,11 +37,13 @@ export function observabilityRoute({
       settings: available,
       requests: available,
       requestEvents: available,
+      requestQuery: available,
       logs: available,
       logEvents: available,
       captures: available && Boolean(captureStore?.available),
       browserInspection: available && Boolean(observations),
       clientRequestIds: available && store.clientRequestIds,
+      requestOptions: { binaryBodies: true, targetAuth: true },
     } satisfies InstanceCapabilities
   })
   if (!available) return app
@@ -113,8 +116,15 @@ export function observabilityRoute({
             set.status = 400
             return { error: "Expected limit from 1 to 100 and a valid history cursor" }
           }
+          let filters: ReturnType<typeof parseHistoryQuery>
           try {
-            return store.history(Number(limit), before)
+            filters = parseHistoryQuery(query)
+          } catch {
+            set.status = 400
+            return { error: "Invalid history filters" }
+          }
+          try {
+            return store.history(Number(limit), before, filters)
           } catch {
             set.status = 409
             return { error: "History cursor expired; reload the first page" }
@@ -141,7 +151,7 @@ export function observabilityRoute({
           return captureStore.manifest(entry.id, entry.at)
         })
         .get("/requests/:id/captures/:kind", async ({ params, set, request, server }) => {
-          if (!/^[a-zA-Z0-9_-]{1,80}$/.test(params.id) || !["html", "screenshot"].includes(params.kind)) {
+          if (!/^[a-zA-Z0-9_-]{1,80}$/.test(params.id) || !["html", "screenshot", "request"].includes(params.kind)) {
             set.status = 400
             return { error: "Invalid artifact resource" }
           }
@@ -251,12 +261,13 @@ function artifactResponse(bytes: Uint8Array, signal: AbortSignal, release: () =>
   )
   return new Response(body, {
     headers: {
-      "Content-Type": kind === "html" ? "text/plain; charset=utf-8" : "image/jpeg",
+      "Content-Type":
+        kind === "request" ? "application/json" : kind === "html" ? "text/plain; charset=utf-8" : "image/jpeg",
       "Content-Length": String(bytes.byteLength),
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
       "Content-Security-Policy": "default-src 'none'; sandbox",
-      "Content-Disposition": `attachment; filename="request.${kind === "html" ? "html" : "jpg"}"`,
+      "Content-Disposition": `attachment; filename="request.${kind === "request" ? "json" : kind === "html" ? "html" : "jpg"}"`,
     },
   })
 }

@@ -7,7 +7,7 @@ use objc2::{
 use objc2_app_kit::{
     NSApplicationDidChangeScreenParametersNotification, NSScreen, NSWindow,
     NSWindowDidChangeScreenNotification, NSWindowDidExitFullScreenNotification,
-    NSWindowDidUpdateNotification, NSWindowStyleMask,
+    NSWindowDidResizeNotification, NSWindowDidUpdateNotification, NSWindowStyleMask,
 };
 use objc2_foundation::{
     NSNotificationCenter, NSObjectProtocol, NSOperationQueue, NSPoint, NSRect, NSSize, NSString,
@@ -170,22 +170,25 @@ pub fn setup(window: &WebviewWindow) -> tauri::Result<()> {
             OBSERVATIONS
                 .with(|observations| observations.borrow_mut().push(Observation(token, active)));
         }
-        // AppKit can reset its titlebar during sharing without resizing the WebView.
-        let window = window.clone();
-        let callback_active = active.clone();
-        let block = RcBlock::new(move |_| {
-            if callback_active.get() {
-                let _ = crate::window_chrome::update(&window);
-            }
-        });
-        let token = center.addObserverForName_object_queue_usingBlock(
-            Some(NSWindowDidUpdateNotification),
-            Some(object),
-            Some(&queue),
-            &block,
-        );
-        OBSERVATIONS
-            .with(|observations| observations.borrow_mut().push(Observation(token, active)));
+        // Apply after AppKit finishes a layout, never inside individual button mutations.
+        for notification in [NSWindowDidResizeNotification, NSWindowDidUpdateNotification] {
+            let window = window.clone();
+            let active = active.clone();
+            let callback_active = active.clone();
+            let block = RcBlock::new(move |_| {
+                if callback_active.get() {
+                    let _ = crate::window_chrome::update(&window);
+                }
+            });
+            let token = center.addObserverForName_object_queue_usingBlock(
+                Some(notification),
+                Some(object),
+                None,
+                &block,
+            );
+            OBSERVATIONS
+                .with(|observations| observations.borrow_mut().push(Observation(token, active)));
+        }
     }
     Ok(())
 }

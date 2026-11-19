@@ -26,6 +26,20 @@ test("desktop workbench GET and JSON POST execute through the real native scrapi
         entered()
         await gate
       }
+      if (new URL(request.url).pathname === "/binary")
+        return Response.json({
+          body: Buffer.from(await request.arrayBuffer()).toString("base64"),
+          auth: request.headers.get("Authorization"),
+        })
+      if (new URL(request.url).pathname === "/multipart") {
+        const form = await request.formData()
+        const file = form.get("upload") as File
+        return Response.json({
+          body: Buffer.from(await file.arrayBuffer()).toString("base64"),
+          name: file.name,
+          text: form.get("text"),
+        })
+      }
       if (request.method === "POST") return Response.json({ received: await request.json() })
       return new Response(
         `<html><head><title>Workbench fixture</title></head><body>${"Owned fixture content. ".repeat(30)}</body></html>`,
@@ -77,7 +91,49 @@ test("desktop workbench GET and JSON POST execute through the real native scrapi
     expect(second.requestId).not.toBe(first.requestId)
     if (!second.requestId) throw new Error("Missing final request ID")
     expect(store.history(10).entries.map((row) => row.id)).toContain(second.requestId)
-    expect(calls).toBe(2)
+    const binary = await sendWorkbench(
+      api,
+      {
+        ...draft,
+        url: `${target.url}binary`,
+        method: "PUT",
+        bodyMode: "binary",
+        body: "AP+A",
+        binaryName: "fixture.bin",
+        auth: { ...draft.auth, type: "bearer", token: "owned" },
+      },
+      new AbortController().signal,
+    )
+    expect("html" in binary && JSON.parse(binary.html)).toEqual({ body: "AP+A", auth: "Bearer owned" })
+    const multipart = await sendWorkbench(
+      api,
+      {
+        ...draft,
+        url: `${target.url}multipart`,
+        method: "POST",
+        bodyMode: "form",
+        body: "text=owned",
+        fields: {
+          ...draft.fields,
+          body: [
+            {
+              enabled: true,
+              key: "upload",
+              value: "",
+              description: "private metadata",
+              file: { name: "owned.bin", type: "application/octet-stream", data: "AP+A" },
+            },
+          ],
+        },
+      },
+      new AbortController().signal,
+    )
+    expect("html" in multipart && JSON.parse(multipart.html)).toEqual({
+      body: "AP+A",
+      name: "owned.bin",
+      text: "owned",
+    })
+    expect(calls).toBe(4)
     expect(launches).toBe(0)
   } finally {
     release()

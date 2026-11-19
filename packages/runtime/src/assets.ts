@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto"
-import { createReadStream, createWriteStream } from "node:fs"
+import { constants, createReadStream, createWriteStream } from "node:fs"
 import { chmod, lstat, mkdir, open, readdir, readFile, rename, rm, statfs } from "node:fs/promises"
 import { dirname, isAbsolute, join, resolve, sep } from "node:path"
 import { Readable, Transform } from "node:stream"
@@ -8,7 +8,7 @@ import { type Entry, open as openZip, type ZipFile } from "yauzl"
 import { control, lockInstance } from "./control"
 import { installExclusive } from "./install-lock"
 import { type RuntimePaths, runtimePaths } from "./paths"
-import { privateDirectory } from "./store"
+import { atomicJson, privateDirectory } from "./store"
 
 export interface Download {
   url: string
@@ -28,15 +28,23 @@ export async function digestFile(path: string): Promise<string> {
   for await (const chunk of createReadStream(path)) hash.update(chunk)
   return hash.digest("hex")
 }
-export async function downloadVerified(asset: Download, destination: string, signal?: AbortSignal) {
+export async function downloadVerified(
+  asset: Download,
+  destination: string,
+  signal?: AbortSignal,
+  progress?: (completed: number, total: number) => void,
+  options: { resume?: boolean } = {},
+) {
   if (
     !/^[a-f0-9]{64}$/.test(asset.sha256) ||
     !Number.isSafeInteger(asset.size) ||
     asset.size < 1 ||
-    asset.size > 1024 ** 3 ||
+    asset.size > 2 * 1024 ** 3 ||
     new URL(asset.url).protocol !== "https:"
   )
     throw new Error("Invalid download manifest")
+  if (options.resume) return resumeVerifiedDownload(asset, destination, signal, progress)
+  progress?.(0, asset.size)
   const response = await fetch(asset.url, {
     signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(900000)]) : AbortSignal.timeout(900000),
   })
@@ -55,6 +63,7 @@ export async function downloadVerified(asset: Download, destination: string, sig
           if (bytes > asset.size) callback(new Error("Download exceeds its declared size"))
           else {
             hash.update(chunk)
+            progress?.(bytes, asset.size)
             callback(null, chunk)
           }
         },
@@ -71,7 +80,167 @@ export async function downloadVerified(asset: Download, destination: string, sig
     await rm(temporary, { force: true })
   }
 }
-export async function extractVerifiedZip(archive: string, destination: string, signal?: AbortSignal) {
+async function resumeVerifiedDownload(
+  asset: Download,
+  destination: string,
+  signal?: AbortSignal,
+  progress?: (completed: number, total: number) => void,
+) {
+  const temporary = `${destination}.partial`,
+    metadata = `${temporary}.json`
+  let offset = 0,
+    previous: { etag?: string; modified?: string } = {}
+  const discard = async () => {
+    await rm(temporary, { force: true })
+    await rm(metadata, { force: true })
+  }
+  try {
+    const info = await lstat(temporary),
+      stamp = await lstat(metadata)
+    if (
+      !info.isFile() ||
+      info.isSymbolicLink() ||
+      info.size > asset.size ||
+      !stamp.isFile() ||
+      stamp.isSymbolicLink() ||
+      stamp.size > 8192 ||
+      Date.now() - info.mtimeMs > 86400000
+    )
+      throw Error("Invalid partial download")
+    const value = JSON.parse(await readFile(metadata, "utf8"))
+    if (
+      value.url !== asset.url ||
+      value.sha256 !== asset.sha256 ||
+      value.size !== asset.size ||
+      [value.etag, value.modified].some(
+        (item) => item !== undefined && (typeof item !== "string" || item.length > 1024 || /[\r\n\0]/.test(item)),
+      )
+    )
+      throw Error("Partial download does not match the pinned asset")
+    offset = info.size
+    previous = value
+  } catch {
+    await discard()
+  }
+  if (offset === asset.size) {
+    if ((await digestFile(temporary)) === asset.sha256) {
+      await rename(temporary, destination)
+      await rm(metadata, { force: true })
+      progress?.(asset.size, asset.size)
+      return
+    }
+    await discard()
+    offset = 0
+  }
+  progress?.(offset, asset.size)
+  const fetchAsset = (start: number) =>
+    fetch(asset.url, {
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(900000)]) : AbortSignal.timeout(900000),
+      headers: {
+        "Accept-Encoding": "identity",
+        ...(start
+          ? {
+              Range: `bytes=${start}-`,
+              ...(previous.etag || previous.modified ? { "If-Range": previous.etag || previous.modified! } : {}),
+            }
+          : {}),
+      },
+    })
+  let response = await fetchAsset(offset)
+  const range = response.headers.get("content-range")?.match(/^bytes (\d+)-(\d+)\/(\d+)$/)
+  const validatorChanged =
+    previous.etag && response.headers.get("etag") && previous.etag !== response.headers.get("etag")
+  if (
+    offset &&
+    (response.status === 416 ||
+      (response.status === 206 &&
+        (!range ||
+          Number(range[1]) !== offset ||
+          Number(range[3]) !== asset.size ||
+          Number(range[2]) < offset ||
+          Number(range[2]) >= asset.size ||
+          validatorChanged)))
+  ) {
+    await response.body?.cancel()
+    await discard()
+    offset = 0
+    progress?.(0, asset.size)
+    response = await fetchAsset(0)
+  }
+  if (!response.ok || !response.body || (response.status !== 200 && response.status !== 206)) {
+    await response.body?.cancel()
+    throw Error(`Download failed (HTTP ${response.status})`)
+  }
+  if (response.status === 200 && offset) {
+    offset = 0
+    progress?.(0, asset.size)
+  }
+  if (!offset && response.status === 206) {
+    const first = response.headers.get("content-range")?.match(/^bytes 0-(\d+)\/(\d+)$/)
+    if (!first || Number(first[2]) !== asset.size || Number(first[1]) >= asset.size) {
+      await response.body.cancel()
+      await discard()
+      throw Error("Invalid download range")
+    }
+  }
+  const hash = createHash("sha256")
+  if (offset) for await (const chunk of createReadStream(temporary)) hash.update(chunk)
+  let bytes = offset,
+    invalid = false
+  let file: Awaited<ReturnType<typeof open>> | undefined
+  try {
+    file = await open(
+      temporary,
+      constants.O_WRONLY |
+        constants.O_CREAT |
+        (offset ? constants.O_APPEND : constants.O_TRUNC) |
+        (constants.O_NOFOLLOW ?? 0),
+      0o600,
+    )
+    await atomicJson(metadata, {
+      url: asset.url,
+      sha256: asset.sha256,
+      size: asset.size,
+      etag: response.headers.get("etag") ?? undefined,
+      modified: response.headers.get("last-modified") ?? undefined,
+    })
+    await pipeline(
+      Readable.fromWeb(response.body as never),
+      new Transform({
+        transform(chunk, _, callback) {
+          bytes += chunk.length
+          if (bytes > asset.size) {
+            invalid = true
+            callback(Error("Download exceeds its declared size"))
+            return
+          }
+          hash.update(chunk)
+          progress?.(bytes, asset.size)
+          callback(null, chunk)
+        },
+      }),
+      file.createWriteStream(),
+      { signal },
+    )
+    if (bytes !== asset.size) throw Error("Download interrupted; retry to resume")
+    if (hash.digest("hex") !== asset.sha256) {
+      invalid = true
+      throw Error("Downloaded asset failed SHA-256 verification")
+    }
+    await rename(temporary, destination)
+    await rm(metadata, { force: true })
+  } finally {
+    await file?.close()
+    if (!response.body.locked) await response.body.cancel().catch(() => {})
+    if (invalid) await discard()
+  }
+}
+export async function extractVerifiedZip(
+  archive: string,
+  destination: string,
+  signal?: AbortSignal,
+  progress?: (completed: number, total: number) => void,
+) {
   const zip = await new Promise<ZipFile>((resolve, reject) => {
     openZip(archive, { lazyEntries: true, autoClose: true, validateEntrySizes: true }, (error, zip) =>
       error || !zip ? reject(new Error("Unsafe or invalid archive")) : resolve(zip),
@@ -79,6 +248,8 @@ export async function extractVerifiedZip(archive: string, destination: string, s
   })
   try {
     if (zip.entryCount > 30000) throw new Error("Archive contains too many entries")
+    let entries = 0
+    progress?.(0, zip.entryCount)
     await privateDirectory(destination)
     let total = 0
     await new Promise<void>((resolve, reject) => {
@@ -105,7 +276,7 @@ export async function extractVerifiedZip(archive: string, destination: string, s
           if (((entry.externalFileAttributes >>> 16) & 0xf000) === 0xa000)
             throw new Error("Symlinks are not accepted in runtime archives")
           total += entry.uncompressedSize
-          if (entry.uncompressedSize > 1024 ** 3 || total > 3 * 1024 ** 3)
+          if (entry.uncompressedSize > 2 * 1024 ** 3 || total > 4 * 1024 ** 3)
             throw new Error("Archive exceeds extraction limits")
           const target = resolvePath(destination, name)
           if (name.endsWith("/")) {
@@ -137,6 +308,7 @@ export async function extractVerifiedZip(archive: string, destination: string, s
             { signal },
           )
         })().then(() => {
+          progress?.(++entries, zip.entryCount)
           if (!failed) zip.readEntry()
         }, fail)
       })

@@ -74,6 +74,11 @@ export function scrapeRoute(
           : undefined,
         undefined,
         captureStore,
+        undefined,
+        {
+          operation: operation ?? "scrape",
+          parameters: sessionId === undefined ? (body as unknown as Record<string, unknown>) : { ...body, sessionId },
+        },
       )
       return { ...(output ?? result), requestId: id }
     } catch (err) {

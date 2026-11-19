@@ -9,6 +9,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Apply distinct browser-tag colors and shared explanatory tooltips, including explicit catalog metadata for Deprecated and Nightly. Keep experimental or deprecated builds out of Latest and Recommended selection.
+
+- Add Android arm64-v8a and armeabi-v7a builds with a native HTTP/System WebView runtime, private authenticated local API, bounded history and a foreground server/task notification with Stop/Restart actions.
+- Keep native workbench requests running when the app enters the background and send system completion/error notifications for background requests and desktop browser downloads.
+
+- Queue additional browser downloads behind three active slots and expose a floating progress/cancel panel on other desktop pages. Resume interrupted pinned archives on retry, clean explicitly cancelled downloads, and prune abandoned download/staging data after 24 hours when idle.
+- List unsupported and unknown managed browser installations with removal controls while preventing their activation.
+
+- Show browser download progress and measured time estimates in each version row, with cancellation, up to three background downloads, navigation persistence and completion/error toasts. Keep server lifecycle controls available and stage active-version repairs for explicit application after stopping.
+- Render the configured Quit shortcut as keycaps and prioritize Escape cancellation over nested controls and shortcut recording.
+
+- Simplify desktop browser management to automatically detected TRAWL installations in fixed managed folders. Remove external linking, directory selection and import controls; leave previously linked files untouched.
+- Show Offline for stopped local logs and identify only the local connection with a small monitor icon.
+- Keep multiple managed Camoufox builds with per-version install, activation, repair and removal. Preserve existing active builds during additional installations and include stored versions in resource accounting.
+- Add resource profile previews and reversible draft changes for Standard and Economy. Preserve browser pool size, listener and cache configuration; remove High performance and saved Custom presets without changing existing environment overrides.
+
+- Add saved connection editing with token preservation/replacement/removal and confirmed deletion. Combine desktop/runtime storage accounting into one row, support uploads and file drops directly in multipart value fields, and extend smooth wheel scrolling to nested app views.
+- Keep offline HTML previews visible when a page hides its document root until JavaScript runs, while retaining hidden child content and the existing script/network isolation.
+
+- Include dialogs, settings categories and request tabs in desktop Back/Forward navigation while keeping Ctrl-Tab for main pages and text undo/redo unchanged. Focus confirmation actions on opening and allow arrow keys to switch dialog actions.
+- Add managed capture cleanup and metrics journal cleanup, a binary-body file drop zone, and isolated HTML previews that retain supported page styles while blocking scripts and network resources.
+
+- Add a desktop command palette for pages, actions, instances and server settings, with an editable Command/Control-K shortcut that preserves existing custom bindings.
+
+- Add a Retina macOS installer background with TRAWL branding and drag-to-Applications layout. Use application tooltips throughout desktop controls and align all three macOS window controls during titlebar relayouts.
+
+- Add tray instance selection and scoped Open/Start-Stop/Restart shortcuts, Ctrl-Tab page cycling, and keyboard shortcut recording with keycap previews and Escape cancellation. Stabilize page transitions and request-dialog geometry, center empty sessions, animate the sidebar wordmark and hide macOS window controls while the mobile menu is open.
+
+- Add editable desktop keyboard shortcuts with conflict checks and native menu synchronization, Command-N requests and a Lenis preference. Clarify tray Start/Stop/Restart actions, add Server settings to tray, and refine sidebar order/header, full-height Sessions, category scrolling and instance popover alignment.
+
+- Add configurable macOS quit gestures and Dock/menu bar visibility, native settings/page shortcuts, Lenis pane scrolling and pagination scroll-to-top. Center sidebar navigation, align preference controls and improve session search, status and creation.
+
+- Refine desktop sidebar spacing and grouping, translucent headers, responsive request filters, centered search actions and request dialogs. Add capacity gauges, period-wide response maxima, a single tray server toggle and App settings with Command-comma. Extend the verified macOS arm64 browser catalog with Camoufox 156 builds .33, .36 and .39.
+
+- Add request-history search, filters, sorting and centered pagination, colored/filterable logs with scroll-aware following, and visible saved request inputs with copy/replay actions. Refine desktop tabs, settings, sidebar spacing, centered translucent headers and transitions.
+- Support Camoufox 156.0.1-beta.32 alongside the default 152 build on macOS Apple Silicon, and import compatible existing installations through bounded copying and verified security resources.
+
+- Add desktop request pagination, request-first inspector tabs with bounded diagnostic metadata, and a tabbed request editor. Improve settings search and expiring links, modal sizing, sidebar alignment, mouse history navigation and guarded macOS hold-to-quit. Omit the unused Node SQLite fallback from the bundled Bun runtime.
+
+- Add bounded request draft tabs, reset confirmation, direct links to individual settings, a supported-browser catalog and optional privacy-limited usage sharing with a separate aggregate collector. Keep reporting disabled and unconfigured by default.
+- Use small request/HTML capture defaults for desktop-owned instances with authenticated observability, preserve explicit opt-outs and default new desktop profiles to continuing in the tray.
+
+- Add opt-in JSON request capture beside saved responses, using the same private storage quota and retention. Show saved inputs in desktop request details and open them in the workbench for review before replay, preserving existing drafts.
+- Add desktop session management, automatically loaded session choices, grouped navigation, a sidebar keyboard shortcut, local CPU/RAM and storage inspection, and measured browser installation/removal progress.
 - Add opt-in authenticated inspection of existing browser pages, bounded single/live desktop previews and explicit headed debug sessions using the separate configured pool. Preserve page ownership, viewport profiles and normal session cleanup.
 - Add optional bounded request HTML/screenshots, authenticated artifact downloads and offline desktop previews. Keep capture disabled by default, preserve HTTP-only execution and make saved content independent of later target availability.
 - Add a desktop request workbench using the native client, with JSON bodies, sessions, output helpers, bounded authenticated native transport, explicit cancellation semantics and links to retained request details. Keep instance drafts in memory and bound response/diagnostic previews.
@@ -23,12 +67,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `STT_MODEL` to choose the model name sent to `STT_URL` (default `whisper-1`).
 
 ### Changed
+
+- Label the default verified browser Recommended and the latest supported platform build Latest. Replace browser storage navigation with cache-retention information and confirmed download-cache cleanup that keeps installed browsers and works while the server runs.
+- Keep Escape-cancelled Quit holds cancelled until shortcut release, including repeated delivery of the held quit key.
+
+- Save connection order without global loading or server refresh and remove empty browser confirmation bodies. Allow Escape to cancel hold-to-quit immediately after shortcut release.
+
+- Add separate saved-connection edit dialogs, local instance renaming and shared instance ordering across the app and numbered tray menu. Group metrics and journals in storage accounting. Use consistent custom scrollbars with hover expansion and platform overlay idle behavior, and display configured shortcuts as tooltip keycaps.
+- Refresh desktop page data in place, retaining content, filters, drafts and scroll position while reading fresh data. Replace section refresh controls with the main action, dismiss popovers and selects before Back navigation without reopening them on Forward, round setting highlights at card edges, and cancel pending Quit gestures with Escape.
+
+- Center sidebar branding within its full header, align request-table checkboxes and managed-storage labels/actions, and add links from storage entries to their management pages. Open target headers immediately and add input examples with a shorter Bulk toggle.
+
+- Tighten Requests pagination spacing, align the sidebar divider with the pane header, and use disabled cursors consistently. Unify request-tab styling, move editor help into a popover, and add editable Key/Value/Description rows with bulk/raw modes, URL-encoded/multipart file bodies, binary uploads, GraphQL, HTTP-only Basic/Bearer/API-key target authentication and isolated HTML response previews. Preserve exact target bytes, isolate target credentials, strip credential headers on cross-origin redirects and check older-instance capabilities. Add file-manager actions and confirmed cleanup for managed storage. Keep open macOS windows in the Dock and Command-Tab when menu-bar-only visibility is selected, restoring background visibility on close.
+- Center desktop pane titles over translucent headers, group shortcut settings into App and Tray with compact keycaps, and animate New request above the settings save bar. Add Command-Up/Down group navigation in the command palette and preserve its highlighted item through unchanged status polls.
+- Use Command-S for desktop Start/Stop, Command-B for the sidebar and Command-Shift-R for Restart; add editable Command-1–9 tray instance shortcuts. Migrate the previous sidebar default while preserving custom bindings. Keep the logo inside the collapsing sidebar, move its Search divider above the trigger, size shortcut recorders to their keycaps, fill stopped Requests like Overview, and show the palette sidebar icon.
+- Keep tray instance selection in the background when the window is closed, and gray the tray logo while the local server is stopped. Center the stopped Overview in a full-height card and move smooth scrolling to the end of Application behavior.
 - Increase the default browser acquisition wait from 15 to 30 seconds so bursts can wait longer for a free browser. Keep explicit `BROWSER_ACQUIRE_TIMEOUT_MS` overrides and the request's overall deadline.
 
 ### Fixed
+
+- Cancel a held macOS Quit gesture from Escape key state even when a system shortcut consumes the Escape event; keep cancellation latched until the held shortcut is released.
+
+- Animate desktop scrollbar thumbs without changing their bounds, keep the Logs footer height stable, and use consistent columns for live events and process logs. Make saved instance addresses clickable in the system browser and identify Local/Remote connections.
+
+- Keep sidebar icons clear of scrollbars in short windows, improve small-screen menu layout and footer spacing, center its logo, and place Close on the right. Start the main scrollbar below the header, compact shortcut recorders, synchronize sidebar brand motion, and correlate macOS window drags with their original active-window mouse gesture.
+- Distinguish managed browser warmup from a failed startup, retain readiness through native status queries and avoid launching a management subprocess on each startup poll. Preserve the transparent Dock logo on macOS.
+- Wait through a closing control-status connection after acknowledged local-server shutdown so tray Restart can complete reliably.
 - Wait for the managed API to finish initialization before reporting startup success in the CLI and desktop. Preserve actionable native startup errors and keep initializing processes protected by the lifecycle lock.
 - Route the desktop application's native Quit command through unsaved-settings confirmation and owned-server cleanup, matching tray Quit behavior.
-- Restore desktop macOS window-control alignment after native titlebar relayouts without requiring a WebView resize.
+- Restore desktop macOS window-control alignment after completed native titlebar layouts, including live corner resizing, without correcting individual buttons mid-layout.
 - Allow container clients to reach managed loopback instances through the exact Docker and OrbStack host aliases while retaining cross-origin browser and Host validation.
 
 ## [1.11.1] - 2026-11-12

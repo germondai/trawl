@@ -51,8 +51,8 @@ type TransportOptions = RequestInit & {
 export async function tlsFetch(url: string, init: TransportOptions = {}): Promise<Response> {
   const timeoutMs = init.timeoutMs ?? 60_000
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error("TLS request timed out")
-  if (init.body != null && typeof init.body !== "string")
-    throw new Error("TLS transport requires a string request body")
+  if (init.body != null && typeof init.body !== "string" && !(init.body instanceof Uint8Array))
+    throw new Error("TLS transport requires a string or byte request body")
   if (init.signal?.aborted) throw new DOMException("TLS request aborted", "AbortError")
   const deadline = Date.now() + timeoutMs
   const nativeAbort = new AbortController()

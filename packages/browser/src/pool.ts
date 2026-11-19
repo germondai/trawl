@@ -1,6 +1,6 @@
 import type { BrowserHandle, PoolBrowser, PoolStats } from "@trawl/types"
-import { Camoufox } from "camoufox-js"
 import { FINGERPRINT_POOL } from "./fingerprint"
+import { launchCamoufox as Camoufox } from "./launcher"
 import { toPlaywrightProxy } from "./proxy"
 
 // camoufox-js wraps Playwright but doesn't re-export Browser/BrowserContext types.

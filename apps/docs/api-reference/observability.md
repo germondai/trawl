@@ -68,7 +68,15 @@ older entries; new arrivals do not shift that page. An unavailable cursor return
 The existing history retention is 30 days and approximately 50,000 completed rows.
 Active snapshots contain at most 256 entries and explicitly flag an incomplete list.
 
-## Optional saved responses
+Instances advertising `requestQuery` also accept `page` (1–50,000), `search`
+(up to 200 characters), `source` (`native`, `flaresolverr`, `mcp`, `proxy`),
+`result` (`success`, `failed`), `tier` (0–4), and `sort` (`newest`, `oldest`,
+`slowest`, `fastest`). Search matches retained domain/source/cause/request-ID metadata.
+Responses include the filtered `total` and current `page`. These queries cannot be
+combined with `before`; page offsets can shift as new rows arrive. Cursor paging
+remains available for older clients.
+
+## Optional saved requests and responses
 
 History is metadata-only by default (`HISTORY_CAPTURE_MODE=none`). Enable `html`,
 `screenshot` or `both` on the instance host and restart. This requires observability
@@ -76,8 +84,28 @@ and its token. Desktop-owned instances expose the same settings; remote settings
 remain read-only. Saved responses may contain private page data: files are not
 redacted or encrypted, so protect the instance's data volume and token.
 
+Set `HISTORY_CAPTURE_REQUESTS=true` to also retain JSON request parameters across
+native API, Prowlarr `/v1`, MCP and proxy requests. It works independently of response
+mode, including with `HISTORY_CAPTURE_MODE=none`. Only processed requests with retained
+history are captured. Request data may include full URLs, target authorization headers,
+cookies, proxy credentials and payloads; the instance's own API bearer header is not
+copied into this artifact. Protect these files as credentials. Disabling capture stops
+future writes; existing files remain readable until their retention or quota expires.
+
+Request JSON uses the same per-artifact bytes, combined storage, record count and
+retention limits below. Oversized payloads are marked `too-large` instead of silently
+truncated. Direct proxy binary bodies are encoded as base64. The desktop can reopen binary
+payloads within its 128 KiB file limit when the instance advertises binary-body support.
+Unsupported reserved proxy headers still prevent replay. Response streaming is unchanged.
+
+In desktop request details, Show request parameters downloads the protected input.
+Open in New request restores its URL, method, headers, payload and supported options
+for review. Existing drafts require replacement confirmation; no request is sent until
+Send is pressed. Session expiry and the editor's byte/timeout limits still apply.
+
 | Setting | Default | Limit |
 | --- | --- | --- |
+| `HISTORY_CAPTURE_REQUESTS` | `false` | Save request JSON, independently of response format. |
 | `HISTORY_CAPTURE_MAX_BYTES` | 2 MiB | Per artifact, before compression; maximum 8 MiB. |
 | `HISTORY_CAPTURE_STORAGE_BYTES` | 128 MiB | Captured files combined; maximum 1 GiB. |
 | `HISTORY_CAPTURE_MAX_RECORDS` | 500 | Requests retaining files; maximum 5,000. |
@@ -90,7 +118,7 @@ redacted or encrypted, so protect the instance's data volume and token.
 
 Files and a separate SQLite index live in `captures/` beside `METRICS_DB_PATH`.
 The directory is private to TRAWL; an unrelated existing database/directory is
-rejected. HTML is compressed only when smaller. The file quota excludes the
+rejected. HTML and request JSON are compressed only when smaller. The file quota excludes the
 metadata index (up to 64 MiB with its default page size) and SQLite journal files;
 allow additional disk space for those. Index records are separately bounded to
 50,000 and 30 days. Ordinary request history retention remains independent.
@@ -233,7 +261,7 @@ callers decide when to reconnect. Connection and idle deadlines are separate fro
 the whole-response timeout used by ordinary JSON calls.
 
 For capable instances, `trawl.requests.captures(id)` returns saved-content metadata
-and `trawl.requests.artifact(id, 'html' | 'screenshot', { signal })` returns bytes.
+and `trawl.requests.artifact(id, 'html' | 'screenshot' | 'request', { signal })` returns bytes.
 Artifact downloads have a byte limit and a total deadline and are never retried
 automatically. Check metadata before choosing a renderer; HTML is untrusted content.
 
@@ -241,3 +269,11 @@ automatically. Check metadata before choosing a renderer; HTML is untrusted cont
 { signal })` returns JPEG bytes with a 1 MiB limit and five-second default download
 deadline. These are reads of existing pages, distinct from `trawl.inspect(url)`,
 which runs a new scraping operation.
+
+## Desktop history defaults and usage sharing
+
+Desktop-owned native instances with authenticated observability apply small capture defaults only where no saved/environment/flag choice exists: request JSON, response HTML, 256 KiB per artifact, 16 MiB content-file budget, 100 captures and 24-hour expiry. SQLite metadata overhead is separate. Explicit opt-outs are preserved; Docker and other server deployment modes retain metadata-only defaults.
+
+With the local server stopped, desktop Managed storage can clear captures and their index independently of metrics/request history. Metrics and Metrics journal use a combined cleanup that removes the database, its SQLite journals and saved captures together. Configuration and custom data paths are preserved.
+
+Optional remote usage sharing is separate from observability and defaults off. `TELEMETRY_ENABLED=true` additionally requires a configured HTTPS `TELEMETRY_ENDPOINT`; restart after either change. It sends only target hostname, a recognized challenge category (or unknown), outcome, duration rounded to 10 ms and TRAWL version. No raw logs, request/response content, URL path/query, credentials or persistent client IDs are included. Hostnames may identify a site and the receiver sees the transport IP. The separate collector and its deployment/retention controls are documented in `apps/telemetry/README.md`; no public endpoint is configured or deployed by default.

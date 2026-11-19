@@ -110,5 +110,12 @@ export interface FlareSolverrResponse {
     userAgent: string
   }
 }
-export type { ArtifactKind, ArtifactState, CaptureMode, RequestArtifact, RequestCaptures } from "./artifacts"
+export type {
+  ArtifactKind,
+  ArtifactState,
+  CapturedRequest,
+  CaptureMode,
+  RequestArtifact,
+  RequestCaptures,
+} from "./artifacts"
 export type { BrowserObservationSnapshot, ObservedBrowserPage } from "./browserObservation"

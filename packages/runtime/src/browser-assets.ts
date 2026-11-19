@@ -30,6 +30,89 @@ export const browserAssets: Record<string, Download> = {
     sha256: "ea52a02fb1cfb1813ef6a326bea03fb2b650c9774143d953a94a27bfc8f10072",
   },
 }
+// Native builds only expose versions with verified protocol and security resources for their platform.
+export interface BrowserBuild {
+  engine: "camoufox"
+  name: string
+  version: string
+  launcher: "legacy" | "official"
+  channel?: "release" | "nightly"
+  deprecated?: boolean
+  securityManifestHash?: string
+  assets: Record<string, Download>
+}
+export const supportedBrowsers: readonly BrowserBuild[] = [
+  { engine: "camoufox", name: "Camoufox Firefox", version: browserVersion, launcher: "legacy", assets: browserAssets },
+  {
+    engine: "camoufox",
+    name: "Camoufox Firefox",
+    version: "156.0.1-beta.32",
+    launcher: "official",
+    assets: {
+      "darwin-arm64": {
+        url: "https://github.com/daijro/camoufox/releases/download/v156.0.1-beta.32/camoufox-156.0.1-beta.32-mac.arm64.zip",
+        size: 1289761949,
+        sha256: "531c29fb82ab37dc57e934658de04540861de9b9811473298d88ebdea075b566",
+      },
+    } as Record<string, Download>,
+  },
+  {
+    engine: "camoufox",
+    name: "Camoufox Firefox",
+    version: "156.0.1-beta.33",
+    launcher: "official",
+    assets: {
+      "darwin-arm64": {
+        url: "https://github.com/daijro/camoufox/releases/download/v156.0.1-beta.33/camoufox-156.0.1-beta.33-mac.arm64.zip",
+        size: 1289766069,
+        sha256: "ab51bb25c3c2be86cc8943483d046638d3f7064de3563df6a75015bf589bd23d",
+      },
+    },
+  },
+  {
+    engine: "camoufox",
+    name: "Camoufox Firefox",
+    version: "156.0.1-beta.36",
+    launcher: "official",
+    assets: {
+      "darwin-arm64": {
+        url: "https://github.com/daijro/camoufox/releases/download/v156.0.1-beta.36/camoufox-156.0.1-beta.36-mac.arm64.zip",
+        size: 1289762241,
+        sha256: "0ad5663e40f4a2a836e28747256b79f39a5105905f1b244139a7a391f85fda32",
+      },
+    },
+  },
+  {
+    engine: "camoufox",
+    name: "Camoufox Firefox",
+    version: "156.0.1-beta.39",
+    launcher: "official",
+    securityManifestHash: "7f7ba6ed070487a4a4f7996c6a316eec3e88a261dadf6bd068fd301622bb6054",
+    assets: {
+      "darwin-arm64": {
+        url: "https://github.com/daijro/camoufox/releases/download/v156.0.1-beta.39/camoufox-156.0.1-beta.39-mac.arm64.zip",
+        size: 1289869847,
+        sha256: "9f754b10adbb0e146fe1fa17e1f61136a90e15692fb51eb213b02922a932fb6c",
+      },
+    },
+  },
+]
+export const browserBuild = (version: string | undefined) =>
+  supportedBrowsers.find((build) => build.version === version)
+export function browserBuildLabels(
+  version: string,
+  platform = `${process.platform}-${process.arch}`,
+  catalog: readonly BrowserBuild[] = supportedBrowsers,
+) {
+  const build = catalog.find((build) => build.version === version)
+  const builds = catalog.filter((build) => build.assets[platform] && !build.deprecated && build.channel !== "nightly")
+  return {
+    latest: builds.at(-1)?.version === version,
+    recommended: builds.some((build) => build.version === version) && version === browserVersion,
+    deprecated: build?.deprecated === true,
+    nightly: build?.channel === "nightly",
+  }
+}
 export const geoipAsset: Download = {
   url: "https://github.com/P3TERX/GeoLite.mmdb/releases/download/2026.11.13/GeoLite2-City.mmdb",
   size: 50559043,

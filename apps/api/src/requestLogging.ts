@@ -1,6 +1,6 @@
 import { PoolExhaustedError } from "@trawl/browser"
 import { type OrchestratorDeps, RequestValidationError, ScrapeError, scrape } from "@trawl/tiers"
-import type { ScrapeRequest, ScrapeResult, TierResult, WafDetection } from "@trawl/types"
+import type { CapturedRequest, ScrapeRequest, ScrapeResult, TierResult, WafDetection } from "@trawl/types"
 import { browserObservations } from "./browserInspectorState"
 import type { CaptureStore } from "./captureStore"
 import { captures, historyScreenshotLimits } from "./captures"
@@ -8,6 +8,7 @@ import { applyDomainProfile, refreshDomainProfile } from "./domainProfile"
 import { createHistoryCapture } from "./historyCapture"
 import { log, requestId, safeMessage, safeUrl } from "./logger"
 import { type MetricsStore, metrics } from "./metrics"
+import { requestDiagnostics } from "./requestDiagnostics"
 
 export type ScrapeSource = "native" | "flaresolverr" | "mcp" | "proxy"
 
@@ -34,10 +35,19 @@ export async function runLoggedScrape(
   observation?: () => void,
   captureStore: CaptureStore | undefined = captures,
   retainCapture?: (result?: ScrapeResult) => boolean,
+  requestContext?: Pick<CapturedRequest, "operation" | "parameters" | "bodyEncoding"> & { requestReason?: string },
 ): Promise<ScrapeResult> {
   const started = Date.now()
   const profiledReq = applyDomainProfile(req)
-  const captured = captureStore?.enabled ? createHistoryCapture(captureStore, req, historyScreenshotLimits) : undefined
+  const captured = captureStore?.enabled
+    ? createHistoryCapture(captureStore, req, historyScreenshotLimits, {
+        source,
+        operation: requestContext?.operation ?? "scrape",
+        parameters: requestContext?.parameters ?? (req as unknown as Record<string, unknown>),
+        bodyEncoding: requestContext?.bodyEncoding,
+        requestReason: requestContext?.requestReason,
+      })
+    : undefined
 
   log("info", "scrape", {
     event: "request.start",
@@ -124,6 +134,8 @@ export async function runLoggedScrape(
       attempts: result.timings,
       statusCode: result.statusCode,
       waf,
+      challenge: result.captchasSolved?.[0],
+      diagnostics: requestDiagnostics(req, result),
     })
     if (captured) {
       try {
@@ -159,7 +171,17 @@ export async function runLoggedScrape(
       url: req.url,
       durationMs: Date.now() - started,
       error,
+      diagnostics: requestDiagnostics(
+        req,
+        undefined,
+        error instanceof ScrapeError ? error.timings : [],
+        error instanceof ScrapeError ? error.blockedEvidence?.reason : undefined,
+      ),
       waf,
+      challenge:
+        error instanceof ScrapeError
+          ? (error.blockedEvidence?.reason ?? error.timings.find((attempt) => attempt.status === "blocked")?.reason)
+          : undefined,
       ...(error instanceof RequestValidationError ? { statusCode: error.statusCode } : {}),
     })
     if (captured) {
@@ -183,6 +205,7 @@ export async function runLoggedScrape(
     })
     throw error
   } finally {
+    captured?.dispose()
     finish?.()
   }
 }

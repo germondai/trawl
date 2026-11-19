@@ -59,7 +59,7 @@ async function runBrowserTierTask<T extends 3 | 4>(
   proxyUrl?: string,
   extraHeaders?: Record<string, string>,
   method?: string,
-  body?: string,
+  body?: string | Buffer<ArrayBuffer>,
   validateOutboundUrl?: OutboundUrlValidator,
   screenshot?: boolean,
   capture: CaptureOptions = {},

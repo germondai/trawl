@@ -3,5 +3,5 @@ node_modules/
 .output/
 /dist
 src-tauri/target/
-src-tauri/gen/
+src-tauri/gen/schemas/
 src-tauri/resources/runtime/

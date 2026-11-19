@@ -63,9 +63,18 @@ String bodies are forwarded unchanged and still need an explicit target
 Content-Type when non-empty. Use strings for form-encoded, XML or other raw text.
 FormData, binary buffers, streams and other non-plain objects are not automatically
 encoded; unsupported or unserializable bodies reject with TypeError before sending.
-The native HTTP API continues to receive a string body; this convenience belongs
-to the SDK. Constructor headers authenticate the API connection, separately from
+The native HTTP API receives a string body; this convenience belongs
+to the SDK. For explicit binary input, send a canonical base64 string with
+`bodyEncoding: "base64"` and a target Content-Type. POST supports browser replay;
+other binary methods require `maxTier: 1` without browser state. Check the instance
+capabilities before using this feature. Constructor headers authenticate the API connection, separately from
 the target headers in the scrape options.
+
+Target Basic, Bearer and API-key authentication use `targetAuth` with explicit
+`maxTier: 1`, independently of constructor `apiKey`. Browser sessions, imported
+cookies, skipHttp and screenshots cannot be combined with target Auth. Header
+credentials are stripped on cross-origin redirects, and authenticated requests
+do not share clearance sessions. See the native API reference for the union and limits.
 
 ## Read, extract and browser helpers
 
@@ -217,6 +226,8 @@ console.log(snapshot.requests, snapshot.averageMs)
 
 The server must have its dashboard enabled. Supply its dashboard token as `apiKey` when required. Supported ranges in minutes: 15, 60, 1440, 10080, 43200. Keep credentials in backend code; frontend connections need an appropriate authenticated proxy.
 
+`maximumMs`, when supplied by a compatible metrics endpoint, is the longest request in the selected period, including rows outside the recent-event preview.
+
 ## Instance observability
 
 The unpublished client also supports `capabilities()`, read-only `settings()`,
@@ -226,8 +237,13 @@ appropriate observability token. Stream iterators accept an AbortSignal and repl
 cursor, report reset events explicitly, and close when the caller exits the iterator.
 See the instance observability API reference for replay and retention limits.
 
+When `capabilities().requestQuery` is true, `requests.list({ page: 2, limit: 20,
+search: 'example.test', source: 'native', result: 'success', tier: 3,
+sort: 'slowest' })` searches the retained history and returns a filtered `total`.
+Use `before` separately for cursor pagination on older instances.
+
 When `capabilities().captures` is true, `requests.captures(id)` returns saved-content
-metadata and `requests.artifact(id, 'html' | 'screenshot', { signal })` downloads its
+metadata and `requests.artifact(id, 'html' | 'screenshot' | 'request', { signal })` downloads its
 bytes. Capture is opt-in on the server. Downloads are bounded to 8 MiB with a 15-second
 default deadline and no retries. Treat saved HTML as untrusted; these methods do not
 render it or contact the target again.

@@ -18,6 +18,33 @@ const OUTPUT_LIMIT: usize = 8 * 1024 * 1024;
 #[derive(Default)]
 pub(crate) struct Operations(Mutex<HashMap<String, watch::Sender<bool>>>);
 impl Operations {
+    pub(crate) fn register(
+        &self,
+        id: String,
+        limit: usize,
+    ) -> Result<(Registration<'_>, watch::Receiver<bool>), String> {
+        if id.len() != 36 || !id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-') {
+            return Err("Invalid operation identifier".into());
+        }
+        let (cancel, receiver) = watch::channel(false);
+        let mut operations = self
+            .0
+            .lock()
+            .map_err(|_| "Operation registry unavailable")?;
+        if operations.len() >= limit || operations.contains_key(&id) {
+            return Err(format!("At most {limit} operations can run at once"));
+        }
+        operations.insert(id.clone(), cancel);
+        Ok((Registration(self, id), receiver))
+    }
+    pub(crate) fn cancel(&self, id: &str) {
+        if let Ok(operations) = self.0.lock() {
+            if let Some(cancel) = operations.get(id) {
+                let _ = cancel.send(true);
+            }
+        }
+    }
+
     pub fn cancel_all(&self) {
         if let Ok(operations) = self.0.lock() {
             for cancel in operations.values() {
@@ -26,7 +53,7 @@ impl Operations {
         }
     }
 }
-struct Registration<'a>(&'a Operations, String);
+pub(crate) struct Registration<'a>(&'a Operations, String);
 impl Drop for Registration<'_> {
     fn drop(&mut self) {
         if let Ok(mut operations) = self.0 .0.lock() {
@@ -93,6 +120,33 @@ fn validate_debug_session(body: &str) -> Result<u64, String> {
     }
     Ok(40_000)
 }
+fn validate_session(body: &str) -> Result<u64, String> {
+    if body.len() > 1024 {
+        return Err("Session options exceed their limit".into());
+    }
+    let value: Value = serde_json::from_str(body).map_err(|_| "Invalid session JSON")?;
+    let fields = value
+        .as_object()
+        .ok_or("Session options must be an object")?;
+    if fields
+        .keys()
+        .all(|key| ["id", "keepPage"].contains(&key.as_str()))
+        && value
+            .get("id")
+            .is_none_or(|id| id.as_str().is_some_and(valid_session_id))
+        && value.get("keepPage").is_none_or(Value::is_boolean)
+    {
+        return Ok(40_000);
+    }
+    validate_debug_session(body)
+}
+fn valid_session_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
 
 async fn cancellable<T>(
     cancel: &mut watch::Receiver<bool>,
@@ -115,6 +169,7 @@ async fn cancellable<T>(
 
 #[tauri::command]
 pub async fn api_operation(
+    app: tauri::AppHandle,
     state: State<'_, Arc<AppState>>,
     instance_id: String,
     path: String,
@@ -123,7 +178,11 @@ pub async fn api_operation(
     operation_id: String,
     on_event: Channel<Value>,
 ) -> Result<Response, String> {
-    execute(
+    let notify = method.as_deref().unwrap_or("POST") == "POST"
+        && ["/scrape", "/read", "/extract"].contains(&path.as_str());
+    crate::begin_background_task(&app, notify).await?;
+    let status = std::sync::atomic::AtomicU64::new(0);
+    let result = execute(
         &state,
         instance_id,
         path,
@@ -131,13 +190,25 @@ pub async fn api_operation(
         body,
         operation_id,
         |value| {
-            on_event
-                .send(value)
-                .map_err(|_| "Request viewer closed".to_string())
+            if value["type"] == "open" {
+                status.store(
+                    value["status"].as_u64().unwrap_or(0),
+                    std::sync::atomic::Ordering::Relaxed,
+                );
+            }
+            let _ = on_event.send(value);
+            Ok(())
         },
     )
-    .await
-    .map(Response::new)
+    .await;
+    let success =
+        result.is_ok() && (200..400).contains(&status.load(std::sync::atomic::Ordering::Relaxed));
+    let cancelled = result
+        .as_ref()
+        .err()
+        .is_some_and(|e| e == "Stopped waiting for the request");
+    crate::finish_background_task(&app, success, notify && !cancelled);
+    result.map(Response::new)
 }
 
 async fn execute(
@@ -157,8 +228,13 @@ async fn execute(
     {
         15000
     } else if method == "POST" && path == "/sessions" {
-        validate_debug_session(&body)?
-    } else if method == "DELETE" && debug_session(&path) && body.is_empty() {
+        validate_session(&body)?
+    } else if method == "DELETE"
+        && path
+            .strip_prefix("/sessions/")
+            .is_some_and(valid_session_id)
+        && body.is_empty()
+    {
         15_000
     } else if method == "POST" {
         validate(&path, &body)?
@@ -221,13 +297,14 @@ async fn execute(
                         .bytes()
                         .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
             });
-        let content_type = if method != "GET" || path == "/browser/pages" {
-            "application/json"
-        } else if path.ends_with("/screenshot") || crate::streams::preview_path(&path) {
-            "image/jpeg"
-        } else {
-            "text/plain; charset=utf-8"
-        };
+        let content_type =
+            if method != "GET" || path == "/browser/pages" || path.ends_with("/captures/request") {
+                "application/json"
+            } else if path.ends_with("/screenshot") || crate::streams::preview_path(&path) {
+                "image/jpeg"
+            } else {
+                "text/plain; charset=utf-8"
+            };
         emit(
             json!({"type":"open", "status":response.status().as_u16(), "requestId":id,"contentType":content_type}),
         )?;
@@ -287,6 +364,26 @@ mod tests {
     use super::*;
     #[cfg(unix)]
     #[test]
+    fn background_download_registry_bounds_and_cancels_independently() {
+        let operations = Operations::default();
+        let mut registered = Vec::new();
+        for n in 0..3 {
+            registered.push(
+                operations
+                    .register(format!("00000000-0000-0000-0000-{n:012}"), 3)
+                    .unwrap(),
+            );
+        }
+        assert!(operations
+            .register("00000000-0000-0000-0000-000000000003".into(), 3)
+            .is_err());
+        operations.cancel("00000000-0000-0000-0000-000000000000");
+        assert!(*registered[0].1.borrow());
+        assert!(!*registered[1].1.borrow());
+        registered.clear();
+        assert!(operations.0.lock().unwrap().is_empty());
+    }
+    #[test]
     fn saved_connection_posts_json_with_private_auth_and_releases_cancelled_operations() {
         use std::os::unix::fs::PermissionsExt;
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -302,8 +399,13 @@ mod tests {
             let state = AppState {
                 runtime: home.clone(), home: home.clone(), child: tokio::sync::Mutex::new(None),
                 quitting: std::sync::atomic::AtomicBool::new(false), close_behavior: std::sync::atomic::AtomicU8::new(0),
+                requested_page: std::sync::atomic::AtomicU8::new(0),
+                #[cfg(target_os = "macos")]
+                quit_behavior: std::sync::atomic::AtomicU8::new(2),
+                #[cfg(target_os = "macos")]
+                app_visibility: std::sync::atomic::AtomicU8::new(0),
                 http: reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap(),
-                streams: crate::streams::Streams::default(), operations: Operations::default(), startup_error: Mutex::new(None),
+                streams: crate::streams::Streams::default(), operations: Operations::default(), browser_operations: Operations::default(), startup_error: Mutex::new(None),
             };
             let body = r#"{"url":"http://owned.fixture","method":"POST","headers":{"Content-Type":"application/json"},"body":"{\"hello\":true}"}"#;
             let served = tokio::spawn(async move {
@@ -421,6 +523,11 @@ mod tests {
             assert!(validate_debug_session(body).is_err());
         }
         assert!(!debug_session("/sessions/existing-user-session"));
+        assert!(validate_session(r#"{"keepPage":true}"#).is_ok());
+        assert!(validate_session(r#"{"id":"existing-user-session","keepPage":false}"#).is_ok());
+        assert!(validate_session(r#"{"id":"../private","keepPage":true}"#).is_err());
+        assert!(validate_session(r#"{"keepPage":"yes"}"#).is_err());
+        assert!(!valid_session_id("session/cookies"));
         assert!(!debug_session(
             "/sessions/desktop-debug-10000000-0000-4000-8000-000000000000?x=1"
         ));

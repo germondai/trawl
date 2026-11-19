@@ -1,15 +1,18 @@
 import { invoke } from "@tauri-apps/api/core"
-import { getCurrentWindow } from "@tauri-apps/api/window"
 import { isNativeWindowDrag, nativeChromePosition } from "~/utils/native-window-drag"
 
-export function useNativeShell() {
+export function useNativeShell(sidebarOpen: Readonly<Ref<boolean>>) {
   const desktop = useDesktopStore()
   let disposed = false
   let observer: ResizeObserver | undefined
   let documentId: number | undefined
+  let clock: { earliest: number; latest: number } | undefined
   let sending = false
   let queued = false
-  const position = () => nativeChromePosition(document.querySelector("[data-native-controls]"))
+  const position = () => {
+    const target = nativeChromePosition(document.querySelector("[data-native-controls]"))
+    return target && { ...target, hidden: sidebarOpen.value && !window.matchMedia("(min-width: 1024px)").matches }
+  }
   async function update() {
     if (disposed || documentId === undefined) return
     if (sending) {
@@ -32,17 +35,34 @@ export function useNativeShell() {
   const schedule = () => {
     void update()
   }
+  watch(sidebarOpen, schedule, { flush: "post" })
   function drag(event: MouseEvent) {
-    if (!isNativeWindowDrag(event)) return
+    if (documentId === undefined || !isNativeWindowDrag(event)) return
     event.preventDefault()
-    void getCurrentWindow()
-      .startDragging()
-      .catch((error) => console.warn("Could not move the window", error))
+    const timestamp = clock && {
+      earliest: clock.earliest + event.timeStamp / 1000,
+      latest: clock.latest + event.timeStamp / 1000,
+    }
+    void invoke("native_window_drag", { documentId, timestamp }).catch((error) =>
+      console.warn("Could not move the window", error),
+    )
   }
   onMounted(async () => {
-    if (!desktop.native) return
+    if (!desktop.native || desktop.mobile) return
     try {
-      documentId = await invoke<number>("native_window_document")
+      // WebKit's DOM event and NSEvent timestamps share the macOS monotonic clock.
+      for (let sample = 0; sample < 3; sample++) {
+        const before = performance.now() / 1000
+        const document = await invoke<{ documentId: number; monotonicTime: number | null }>("native_window_document")
+        const after = performance.now() / 1000
+        documentId = document.documentId
+        if (document.monotonicTime === null) break
+        const next = {
+          earliest: document.monotonicTime - after - 0.001,
+          latest: document.monotonicTime - before + 0.001,
+        }
+        if (!clock || next.latest - next.earliest < clock.latest - clock.earliest) clock = next
+      }
       await document.fonts.ready
       const logo = document.querySelector<HTMLImageElement>(".brand img")
       if (logo) await logo.decode().catch(() => {})

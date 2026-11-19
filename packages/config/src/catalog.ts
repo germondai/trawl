@@ -1,3 +1,15 @@
+import { defaultKeybindings, type Keybindings } from "./keybindings"
+
+export {
+  defaultKeybindings,
+  formatShortcut,
+  type Keybindings,
+  normalizeShortcut,
+  type ShortcutAction,
+  shortcutDefinitions,
+  validateKeybindings,
+} from "./keybindings"
+
 export interface Setting {
   name: string
   kind: "boolean" | "integer" | "enum" | "string" | "json" | "ip"
@@ -12,6 +24,23 @@ export interface Setting {
 }
 
 export const settings: readonly Setting[] = [
+  {
+    name: "TELEMETRY_ENABLED",
+    default: "false",
+    kind: "boolean",
+    description:
+      "Voluntarily share target domain, known challenge type, outcome, duration and TRAWL version with the configured collector. No payloads, paths, query parameters, cookies, keys, raw logs or persistent client identifiers are sent. The receiver necessarily sees the network connection IP. Requires TELEMETRY_ENDPOINT; disabled by default.",
+    group: "telemetry",
+    restart: true,
+  },
+  {
+    name: "TELEMETRY_ENDPOINT",
+    default: "",
+    kind: "string",
+    description: "HTTPS usage collector URL, including /v1/events. No collector is configured or contacted by default.",
+    group: "telemetry",
+    restart: true,
+  },
   {
     name: "PORT",
     default: "8191",
@@ -94,11 +123,20 @@ export const settings: readonly Setting[] = [
     restart: true,
   },
   {
+    name: "HISTORY_CAPTURE_REQUESTS",
+    default: "false",
+    kind: "boolean",
+    description:
+      "Save request parameters for all sources, including URL, target headers, cookies, proxy credentials and payload. Requires authenticated observability. Uses the same artifact, retention and storage limits as saved responses; disabled by default.",
+    group: "history",
+    restart: true,
+  },
+  {
     name: "HISTORY_CAPTURE_MODE",
     default: "none",
     kind: "enum",
     description:
-      "Saved request content. Metadata-only by default; html, screenshot or both require authenticated observability.",
+      "Saved response content. Metadata-only by default; html, screenshot or both require authenticated observability. Request payload capture is configured separately.",
     group: "history",
     restart: true,
     choices: ["none", "html", "screenshot", "both"],
@@ -1032,6 +1070,21 @@ export const profiles: Record<"balanced" | "economy", Environment> = {
   },
 }
 
+export const resourceProfileKeys = ["BROWSER_COLD_BOOT", "BROWSER_IDLE_TIMEOUT_MS", "WAF_DETECTION_ENABLED"] as const
+export type ResourceProfileValues = Partial<Record<(typeof resourceProfileKeys)[number], string>>
+export const resourcePresets = {
+  balanced: {
+    BROWSER_COLD_BOOT: "false",
+    BROWSER_IDLE_TIMEOUT_MS: "0",
+    WAF_DETECTION_ENABLED: "true",
+  },
+  economy: {
+    BROWSER_COLD_BOOT: "true",
+    BROWSER_IDLE_TIMEOUT_MS: "1800000",
+    WAF_DETECTION_ENABLED: "false",
+  },
+} satisfies Record<string, ResourceProfileValues>
+
 export interface Connection {
   id: string
   name: string
@@ -1043,13 +1096,40 @@ export interface UserConfig {
   env: Environment
   desktop: {
     closeBehavior: "ask" | "tray" | "quit"
+    quitBehavior: "immediate" | "double-press" | "hold"
+    appVisibility: "dock-and-tray" | "dock" | "tray"
+    smoothScroll: boolean
+    keybindings: Keybindings
     autostart: boolean
     startServerOnLaunch: boolean
+    localName?: string
+    instanceOrder?: string[]
     connections: Connection[]
   }
 }
 export const emptyConfig = (): UserConfig => ({
   version: 1,
   env: { ...profiles.balanced },
-  desktop: { closeBehavior: "ask", autostart: false, startServerOnLaunch: false, connections: [] },
+  desktop: {
+    closeBehavior: "tray",
+    quitBehavior: "hold",
+    appVisibility: "dock-and-tray",
+    smoothScroll: true,
+    keybindings: defaultKeybindings(),
+    autostart: false,
+    startServerOnLaunch: false,
+    localName: "Local instance",
+    instanceOrder: [],
+    connections: [],
+  },
 })
+
+/** Keep saved positions while appending profiles added by an older client. */
+export function orderedInstanceIds(desktop: UserConfig["desktop"]): string[] {
+  const known = new Set(["local", ...desktop.connections.map(({ id }) => id)])
+  const result: string[] = []
+  for (const id of [...(desktop.instanceOrder ?? []), ...known]) {
+    if (known.delete(id)) result.push(id)
+  }
+  return result
+}

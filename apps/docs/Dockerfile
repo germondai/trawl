@@ -12,6 +12,7 @@ COPY apps/docs/package.json ./apps/docs/
 COPY packages/client/package.json ./packages/client/
 COPY packages/config/package.json ./packages/config/
 COPY packages/types/package.json ./packages/types/
+COPY packages/telemetry/package.json ./packages/telemetry/
 COPY packages/browser/package.json ./packages/browser/
 COPY packages/tiers/package.json ./packages/tiers/
 RUN bun install --frozen-lockfile --filter '@trawl/docs' --linker=hoisted

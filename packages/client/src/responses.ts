@@ -76,6 +76,7 @@ export const isWafDetection = (value: unknown): value is WafDetection =>
 
 export const isDashboardSnapshot = (value: unknown): value is DashboardSnapshot =>
   isRecord(value) &&
+  (value.maximumMs === undefined || positiveNumber(value.maximumMs)) &&
   ["requests", "successes", "failures", "averageMs", "rangeMinutes", "retainedEvents", "bucketMs"].every((key) =>
     positiveNumber(value[key]),
   ) &&

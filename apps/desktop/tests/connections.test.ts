@@ -4,6 +4,8 @@ import { createPinia, setActivePinia } from "pinia"
 
 let capabilityFailures = 0
 let capabilityReads = 0
+let localStatus = { running: false, ready: false }
+let healthReads = 0
 const capabilities = {
   version: 1,
   authentication: "bearer",
@@ -36,8 +38,13 @@ mock.module("@tauri-apps/api/core", () => ({
   isTauri: () => true,
   Channel: class {},
   invoke: async (command: string, request: { instanceId: string; path: string }) => {
+    if (command === "instance_status") return localStatus
     if (command === "server_start") throw "Local server stopped during startup. Check Logs for details."
     if (command === "management") throw new Error("Fixture configuration is unavailable")
+    if (request.path === "/health" && request.instanceId === "local") {
+      healthReads++
+      return { status: 503, body: '{"status":"starting","pool":{}}' }
+    }
     if (request.path === "/capabilities" && request.instanceId === "transient") {
       capabilityReads++
       if (capabilityFailures-- > 0) return { status: 503, body: '{"error":"Temporarily unavailable"}' }
@@ -51,6 +58,17 @@ mock.module("@tauri-apps/api/core", () => ({
   },
 }))
 const { useDesktopStore } = await import("../app/stores/desktop")
+test("a local instance warming up does not display a transient HTTP 503 alert", async () => {
+  setActivePinia(createPinia())
+  const store = useDesktopStore()
+  localStatus = { running: true, ready: false }
+  healthReads = 0
+  await store.refresh()
+  expect(store.error).toBe("")
+  expect(healthReads).toBe(0)
+  expect(store.health).toBeUndefined()
+  localStatus = { running: false, ready: false }
+})
 test("a slow previous connection cannot overwrite the selected dashboard", async () => {
   setActivePinia(createPinia())
   const store = useDesktopStore()

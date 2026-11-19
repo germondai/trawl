@@ -6,7 +6,9 @@ import { PoolExhaustedError } from "@trawl/browser"
 import { ScrapeError, sanitizeWafDetails } from "@trawl/tiers"
 import type {
   ActiveRequest,
+  RequestDiagnostics,
   RequestHistoryEntry,
+  RequestHistoryQuery,
   RequestHistoryResponse,
   RequestLifecycle,
   TierResult,
@@ -15,6 +17,7 @@ import type {
 import { METRICS_DASHBOARD_ENABLED, METRICS_DASHBOARD_TOKEN, METRICS_DB_PATH, OBSERVABILITY_ENABLED } from "./config"
 import { EventJournal } from "./eventJournal"
 import type { ScrapeSource } from "./requestLogging"
+import { usageTelemetry } from "./usageTelemetry"
 
 type Tier = 0 | 1 | 2 | 3 | 4
 type FailureCategory = "blocked" | "timeout" | "capacity" | "network" | "http" | "internal"
@@ -25,6 +28,8 @@ const MAX_EVENTS = 50_000
 const RETENTION_MS = 30 * 24 * 60 * 60_000
 
 export interface MetricEvent {
+  diagnostics?: RequestDiagnostics
+  challenge?: string
   requestId?: string
   method?: string
   source: ScrapeSource
@@ -51,6 +56,7 @@ interface StoredEvent {
   status_code: number | null
   category: FailureCategory | null
   severity: Severity | null
+  diagnostics_json: string | null
   waf_json: string | null
 }
 
@@ -133,6 +139,7 @@ function historyEntry(row: StoredEvent): RequestHistoryEntry {
     statusCode: row.status_code,
     category: row.category,
     severity: row.severity,
+    ...(row.diagnostics_json ? { diagnostics: JSON.parse(row.diagnostics_json) as RequestDiagnostics } : {}),
   }
 }
 
@@ -169,7 +176,7 @@ export class MetricsStore {
     )`)
     const db = this.db
     const schema = (db.query("PRAGMA user_version").get() as { user_version: number }).user_version
-    if (schema > 1) {
+    if (schema > 2) {
       db.close()
       throw new Error("Request-history schema is newer than this server supports")
     }
@@ -182,7 +189,8 @@ export class MetricsStore {
       if (!columns.has("method")) db.run("ALTER TABLE events ADD COLUMN method TEXT")
       db.run("UPDATE events SET request_id = 'legacy-' || lower(hex(randomblob(16))) WHERE request_id IS NULL")
       db.run("CREATE UNIQUE INDEX IF NOT EXISTS events_request_id ON events(request_id)")
-      db.run("PRAGMA user_version = 1")
+      if (!columns.has("diagnostics_json")) db.run("ALTER TABLE events ADD COLUMN diagnostics_json TEXT")
+      db.run("PRAGMA user_version = 2")
     }).immediate()
     this.db.run(`CREATE TABLE IF NOT EXISTS tier_attempts (
       id INTEGER PRIMARY KEY, at INTEGER NOT NULL, event_id INTEGER REFERENCES events(id) ON DELETE CASCADE,
@@ -251,7 +259,7 @@ export class MetricsStore {
     return finish
   }
 
-  history(limit = 50, before?: string): RequestHistoryResponse {
+  history(limit = 50, before?: string, query: RequestHistoryQuery = {}): RequestHistoryResponse {
     const count = Math.min(100, Math.max(1, Math.floor(limit)))
     const db = this.db
     let bound = Number.MAX_SAFE_INTEGER
@@ -260,14 +268,46 @@ export class MetricsStore {
       if (!row) throw new Error("History cursor is no longer available; reload the first page")
       bound = row.id
     }
+    const predicates = ["at >= ?", "id < ?"]
+    const values: (string | number)[] = [Date.now() - RETENTION_MS, bound]
+    if (query.search) {
+      predicates.push(
+        "instr(lower(domain || ' ' || source || ' ' || coalesce(category, '') || ' ' || request_id), ?) > 0",
+      )
+      values.push(query.search.toLowerCase())
+    }
+    if (query.source) {
+      predicates.push("source = ?")
+      values.push(query.source)
+    }
+    if (query.result) {
+      predicates.push("success = ?")
+      values.push(Number(query.result === "success"))
+    }
+    if (query.tier !== undefined) {
+      predicates.push("tier = ?")
+      values.push(query.tier)
+    }
+    const where = predicates.join(" AND ")
+    const order = {
+      newest: "id DESC",
+      oldest: "id ASC",
+      slowest: "duration_ms DESC, id DESC",
+      fastest: "duration_ms ASC, id DESC",
+    }[query.sort ?? "newest"]
+    const total = db
+      ? (db.query(`SELECT COUNT(*) AS count FROM events WHERE ${where}`).get(...values) as { count: number }).count
+      : 0
     const rows = db
       ? (db
-          .query("SELECT * FROM events WHERE id < ? AND at >= ? ORDER BY id DESC LIMIT ?")
-          .all(bound, Date.now() - RETENTION_MS, count + 1) as StoredEvent[])
+          .query(`SELECT * FROM events WHERE ${where} ORDER BY ${order} LIMIT ? OFFSET ?`)
+          .all(...values, count + 1, ((query.page ?? 1) - 1) * count) as StoredEvent[])
       : []
     const page = rows.slice(0, count)
     return {
       entries: page.map(historyEntry),
+      total,
+      page: query.page ?? 1,
       nextCursor: rows.length > count ? (page.at(-1)?.request_id ?? null) : null,
       cursor: this.events.cursor,
       active: [...this.active.values()].map(({ request }) => request),
@@ -337,6 +377,20 @@ export class MetricsStore {
   }
 
   record(event: MetricEvent): void {
+    try {
+      usageTelemetry.record({
+        url: event.url,
+        challenge: event.challenge,
+        success:
+          event.error === undefined &&
+          event.statusCode !== undefined &&
+          event.statusCode >= 200 &&
+          event.statusCode < 400,
+        durationMs: event.durationMs,
+      })
+    } catch {
+      /* Optional usage sharing must not change request processing. */
+    }
     const db = this.db
     const rawWaf = event.waf ?? (event.error instanceof ScrapeError ? event.error.waf : undefined)
     if (!db && !rawWaf) return
@@ -353,8 +407,8 @@ export class MetricsStore {
       if (!db) return
       db.transaction(() => {
         const inserted = db
-          .query(`INSERT INTO events(at, domain, source, duration_ms, success, tier, tier_status, status_code, category, severity, waf_json, request_id, method)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .query(`INSERT INTO events(at, domain, source, duration_ms, success, tier, tier_status, status_code, category, severity, waf_json, request_id, method, diagnostics_json)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
           .run(
             at,
             domainOf(event.url),
@@ -369,6 +423,7 @@ export class MetricsStore {
             waf ? JSON.stringify(waf) : null,
             id,
             event.method ?? this.active.get(id)?.request.method ?? null,
+            event.diagnostics ? JSON.stringify(event.diagnostics) : null,
           )
         for (const attempt of attempts) {
           if (attempt.status !== "skipped") {
@@ -406,6 +461,7 @@ export class MetricsStore {
             statusCode: event.statusCode ?? null,
             category: failure?.category ?? null,
             severity: failure?.severity ?? null,
+            ...(event.diagnostics ? { diagnostics: event.diagnostics } : {}),
           },
         })
     }
@@ -421,11 +477,12 @@ export class MetricsStore {
     const groups = db
       ? (db
           .query(`SELECT (at / ?) * ? AS at, source, tier,
-      COUNT(*) AS requests, SUM(success) AS successes, SUM(duration_ms) AS duration_ms FROM events WHERE at >= ?
+      COUNT(*) AS requests, SUM(success) AS successes, SUM(duration_ms) AS duration_ms, MAX(duration_ms) AS maximum_ms FROM events WHERE at >= ?
       GROUP BY (at / ?), source, tier`)
           .all(step, step, from, step) as (Pick<StoredEvent, "at" | "source" | "tier" | "duration_ms"> & {
           requests: number
           successes: number
+          maximum_ms: number
         })[])
       : []
     const failureGroups = db
@@ -501,11 +558,13 @@ export class MetricsStore {
     let requests = 0
     let successes = 0
     let duration = 0
+    let maximumMs = 0
     for (const row of attempts) byTier[row.tier].attempts = row.count
     for (const row of groups) {
       requests += row.requests
       bySource[row.source] += row.requests
       duration += row.duration_ms
+      maximumMs = Math.max(maximumMs, row.maximum_ms)
       successes += row.successes
       if (row.tier !== null) byTier[row.tier].successes += row.successes
     }
@@ -556,6 +615,7 @@ export class MetricsStore {
       successes,
       failures: requests - successes,
       averageMs: requests ? Math.round(duration / requests) : 0,
+      maximumMs,
       bySource,
       byTier,
       byFailure,

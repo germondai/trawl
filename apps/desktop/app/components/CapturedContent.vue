@@ -1,16 +1,25 @@
 <script setup lang="ts">
 import type { ArtifactKind } from "@trawl/client"
+import { useNavigationSelection } from "~/composables/useNavigationSteps"
 import { capturedDocument } from "~/utils/captured-document"
 import { validateJpegPreview } from "~/utils/jpeg-preview"
 
-const props = defineProps<{ requestId: string; requestAt: string }>()
+const props = defineProps<{ requestId: string; requestAt: string; view?: "preview" | "source" }>()
 const reference = () => ({ id: props.requestId, at: props.requestAt })
-const { manifest, loading, error, refresh } = useSavedCaptures(reference)
+const { manifest, loading, error } = useSavedCaptures(reference)
 const preference = useLocalStorage<ArtifactKind>("trawl.capture.preview", "screenshot", { onError: () => {} })
-const ready = computed(() => manifest.value?.artifacts.filter((item) => item.state === "ready") ?? [])
-const selected = computed(() => ready.value.find((item) => item.kind === preference.value) ?? ready.value[0])
+const responses = computed(() => manifest.value?.artifacts.filter((item) => item.kind !== "request") ?? [])
+const ready = computed(() => responses.value.filter((item) => item.state === "ready"))
+const selected = computed(() =>
+  props.view === "source"
+    ? ready.value.find((item) => item.kind === "html")
+    : (ready.value.find((item) => item.kind === preference.value) ?? ready.value[0]),
+)
 const { bytes, loading: downloading, error: downloadError, retry } = useCaptureArtifact(reference, () => selected.value)
-const view = shallowRef<"preview" | "source">("preview")
+const localView = shallowRef<"preview" | "source">("preview")
+useNavigationSelection("capture-view", localView, { transient: true })
+useNavigationSelection("capture-artifact", preference, { transient: true })
+const view = computed(() => props.view ?? localView.value)
 const url = shallowRef("")
 const previewError = shallowRef("")
 const limited = shallowRef(false)
@@ -67,25 +76,29 @@ watch(
   <section class="saved-content form-stack" aria-label="Saved response content">
     <div class="flex items-center justify-between flex-wrap gap-3">
       <h3>Saved response</h3>
-      <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-refresh-cw" :loading="loading" @click="refresh"
-        >Refresh saved content</UButton
-      >
     </div>
     <p v-if="error" class="notice" role="status">{{ error }}</p>
     <p v-else-if="!manifest" class="muted" role="status">Loading saved-content metadata…</p>
-    <p v-else-if="!manifest.artifacts.length" class="muted">
-      Content was not saved for this request. Enable history capture in the instance settings to save future responses.
+    <p v-else-if="!responses.length" class="text-xs muted">
+      Content was not saved. Configure <SettingLink name="HISTORY_CAPTURE_MODE">response capture</SettingLink> to save
+      future responses.
     </p>
     <template v-else>
       <div class="flex flex-wrap gap-x-6 gap-y-2 text-xs muted">
-        <span v-for="artifact in manifest.artifacts" :key="artifact.kind" :title="artifact.reason">
-          {{ artifact.kind === "html" ? "HTML" : "Screenshot" }}
-          · {{ labels[artifact.state]
-          }}<template v-if="artifact.bytes !== undefined"> · {{ size(artifact.bytes) }}</template>
-        </span>
+        <UTooltip v-for="artifact in responses" :key="artifact.kind" :text="artifact.reason"
+          ><span>
+            {{ artifact.kind === "html" ? "HTML" : "Screenshot" }}
+            · {{ labels[artifact.state]
+            }}<template v-if="artifact.bytes !== undefined"> · {{ size(artifact.bytes) }}</template>
+          </span></UTooltip
+        >
       </div>
       <template v-if="selected">
-        <fieldset class="capture-tabs flex flex-wrap gap-2" aria-label="Saved-content view">
+        <fieldset
+          v-if="props.view !== 'source'"
+          class="capture-tabs flex flex-wrap gap-2"
+          aria-label="Saved-content view"
+        >
           <UButton
             v-for="artifact in ready"
             :key="artifact.kind"
@@ -94,18 +107,18 @@ watch(
             :aria-pressed="selected.kind === artifact.kind"
             @click="
               preference = artifact.kind;
-              view = 'preview';
+              localView = 'preview';
             "
             >{{
               artifact.kind === "html" ? "HTML" : "Screenshot"
             }}</UButton
           >
           <UButton
-            v-if="selected.kind === 'html' && isHTML"
+            v-if="!props.view && selected.kind === 'html' && isHTML"
             color="neutral"
             :variant="view === 'source' ? 'soft' : 'ghost'"
             :aria-pressed="view === 'source'"
-            @click="view = view === 'source' ? 'preview' : 'source'"
+            @click="localView = view === 'source' ? 'preview' : 'source'"
             >Source</UButton
           >
         </fieldset>
@@ -150,18 +163,20 @@ watch(
           ><template v-if="selected.truncated"> · Partial response</template>
         </p>
       </template>
+      <p v-if="!selected && props.view === 'source'" class="text-xs muted">
+        No response body was saved. Open Preview to view any retained screenshot.
+      </p>
       <p class="text-xs muted">
-        Opening this content does not contact the target again. HTML is a readable offline preview without the page’s
-        styles, scripts, forms or network resources. Screenshots preserve its captured appearance.
+        Opening this content does not contact the target again. HTML keeps supported page styles in an offline preview
+        without scripts, forms or network resources. Screenshots preserve its captured appearance.
       </p>
     </template>
   </section>
 </template>
 <style scoped>
 .saved-content {
-  border-top: 1px solid var(--ui-border);
-  padding-top: 24px;
-  margin-top: 24px;
+  padding-top: 0;
+  margin-top: 0;
 }
 .capture-tabs {
   border: 0;
