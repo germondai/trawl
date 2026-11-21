@@ -13,6 +13,23 @@ bun --cwd packages/cli build
 node packages/cli/dist/index.mjs --help
 ```
 
+## How the pieces fit
+
+```mermaid
+flowchart LR
+  CLI[CLI commands] --> SDK[Typed TypeScript SDK]
+  App[Desktop / Android UI] --> API[TRAWL instance API]
+  SDK --> API
+  API --> HTTP[HTTP engine]
+  API --> Browser[Camoufox / Android WebView]
+  CLI --> Manager[Local runtime manager]
+  Manager --> Local[Local instance process]
+```
+
+The CLI is command → result, suitable for terminals, shell scripts and automation. It currently has no interactive wizard, TUI or graphical window. Use the desktop/mobile app for graphical management. The SDK shares request/response TypeScript definitions and checks response shapes at runtime. CLI argument parsing and server validation also exist, but arbitrary `--options` JSON is not fully schema-validated by the CLI; TypeScript types alone do not validate external JSON.
+
+With an existing installation, `trawl health` checks the selected API, `trawl read URL` returns readable content, and `trawl server status` checks the locally managed process. `--base-url` chooses an existing remote API for that invocation; `--home` chooses an isolated local instance/configuration. Remote API commands do not install a browser or start a server on the remote host.
+
 ## Existing server
 
 ```sh
@@ -77,7 +94,8 @@ Settings resolve as flags, then environment, then the private JSON config, then 
 
 ```sh
 trawl server start --port 8195 --browser-pool-size 1
-trawl config set BROWSER_GEOIP_IP 8.8.8.8
+trawl config set DNS_RESOLVER cloudflare
+trawl server restart
 trawl config set STT_API_KEY - < ./private-key.txt
 trawl config show
 trawl config export > settings.env

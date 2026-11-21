@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add instance-scoped Cloudflare, Google, Quad9 and AdGuard DNS-over-HTTPS presets plus custom IP/TCP or HTTPS servers for direct HTTP and browser traffic, including Android. Preserve upstream-proxy DNS, public-only address checks and inherited defaults.
+- Localize desktop and Android interfaces in English, Czech, Slovak, Polish, German and French. Default to System with English fallback; bundle offline catalogs, flags, locale-aware formatting, native menu/notification labels and language-reactive error messages while preserving technical names and user content.
+- Add a localized contextual app tour across responsive pages, with highlighted controls, safe viewport positioning, persistent navigation actions, scrollable explanations and reopening from App settings or the command palette. Avoid transient card jumps while switching tour steps.
+- Retain measured request execution spans, tier/escalation reasons, session ownership and optional eval-input captures under existing authenticated retention limits. Refresh session activity automatically and support server-side pagination with compatibility for older instances.
+- Keep request summaries above detail tabs, show captured headers and cookies in their own views, and group HTML, Markdown, Raw and screenshots under Response. Use shared replay/copy actions, consistent code blocks and stable dialog dimensions.
+- Add phone bottom navigation with a raised New request action, one header actions menu, compact Logs filters/footer and a save bar above navigation. Keep Android TV on the desktop layout and restrict setting categories to the selected runtime's capabilities.
+- Add reversible desktop trackpad history gestures, workspace find, request-tab drag/keyboard ordering, type-to-focus search/URL entry and mobile pull-to-refresh with a dedicated indicator. Coordinate drawer dragging with scrolling and keep tooltips above the workspace.
+- Add preset/custom DNS controls, filesystem pickers, file/directory drops, truncated setting hints and a two-state sidebar toggle. Recognize customized resource profiles without changing unrelated environment overrides.
+- Keep Android server execution in a private foreground-service process with bounded same-app Binder control, restoration without reopening the Activity, optional live activities and preserved Stop/Restart actions. Remove unused notification boot/wake declarations and narrow camera FileProvider sharing.
+- Prepare signed desktop updates and Android update downloads with package/version/signing checks, explicit system installation, progress and release-feed tooling. Add optional Xiaomi Focus/HyperIsland support with standard-notification fallback; release-feed publication remains a release task.
+- Preserve dark macOS application branding and proportional window resizing between displays. Track generated frontend changes for every native target to prevent stale packaged Android interfaces.
+- Document the reusable cross-platform production application blueprint, interaction catalog, localization plan, project brief and visual starter tokens.
+
 - Apply distinct browser-tag colors and shared explanatory tooltips, including explicit catalog metadata for Deprecated and Nightly. Keep experimental or deprecated builds out of Latest and Recommended selection.
 
 - Add Android arm64-v8a and armeabi-v7a builds with a native HTTP/System WebView runtime, private authenticated local API, bounded history and a foreground server/task notification with Stop/Restart actions.
@@ -85,6 +98,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Increase the default browser acquisition wait from 15 to 30 seconds so bursts can wait longer for a free browser. Keep explicit `BROWSER_ACQUIRE_TIMEOUT_MS` overrides and the request's overall deadline.
 
 ### Fixed
+
+- Respect Android system bars, display cutouts and keyboard insets, and let Back dismiss the keyboard first. Keep foreground services independent of the recent-app task, restore controls when reopening it, expose Android background/battery settings, and inset the transparent launcher mark on a dark adaptive background.
+- Close mobile navigation menus on Back without reopening them when returning to an earlier page.
 
 - Cancel a held macOS Quit gesture from Escape key state even when a system shortcut consumes the Escape event; keep cancellation latched until the held shortcut is released.
 

@@ -1,0 +1,101 @@
+/*
+ * Návrh tokenů pro další aplikaci, inspirovaný TRAWLem.
+ * Nejde o komponentovou knihovnu ani o styl načítaný současným TRAWLem.
+ * Theme adapter řeší volbu system/dark/light a nastaví data-app-theme na html.
+ * Vizuální směr: klidné neutrální plochy, jeden akcent, čitelná data.
+ */
+:root {
+  color-scheme: dark;
+
+  --app-font-ui: "Urbanist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --app-font-mono: ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --app-bg: #171719;
+  --app-panel: #1c1c1e;
+  --app-surface-raised: #222225;
+  --app-text: #e9e9ec;
+  --app-text-muted: #a0a0a8;
+  --app-border-soft: #303034;
+  --app-border-control: #707079;
+  --app-accent: #48ce8a;
+  --app-on-accent: #102119;
+  --app-focus: #48ce8a;
+  --app-success: #48ce8a;
+  --app-warning: #f2c66d;
+  --app-danger: #f18e99;
+  --app-overlay: rgb(0 0 0 / 36%);
+
+  --app-space-1: 0.25rem;
+  --app-space-2: 0.5rem;
+  --app-space-3: 0.75rem;
+  --app-space-4: 1rem;
+  --app-space-6: 1.5rem;
+  --app-space-8: 2rem;
+
+  --app-radius-control: 0.5rem;
+  --app-radius-panel: 0.75rem;
+  --app-radius-dialog: 1.25rem;
+  --app-text-small: 0.875rem;
+  --app-text-body: 1rem;
+  --app-text-title: 1.25rem;
+  --app-line-height: 1.5;
+
+  /* CSS jednotky jsou výchozí návrh pro webovou vrstvu, ne nativní pt/dp. */
+  --app-control-min-block: 2.25rem;
+  --app-touch-min-block: 2.75rem;
+  --app-header-block: 4rem;
+  --app-header-compact-block: 3.5rem;
+  --app-sidebar-inline: 16rem;
+  --app-rail-inline: 4.5rem;
+  --app-content-gap: 1.5rem;
+  --app-blur-chrome: 4px;
+
+  --app-motion-feedback: 120ms;
+  --app-motion-state: 180ms;
+  --app-motion-enter: 220ms;
+  --app-motion-ease: cubic-bezier(0.2, 0, 0, 1);
+
+  --app-layer-content: 0;
+  --app-layer-navigation: 10;
+  --app-layer-header: 20;
+  --app-layer-refresh: 30;
+  --app-layer-backdrop: 40;
+  --app-layer-dialog: 50;
+  --app-layer-toast: 60;
+  --app-layer-tooltip: 70;
+}
+
+/* Světlá varianta je návrh pro další šablonu; není tvrzením o theme TRAWLu. */
+:root[data-app-theme="light"] {
+  color-scheme: light;
+  --app-bg: #f4f4f5;
+  --app-panel: #ffffff;
+  --app-surface-raised: #e8e8ec;
+  --app-text: #202023;
+  --app-text-muted: #5b5b66;
+  --app-border-soft: #d4d4da;
+  --app-border-control: #7c7c86;
+  --app-accent: #167348;
+  --app-on-accent: #ffffff;
+  --app-focus: #167348;
+  --app-success: #167348;
+  --app-warning: #805500;
+  --app-danger: #b42332;
+  --app-overlay: rgb(0 0 0 / 24%);
+}
+
+/* Focus, velikost hit targetu a tvary komponent řeší implementace šablony. */
+@media (any-pointer: coarse) {
+  :root {
+    --app-control-min-block: var(--app-touch-min-block);
+  }
+}
+
+/* Komponenty musí tyto tokeny používat a mít i stav bez animace. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --app-motion-feedback: 0ms;
+    --app-motion-state: 0ms;
+    --app-motion-enter: 0ms;
+  }
+}
