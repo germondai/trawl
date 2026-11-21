@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { confirmationContent, useNavigationModal } from "~/composables/useNavigationSteps"
 import { browserChoiceTags } from "~/utils/browser-tags"
+import { nativeErrorMessage, t } from "~/utils/localization"
 
 const desktop = useDesktopStore()
+const emit = defineEmits<{ connect: [] }>()
 const downloads = useBrowserDownloadsStore()
 const toast = useToast()
 const clearing = shallowRef(false)
@@ -42,9 +44,9 @@ async function change() {
     clearing.value = true
     try {
       await desktop.management({ action: "clearStorage", storage: "downloads" })
-      toast.add({ title: "Browser download cache cleared", color: "success" })
+      toast.add({ title: t("ui.browserDownloadCacheCleared"), color: "success" })
     } catch (cause) {
-      toast.add({ title: "Could not clear download cache", description: String(cause), color: "error" })
+      toast.add({ title: t("ui.couldNotClearDownloadCache"), description: nativeErrorMessage(cause), color: "error" })
     } finally {
       clearing.value = false
     }
@@ -70,34 +72,38 @@ async function change() {
 }
 const confirmDescription = computed(() =>
   confirm.value?.action === "clearDownloads"
-    ? "Remove cached archives and interrupted downloads? Installed browsers are kept. Interrupted downloads will start again from the beginning."
+    ? t("ui.removeCachedArchivesAndInterruptedDownloadsInstalledBrowsers")
     : confirm.value?.action === "uninstallBrowser"
-      ? `Remove ${confirm.value.version ? `Camoufox ${confirm.value.version}` : "the incomplete installation"} from this device? Other builds, settings and request history are kept.`
-      : `Download and verify a fresh copy of Camoufox ${confirm.value?.version}. Other installed builds are kept.`,
+      ? t("ui.removeFromThisDeviceOtherBuildsSettingsAnd", {
+          p0: confirm.value.version ? `Camoufox ${confirm.value.version}` : t("browser.incompleteInstallation"),
+        })
+      : t("ui.downloadAndVerifyAFreshCopyOfCamoufox", { p0: confirm.value?.version }),
 )
 </script>
 <template>
   <section class="panel">
-    <div class="panel-heading">
+    <div class="panel-heading" data-tour="browser">
       <div class="browser-heading">
         <UIcon name="i-lucide-globe" class="size-5" />
-        <h2>{{ desktop.browser.system ? "Android System WebView" : "Browser installations" }}</h2>
+        <h2>{{ desktop.browser.system ? t("ui.androidSystemWebview") : t("ui.browserInstallations") }}</h2>
       </div>
       <UBadge v-if="!desktop.browser.system" color="neutral" variant="subtle"
         >{{ choices.filter((choice) => choice.installed || choice.present).length }}
-        installed</UBadge
+        {{ t("ui.installed2") }}</UBadge
       >
     </div>
     <p v-if="desktop.browser.system" class="panel-body text-sm muted">
-      Android provides and updates this browser. TRAWL uses an isolated WebView for rendered GET requests; it does not
-      install desktop Camoufox builds on Android.
+      {{ t("ui.androidProvidesAndUpdatesThisBrowserTrawlUses") }}
+      <UButton class="mt-3" icon="i-lucide-network" color="neutral" variant="outline" @click="emit('connect')">{{
+        t("ui.connectAFullTrawlInstance")
+      }}</UButton>
     </p>
-    <p v-else class="panel-body text-sm muted">
-      TRAWL installs and manages its own Camoufox browsers. Existing TRAWL installations are detected automatically.
-    </p>
-    <p v-if="desktop.status.running && !desktop.browser.system" class="panel-body notice text-sm">
-      Downloads continue while the server runs. Stop the server to switch or remove a browser.
-    </p>
+    <div v-else class="panel-body text-sm muted">
+      <p>{{ t("ui.trawlInstallsAndManagesItsOwnCamoufoxBrowsers") }}</p>
+      <p v-if="desktop.status.running" class="mt-2 text-xs">
+        {{ t("ui.downloadsContinueWhileTheServerRunsStopThe") }}
+      </p>
+    </div>
     <div class="browser-builds">
       <div v-for="choice in choices" :key="choice.id ?? choice.version" class="browser-build">
         <div class="browser-build-main">
@@ -109,10 +115,10 @@ const confirmDescription = computed(() =>
             <p class="text-xs muted mt-1">
               {{
                 choice.supported === false
-                  ? "This installation cannot be used by TRAWL. You can remove it here."
+                  ? t("ui.thisInstallationCannotBeUsedByTrawlYou")
                   : choice.installed
-                    ? "Available on this device"
-                    : `${Math.ceil(choice.downloadBytes / 1048576)} MiB download`
+                    ? t("ui.availableOnThisDevice")
+                    : t("browser.downloadSize", { size: Math.ceil(choice.downloadBytes / 1048576) })
               }}
             </p>
           </div>
@@ -124,7 +130,7 @@ const confirmDescription = computed(() =>
               :disabled="!canDownload"
               @click="install(choice.version)"
               >{{
-                downloads.jobs[choice.version]?.state === "error" ? "Retry" : "Install"
+                downloads.jobs[choice.version]?.state === "error" ? t("ui.retry") : t("ui.install")
               }}</UButton
             >
             <UButton
@@ -134,32 +140,32 @@ const confirmDescription = computed(() =>
               :disabled="!changeAllowed || (choice.active && !choice.pending)"
               @click="activate(choice.version)"
               >{{
-                choice.pending ? "Apply repair" : choice.active ? "In use" : "Use version"
+                choice.pending ? t("ui.applyRepair") : choice.active ? t("ui.inUse") : t("ui.useVersion")
               }}</UButton
             >
-            <UTooltip
+            <AppTooltip
               v-if="choice.supported !== false && (choice.installed || choice.state === 'repair-needed')"
-              text="Repair this version"
+              :text="t('ui.repairThisVersion')"
               ><UButton
                 icon="i-lucide-wrench"
                 color="neutral"
                 variant="ghost"
-                :aria-label="`Repair ${choice.version}`"
+                :aria-label="t('ui.repair', { p0: choice.version })"
                 :disabled="!canDownload || downloading(choice.version)"
                 @click="confirm = { action: 'repairBrowser', version: choice.version }"
-              /></UTooltip
+              /></AppTooltip
             >
-            <UTooltip
+            <AppTooltip
               v-if="choice.installed || choice.present || choice.state === 'repair-needed'"
-              text="Remove this version"
+              :text="t('ui.removeThisVersion')"
               ><UButton
                 icon="i-lucide-trash-2"
                 color="neutral"
                 variant="ghost"
-                :aria-label="`Remove ${choice.version}`"
+                :aria-label="t('ui.remove', { p0: choice.version })"
                 :disabled="!changeAllowed || (choice.supported !== false && downloading(choice.version))"
                 @click="confirm = { action: 'uninstallBrowser', version: choice.version, browserId: choice.id }"
-              /></UTooltip
+              /></AppTooltip
             >
           </div>
         </div>
@@ -167,10 +173,10 @@ const confirmDescription = computed(() =>
           v-if="choice.supported !== false && downloads.jobs[choice.version]?.state === 'queued'"
           class="flex items-center justify-between gap-3 mt-4"
         >
-          <span class="text-xs muted">Waiting for a download slot</span
-          ><UButton color="neutral" variant="ghost" size="xs" @click="downloads.cancel(choice.version)"
-            >Cancel download</UButton
-          >
+          <span class="text-xs muted">{{ t("ui.waitingForADownloadSlot") }}</span
+          ><UButton color="neutral" variant="ghost" size="xs" @click="downloads.cancel(choice.version)">{{
+            t("ui.cancelDownload")
+          }}</UButton>
         </div>
         <OperationProgress
           v-else-if="choice.supported !== false && downloading(choice.version)"
@@ -183,26 +189,25 @@ const confirmDescription = computed(() =>
           class="notice error text-xs"
           role="alert"
         >
-          {{ downloads.jobs[choice.version]?.error }}
+          {{ nativeErrorMessage(downloads.jobs[choice.version]?.error) }}
         </p>
       </div>
     </div>
     <p v-if="!desktop.browser.system && !choices.length" class="panel-body muted">
-      No supported browser builds are available on this platform.
+      {{ t("ui.noSupportedBrowserBuildsAreAvailableOnThis") }}
     </p>
     <p v-if="desktop.browser.inventoryLimited" class="panel-body notice text-sm">
-      Only the first 128 stored entries are shown. Remove unused installations to reveal more.
+      {{ t("ui.onlyTheFirst128StoredEntriesAreShown") }}
     </p>
     <div v-if="!desktop.browser.system" class="panel-body border-t border-default browser-cache-footer">
       <p class="text-xs muted">
-        Interrupted archives older than 24 hours are cleared on startup or refresh when no installation is running.
-        Cancelled downloads are removed immediately.
+        {{ t("ui.interruptedArchivesOlderThan24HoursAreCleared") }}
       </p>
-      <UTooltip
+      <AppTooltip
         :text="
           downloads.pending.length
-            ? 'Wait for browser downloads to finish'
-            : 'Remove cached and interrupted browser downloads'
+            ? t('ui.waitForBrowserDownloadsToFinish')
+            : t('ui.removeCachedAndInterruptedBrowserDownloads')
         "
       >
         <span class="shrink-0"
@@ -214,21 +219,23 @@ const confirmDescription = computed(() =>
             :loading="clearing"
             :disabled="!canClear"
             @click="confirm = { action: 'clearDownloads' }"
-            >Clear download cache</UButton
+            >{{
+              t("ui.clearDownloadCache")
+            }}</UButton
           ></span
         >
-      </UTooltip>
+      </AppTooltip>
     </div>
   </section>
-  <UModal
+  <AppDialog
     :open="Boolean(confirm)"
     :content="confirmationContent"
     :title="
       confirm?.action === 'clearDownloads'
-        ? 'Clear browser download cache?'
+        ? t('ui.clearBrowserDownloadCache')
         : confirm?.action === 'uninstallBrowser'
-          ? 'Remove browser version?'
-          : 'Repair browser version?'
+          ? t('ui.removeBrowserVersion')
+          : t('ui.repairBrowserVersion')
     "
     :description="confirmDescription"
     :dismissible="!desktop.busy"
@@ -238,8 +245,9 @@ const confirmDescription = computed(() =>
       ><p class="notice error" role="alert">{{ desktop.error }}</p></template
     >
     <template #footer
-      ><UButton color="neutral" variant="outline" :disabled="desktop.busy" @click="confirm = undefined">Cancel</UButton
-      ><UButton
+      ><UButton color="neutral" variant="outline" :disabled="desktop.busy" @click="confirm = undefined">{{
+        t("ui.cancel")
+      }}</UButton><UButton
         data-confirm-default
         :color="confirm?.action === 'repairBrowser' ? 'primary' : 'error'"
         :disabled="
@@ -252,14 +260,14 @@ const confirmDescription = computed(() =>
         @click="change"
         >{{
           confirm?.action === "clearDownloads"
-            ? "Clear cache"
+            ? t("ui.clearCache")
             : confirm?.action === "uninstallBrowser"
-              ? "Remove version"
-              : "Repair version"
+              ? t("ui.removeVersion")
+              : t("ui.repairVersion")
         }}</UButton
       ></template
     >
-  </UModal>
+  </AppDialog>
 </template>
 <style scoped>
 .browser-cache-footer {

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { invoke } from "@tauri-apps/api/core"
+import { useErrorMessage } from "~/composables/useErrorMessage"
 import { confirmationContent, useNavigationModal } from "~/composables/useNavigationSteps"
+import { formatLocale, t } from "~/utils/localization"
 import { type Page, pages } from "~/utils/page-history"
 
 interface Resources {
@@ -55,7 +57,7 @@ const storageEntries = computed(() => {
 })
 const storageBytes = computed(() => data.value?.disk.entries.reduce((sum, entry) => sum + entry.bytes, 0) ?? 0)
 const storagePartial = computed(() => data.value?.disk.entries.some((entry) => entry.partial))
-const error = shallowRef("")
+const error = useErrorMessage()
 const loading = shallowRef(false)
 const clearing = shallowRef<"logs" | "downloads" | "history" | "captures">()
 useNavigationModal(clearing, undefined)
@@ -70,28 +72,47 @@ const storagePages: Record<string, Page> = {
   Browser: "browser",
   "Application & runtime": "connections",
 }
+const resourceLabels: Record<string, string> = {
+  Browser: "ui.browser",
+  "Stored browsers": "ui.storedBrowsers",
+  Metrics: "ui.metrics",
+  "Metrics journal": "resources.metricsJournal",
+  "Desktop executable": "ui.desktopExecutable",
+  "Bundled runtime": "ui.bundledRuntime",
+  "Application & runtime": "resources.applicationRuntime",
+  "Request and response captures": "resources.captures",
+  Configuration: "resources.configuration",
+  Downloads: "resources.downloads",
+  Logs: "ui.logs",
+}
+const resourceName = (name: string) => (resourceLabels[name] ? t(resourceLabels[name]!) : name)
 const storagePageLabel = (name: string) =>
-  pages.find((page) => page.id === storagePages[name])?.label ?? "Server settings"
-const fileManager = desktop.mobile
-  ? "Android app storage settings"
-  : /Mac/.test(navigator.platform)
-    ? "Finder"
-    : /Win/.test(navigator.platform)
-      ? "Explorer"
-      : "file manager"
+  pages.find((page) => page.id === storagePages[name])?.label ?? t("ui.serverSettings")
+const fileManager = computed(() =>
+  desktop.mobile
+    ? t("ui.androidAppStorageSettings")
+    : /Mac/.test(navigator.platform)
+      ? t("ui.finder")
+      : /Win/.test(navigator.platform)
+        ? t("ui.explorer")
+        : t("ui.fileManager"),
+)
 const local = computed(() => desktop.activeId === "local")
 const memoryMax = computed(() => desktop.health?.memory?.limitBytes || data.value?.hostMemory.totalBytes)
 const bytes = (value: number | null | undefined) =>
   value == null
-    ? "Not reported"
+    ? t("ui.notReported")
     : value >= 1024 ** 3
-      ? `${(value / 1024 ** 3).toFixed(2)} GiB`
+      ? `${(value / 1024 ** 3).toLocaleString(formatLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })} GiB`
       : value >= 1024 ** 2
-        ? `${(value / 1024 ** 2).toFixed(1)} MiB`
+        ? `${(value / 1024 ** 2).toLocaleString(formatLocale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 })} MiB`
         : value >= 1024
-          ? `${(value / 1024).toFixed(1)} KiB`
+          ? `${(value / 1024).toLocaleString(formatLocale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 })} KiB`
           : `${value} B`
-const cpu = (value: number | null | undefined) => (value == null ? "Sampling…" : `${value.toFixed(1)}%`)
+const cpu = (value: number | null | undefined) =>
+  value == null
+    ? t("ui.sampling")
+    : `${value.toLocaleString(formatLocale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`
 let disposed = false
 async function refresh(fresh = false) {
   if (loading.value || !desktop.native || !local.value || visible.value !== "visible") return
@@ -103,7 +124,7 @@ async function refresh(fresh = false) {
       error.value = ""
     }
   } catch (cause) {
-    if (!disposed && local.value) error.value = String(cause)
+    if (!disposed && local.value) error.value = cause
   } finally {
     if (!disposed) loading.value = false
   }
@@ -112,7 +133,7 @@ async function reveal(name: string) {
   try {
     await invoke("reveal_storage", { name })
   } catch (cause) {
-    error.value = String(cause)
+    error.value = cause
   }
 }
 async function clear() {
@@ -148,70 +169,74 @@ onScopeDispose(() => {
 <template>
   <template v-if="!local">
     <div class="notice">
-      Process and disk metrics are available for Local instance. Remote container memory is shown when the instance
-      reports it.
+      {{ t("ui.processAndDiskMetricsAreAvailableForLocal") }}
     </div>
     <div v-if="desktop.health?.memory" class="panel panel-body">
-      <h2>Remote memory</h2>
+      <h2>{{ t("ui.remoteMemory") }}</h2>
       <p class="mono mt-4">
         {{ bytes(desktop.health.memory.workingSetBytes ?? desktop.health.memory.currentBytes)
-        }}<span class="muted"> / {{ bytes(desktop.health.memory.limitBytes) }} limit</span>
+        }}<span class="muted"> / {{ bytes(desktop.health.memory.limitBytes) }} {{ t("ui.limit") }}</span>
       </p>
     </div>
   </template>
   <template v-else>
     <div v-if="data" class="stats">
       <div class="stat">
-        <div class="stat-label">TRAWL process trees · CPU</div>
+        <div class="stat-label">{{ t("ui.trawlProcessTreesCpu") }}</div>
         <div class="stat-value mono">{{ cpu(data.cpuPercent) }}</div>
-        <p class="stat-hint">100% represents one logical CPU</p>
+        <p class="stat-hint">{{ t("ui.100RepresentsOneLogicalCpu") }}</p>
         <MetricBar
           :value="data.cpuPercent"
           :max="data.logicalCpus * 100"
-          :label="`${cpu(data.cpuPercent)} of ${data.logicalCpus} logical CPUs`"
+          :label="t('resources.cpuSummary', { usage: cpu(data.cpuPercent), count: data.logicalCpus })"
         />
       </div>
       <div class="stat">
-        <div class="stat-label">Resident memory</div>
+        <div class="stat-label">{{ t("ui.residentMemory") }}</div>
         <div class="stat-value mono">{{ bytes(data.memoryBytes) }}</div>
         <p class="stat-hint">
-          {{ data.processes.length }} processes · {{ bytes(memoryMax) }}
-          {{ desktop.health?.memory?.limitBytes ? "limit" : "device total" }}
+          {{ data.processes.length }} {{ t("ui.processes") }} {{ bytes(memoryMax) }}
+          {{ desktop.health?.memory?.limitBytes ? t("ui.limit") : t("ui.deviceTotal") }}
         </p>
         <MetricBar
           :value="data.memoryBytes"
           :max="memoryMax"
-          :label="`${bytes(data.memoryBytes)} of ${bytes(memoryMax)}`"
+          :label="t('resources.memorySummary', { used: bytes(data.memoryBytes), total: bytes(memoryMax) })"
         />
       </div>
       <div class="stat">
-        <div class="stat-label">Device memory available</div>
+        <div class="stat-label">{{ t("ui.deviceMemoryAvailable") }}</div>
         <div class="stat-value mono">{{ bytes(data.hostMemory.availableBytes) }}</div>
-        <p class="stat-hint">{{ bytes(data.hostMemory.totalBytes) }} installed</p>
+        <p class="stat-hint">{{ bytes(data.hostMemory.totalBytes) }} {{ t("ui.installed2") }}</p>
         <MetricBar
           :value="data.hostMemory.availableBytes"
           :max="data.hostMemory.totalBytes"
-          :label="`${bytes(data.hostMemory.availableBytes)} available of ${bytes(data.hostMemory.totalBytes)}`"
+          :label="
+            t('resources.availableMemory', {
+              available: bytes(data.hostMemory.availableBytes),
+              total: bytes(data.hostMemory.totalBytes),
+            })
+          "
         />
       </div>
     </div>
     <section v-if="data" class="panel">
       <div class="panel-heading">
-        <h2>Processes</h2>
+        <h2>{{ t("ui.processes2") }}</h2>
       </div>
       <div class="table-wrap">
         <table class="request-table">
           <thead>
             <tr>
-              <th>Process</th>
+              <th>{{ t("ui.process") }}</th>
               <th>PID</th>
               <th>CPU</th>
-              <th>Memory</th>
+              <th>{{ t("ui.memory") }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="process in data.processes" :key="process.pid">
-              <td>{{ process.name }}</td>
+              <td>{{ process.name === "TRAWL app" ? t("resources.appProcess") : process.name }}</td>
               <td class="mono">{{ process.pid }}</td>
               <td class="mono">{{ cpu(process.cpuPercent) }}</td>
               <td class="mono">{{ bytes(process.memoryBytes) }}</td>
@@ -220,41 +245,42 @@ onScopeDispose(() => {
         </table>
       </div>
       <p class="panel-body text-xs muted">
-        Includes the desktop, local server and their descendants. Shared resident pages may be counted more than once;
-        system-managed WebView helpers may be outside these trees.
+        {{ t("ui.includesTheDesktopLocalServerAndTheirDescendants") }}
       </p>
     </section>
     <section v-if="data" class="panel">
       <div class="panel-heading">
-        <h2>Managed storage</h2>
-        <span class="text-xs mono muted">{{ storagePartial ? "At least " : "" }}{{ bytes(storageBytes) }} used</span>
+        <h2>{{ t("ui.managedStorage") }}</h2>
+        <span class="text-xs mono muted"
+          >{{ storagePartial ? t("ui.atLeast") : "" }}{{ bytes(storageBytes) }} {{ t("ui.used") }}</span
+        >
       </div>
       <dl class="browser-details managed-storage">
         <div v-for="entry in storageEntries" :key="entry.name">
-          <dt>{{ entry.name }}</dt>
+          <dt>{{ resourceName(entry.name) }}</dt>
           <dd class="storage-actions">
-            <span class="mono">{{ entry.partial ? "At least " : "" }}{{ bytes(entry.bytes) }}</span>
-            <UTooltip :text="`Show in ${fileManager}`"
+            <span class="mono">{{ entry.partial ? t("ui.atLeast") : "" }}{{ bytes(entry.bytes) }}</span>
+            <AppTooltip :text="t('ui.showIn', { p0: fileManager })"
               ><UButton
                 icon="i-lucide-folder-open"
                 class="size-8 justify-center"
                 color="neutral"
                 variant="ghost"
-                :aria-label="`Show ${entry.name} in ${fileManager}`"
+                :aria-label="t('ui.showIn2', { p0: resourceName(entry.name), p1: fileManager })"
                 :disabled="!desktop.native"
                 @click="reveal(entry.location)"
-              /></UTooltip
+              /></AppTooltip
             >
-            <UTooltip
+            <AppTooltip
               v-if="clearable[entry.name]"
               :text="
                 desktop.status.running && clearable[entry.name] !== 'downloads'
-                  ? 'Stop the local server to clear storage'
+                  ? t('ui.stopTheLocalServerToClearStorage')
                   : clearable[entry.name] === 'history'
-                    ? 'Clear metrics and request history'
+                    ? t('ui.clearMetricsAndRequestHistory')
                     : clearable[entry.name] === 'captures'
-                      ? 'Clear request and response captures'
-                      : `Clear ${entry.name.toLowerCase()}`
+                      ? t('ui.clearRequestAndResponseCaptures')
+                      : t('ui.clear', { p0: resourceName(entry.name) })
               "
               ><span
                 ><UButton
@@ -264,10 +290,10 @@ onScopeDispose(() => {
                   variant="ghost"
                   :aria-label="
                     clearable[entry.name] === 'history'
-                      ? 'Clear metrics and request history'
+                      ? t('ui.clearMetricsAndRequestHistory')
                       : clearable[entry.name] === 'captures'
-                        ? 'Clear request and response captures'
-                        : `Clear ${entry.name.toLowerCase()}`
+                        ? t('ui.clearRequestAndResponseCaptures')
+                        : t('ui.clear', { p0: resourceName(entry.name) })
                   "
                   :disabled="
                     !desktop.native ||
@@ -278,54 +304,53 @@ onScopeDispose(() => {
                   "
                   @click="clearing = clearable[entry.name]"
                 /></span
-              ></UTooltip
+              ></AppTooltip
             >
-            <UTooltip v-else :text="`Open ${storagePageLabel(entry.name)}`">
+            <AppTooltip v-else :text="t('ui.open', { p0: storagePageLabel(entry.name) })">
               <UButton
                 icon="i-lucide-arrow-up-right"
                 class="size-8 justify-center"
                 color="neutral"
                 variant="ghost"
-                :aria-label="`Open ${storagePageLabel(entry.name)} for ${entry.name}`"
+                :aria-label="t('ui.openFor', { p0: storagePageLabel(entry.name), p1: resourceName(entry.name) })"
                 @click="emit('navigate', storagePages[entry.name] ?? 'settings')"
               />
-            </UTooltip>
+            </AppTooltip>
           </dd>
         </div>
       </dl>
       <p class="panel-body text-xs muted">
-        Logical file sizes in managed folders. Custom data paths are excluded. A bounded scan may show a lower bound for
-        large or unreadable directories.
+        {{ t("ui.logicalFileSizesInManagedFoldersCustomData") }}
       </p>
     </section>
-    <p v-if="!data && !error" class="notice" role="status">Reading resource use…</p>
+    <p v-if="!data && !error" class="notice" role="status">{{ t("ui.readingResourceUse") }}</p>
     <p v-if="error" class="notice error" role="alert">{{ error }}</p>
   </template>
-  <UModal
+  <AppDialog
     :open="Boolean(clearing)"
     :content="confirmationContent"
     :title="
       clearing === 'history'
-        ? 'Clear metrics and request history?'
+        ? t('ui.clearMetricsAndRequestHistory2')
         : clearing === 'logs'
-          ? 'Clear local logs?'
+          ? t('ui.clearLocalLogs')
           : clearing === 'captures'
-            ? 'Clear request and response captures?'
-            : 'Clear downloaded archives?'
+            ? t('ui.clearRequestAndResponseCaptures2')
+            : t('ui.clearDownloadedArchives')
     "
     :description="
       clearing === 'history'
-        ? 'This permanently removes local metrics, request history and saved request/response captures. Configuration and the installed browser are kept.'
+        ? t('ui.thisPermanentlyRemovesLocalMetricsRequestHistoryAnd')
         : clearing === 'logs'
-          ? 'This permanently removes managed local log files. Configuration and request history are kept.'
+          ? t('ui.thisPermanentlyRemovesManagedLocalLogFilesConfiguration')
           : clearing === 'captures'
-            ? 'This permanently removes saved request inputs, HTML and screenshots with their capture index. Metrics, request history and configuration are kept.'
-            : 'This removes cached download archives. The installed browser and bundled runtime are kept.'
+            ? t('ui.thisPermanentlyRemovesSavedRequestInputsHtmlAnd')
+            : t('ui.thisRemovesCachedDownloadArchivesTheInstalledBrowser')
     "
     @update:open="if (!$event) clearing = undefined;"
   >
     <template #footer
-      ><UButton color="neutral" variant="outline" @click="clearing = undefined">Cancel</UButton
+      ><UButton color="neutral" variant="outline" @click="clearing = undefined">{{ t("ui.cancel") }}</UButton
       ><UButton
         data-confirm-default
         color="error"
@@ -335,10 +360,12 @@ onScopeDispose(() => {
           (clearing === 'downloads' && downloading)
         "
         @click="clear"
-        >Clear storage</UButton
+        >{{
+          t("ui.clearStorage")
+        }}</UButton
       ></template
     >
-  </UModal>
+  </AppDialog>
 </template>
 <style scoped>
 .managed-storage > div {

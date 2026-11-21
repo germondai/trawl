@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { type BrowserObservationSnapshot, TrawlError } from "@trawl/client"
+import { useErrorMessage } from "~/composables/useErrorMessage"
 import { browserSnapshotKey } from "~/utils/browser-snapshot"
 import { validateJpegPreview } from "~/utils/jpeg-preview"
+import { formatLocale, LocalizedError, nativeErrorMessage, t } from "~/utils/localization"
 
 const emit = defineEmits<{ history: [id: string]; workbench: [] }>()
 const desktop = useDesktopStore()
@@ -13,7 +15,7 @@ const enabled = computed(() => supported.value && visible.value === "visible")
 const key = computed(() => `${desktop.activeId}:${desktop.active?.baseURL}`)
 const record = shallowRef<{ key: string; value: BrowserObservationSnapshot }>()
 const snapshot = computed(() => (enabled.value && record.value?.key === key.value ? record.value.value : undefined))
-const metadataError = shallowRef("")
+const metadataError = useErrorMessage()
 const loading = shallowRef(false)
 const { revision, refresh, finish } = useRefreshRevision()
 usePageRefresh(async () => {
@@ -25,16 +27,16 @@ const selected = computed(() => snapshot.value?.pages.find((page) => page.id ===
 const items = computed(
   () =>
     snapshot.value?.pages.map((page) => ({
-      label: `${page.origin} · ${page.state.replaceAll("-", " ")}`,
+      label: `${page.origin} · ${t(`browser.state.${page.state}`)}`,
       value: page.id,
     })) ?? [],
 )
 const live = shallowRef(false)
 const { revision: frameRevision, refresh: refreshFrame, finish: finishFrame } = useRefreshRevision()
 const frameLoading = shallowRef(false)
-const frameError = shallowRef("")
+const frameError = useErrorMessage()
 const debugBusy = shallowRef(false)
-const debugError = shallowRef("")
+const debugError = useErrorMessage()
 let debugController: AbortController | undefined
 onScopeDispose(() => debugController?.abort())
 watch(key, () => {
@@ -71,12 +73,17 @@ async function debugSession(close = false) {
     if (!controller.signal.aborted && key.value === identity) revision.value++
   } catch (cause) {
     if (!controller.signal.aborted && key.value === identity)
-      debugError.value = `${cause instanceof Error ? cause.message : "Debug session operation failed"}. Refresh pages to check session ${id} before retrying.`
+      debugError.value = new LocalizedError("errors.refreshBrowserPages", {
+        get error() {
+          return nativeErrorMessage(cause) || t("errors.debugOperation")
+        },
+        id,
+      })
   } finally {
     if (!controller.signal.aborted && key.value === identity) debugBusy.value = false
   }
 }
-const image = shallowRef<{ key: string; url: string; receivedAt: string }>()
+const image = shallowRef<{ key: string; url: string; receivedAt: number }>()
 const frameKey = computed(
   () =>
     `${key.value}:${selected.value?.id}:${selected.value?.requestId}:${selected.value?.state}:${selected.value?.origin}`,
@@ -131,7 +138,10 @@ watch(
       }
     } catch (cause) {
       if (!controller.signal.aborted && key.value === identity)
-        metadataError.value = cause instanceof Error ? cause.message : "Browser pages are unavailable"
+        metadataError.value =
+          cause instanceof Error || typeof cause === "string"
+            ? cause
+            : new LocalizedError("ui.browserPagesAreUnavailable")
     } finally {
       finish(refreshCount)
       if (!controller.signal.aborted && key.value === identity) loading.value = false
@@ -172,7 +182,7 @@ watch(
       finishFrame(refreshCount)
       if (identity !== previous?.[1]) {
         image.value = undefined
-        frameError.value = "The page changed. Refresh the image to inspect its current state."
+        frameError.value = new LocalizedError("ui.thePageChangedRefreshTheImageToInspect")
       }
       return
     }
@@ -186,11 +196,14 @@ watch(
         if (controller.signal.aborted || frameKey.value !== identity) return
         validateJpegPreview(bytes, { width: 1280, height: 720 })
         const url = URL.createObjectURL(new Blob([new Uint8Array(bytes).buffer], { type: "image/jpeg" }))
-        image.value = { key: identity, url, receivedAt: new Date().toLocaleTimeString() }
+        image.value = { key: identity, url, receivedAt: Date.now() }
         frameError.value = ""
       } catch (cause) {
         if (controller.signal.aborted || frameKey.value !== identity) return
-        frameError.value = cause instanceof Error ? cause.message : "Page preview is unavailable"
+        frameError.value =
+          cause instanceof Error || typeof cause === "string"
+            ? cause
+            : new LocalizedError("ui.pagePreviewIsUnavailable")
         const transient =
           cause instanceof TrawlError &&
           ([409, 429, 503].includes(cause.status ?? 0) || cause.kind === "network" || cause.kind === "timeout")
@@ -212,66 +225,63 @@ watch(
 )
 </script>
 <template>
-  <section class="panel" aria-label="Active browser pages">
+  <section class="panel" :aria-label="t('ui.activeBrowserPages')">
     <div class="panel-heading gap-3 flex-wrap">
-      <h2>Active browser pages</h2>
+      <h2>{{ t("ui.activeBrowserPages") }}</h2>
     </div>
     <div class="panel-body form-stack">
       <div v-if="stopped" class="form-stack">
-        <p class="muted">Start the local server to inspect its browser pages.</p>
+        <p class="muted">{{ t("ui.startTheLocalServerToInspectItsBrowser") }}</p>
         <p v-if="desktop.effective.BROWSER_INSPECTION_ENABLED === 'false'" class="text-xs muted">
-          Browser inspection is disabled. Enable <SettingLink name="BROWSER_INSPECTION_ENABLED" /> before starting.
+          {{ t("ui.browserInspectionIsDisabledEnable") }} <SettingLink name="BROWSER_INSPECTION_ENABLED" />
+          {{ t("ui.beforeStarting") }}
         </p>
       </div>
       <p v-else-if="desktop.activeId !== 'local' && !desktop.health" class="muted">
-        This instance is unavailable. Reconnect to inspect browser pages.
+        {{ t("ui.thisInstanceIsUnavailableReconnectToInspectBrowser") }}
       </p>
       <p v-else-if="!supported" class="muted">
-        Enable <SettingLink name="BROWSER_INSPECTION_ENABLED" /> together with
-        <SettingLink name="OBSERVABILITY_ENABLED">authenticated observability</SettingLink>
-        on this instance, then restart.
+        {{ t("ui.enable") }} <SettingLink name="BROWSER_INSPECTION_ENABLED" /> {{ t("ui.togetherWith") }}
+        <SettingLink name="OBSERVABILITY_ENABLED">{{ t("ui.authenticatedObservability") }}</SettingLink>
+        {{ t("ui.onThisInstanceThenRestart") }}
       </p>
       <template v-else>
         <p v-if="metadataError" class="notice" role="status">{{ metadataError }}</p>
         <p v-if="!snapshot?.pages.length" class="muted" role="status">
-          {{
-            loading
-              ? "Looking for open pages…"
-              : "No observed browser pages are open. Browser-backed requests appear while running; keep-page sessions remain available while idle."
-          }}
+          {{ loading ? t("ui.lookingForOpenPages") : t("ui.noObservedBrowserPagesAreOpenBrowserBacked") }}
         </p>
         <template v-else>
           <UFormField
-            label="Page to inspect"
-            description="Origins are shown without target paths, query strings or credentials."
+            :label="t('ui.pageToInspect')"
+            :description="t('ui.originsAreShownWithoutTargetPathsQueryStrings')"
           >
             <USelect
               v-model="selectedId"
               :items="items"
-              placeholder="Select an open page"
+              :placeholder="t('ui.selectAnOpenPage')"
               class="w-full"
               :ui="{ value: 'truncate' }"
             />
           </UFormField>
           <p v-if="snapshot.truncated" class="notice">
-            The page list reached its 128-page limit. Some pages are omitted.
+            {{ t("ui.thePageListReachedIts128PageLimit") }}
           </p>
           <template v-if="selected">
             <dl class="inspector-facts">
               <div>
-                <dt>Current origin</dt>
+                <dt>{{ t("ui.currentOrigin") }}</dt>
                 <dd class="mono break-all">{{ selected.origin }}</dd>
               </div>
               <div>
-                <dt>Browser</dt>
-                <dd>{{ selected.browserId }} · {{ selected.display.replaceAll("-", " ") }}</dd>
+                <dt>{{ t("ui.browser") }}</dt>
+                <dd>{{ selected.browserId }} · {{ t(`browser.display.${selected.display}`) }}</dd>
               </div>
               <div v-if="selected.sessionId">
-                <dt>Session</dt>
+                <dt>{{ t("ui.session") }}</dt>
                 <dd class="mono break-all">{{ selected.sessionId }}</dd>
               </div>
               <div v-if="selected.requestId">
-                <dt>Request</dt>
+                <dt>{{ t("ui.request") }}</dt>
                 <dd>
                   <UButton
                     color="neutral"
@@ -286,7 +296,7 @@ watch(
               </div>
             </dl>
             <div class="flex items-center justify-between gap-4 flex-wrap">
-              <USwitch v-model="live" :label="live && frameError ? 'Live preview paused' : 'Live preview'" />
+              <USwitch v-model="live" :label="live && frameError ? t('ui.livePreviewPaused') : t('ui.livePreview')" />
             </div>
             <UButton
               v-if="selected.sessionId?.startsWith('desktop-debug-')"
@@ -296,31 +306,33 @@ watch(
               :disabled="selected.state !== 'session-idle'"
               :loading="debugBusy"
               @click="debugSession(true)"
-              >Close debug session</UButton
+              >{{
+                t("ui.closeDebugSession")
+              }}</UButton
             >
             <p v-if="frameError" class="notice" role="status">{{ frameError }}</p>
-            <p v-else-if="frameLoading && !currentImage" class="muted" role="status">Capturing the existing page…</p>
+            <p v-else-if="frameLoading && !currentImage" class="muted" role="status">
+              {{ t("ui.capturingTheExistingPage") }}
+            </p>
             <template v-if="currentImage"
               ><img
                 :src="currentImage.url"
-                alt="Preview of the selected existing browser page"
+                :alt="t('ui.previewOfTheSelectedExistingBrowserPage')"
                 class="inspector-image"
               />
               <p class="text-xs muted">
-                Last received {{ currentImage.receivedAt }} ·
-                {{ live ? (frameError ? "Live refresh paused" : "Live refresh on") : "Single image" }}
+                {{ t("ui.lastReceived") }}
+                {{ new Date(currentImage.receivedAt).toLocaleTimeString(formatLocale(), { timeZoneName: "short" }) }} ·
+                {{ live ? (frameError ? t("ui.liveRefreshPaused") : t("ui.liveRefreshOn")) : t("ui.singleImage") }}
               </p></template
             >
             <p class="text-xs muted">
-              This observes the existing page without navigation or interaction. Live refresh is at most once per
-              second, pauses when hidden and stops if the page closes. Busy or short-budget operations may skip an
-              image.
+              {{ t("ui.thisObservesTheExistingPageWithoutNavigationOr") }}
             </p>
           </template>
         </template>
         <p v-if="snapshot?.headedDebug.display === 'virtual-display'" class="text-xs muted">
-          This host uses a virtual Linux display for headed browsers. Its window does not appear on your desktop; use
-          the preview here.
+          {{ t("ui.thisHostUsesAVirtualLinuxDisplayFor") }}
         </p>
         <div v-if="snapshot?.headedDebug.supported" class="form-stack">
           <UButton
@@ -331,15 +343,17 @@ watch(
             :disabled="!snapshot.headedDebug.configured"
             :loading="debugBusy"
             @click="debugSession()"
-            >Open headed debug session</UButton
+            >{{
+              t("ui.openHeadedDebugSession")
+            }}</UButton
           >
           <p v-if="snapshot.headedDebug.configured" class="text-xs muted">
-            Opens a visible browser on the instance host and selects its session in New request. Close it here or let it
-            expire.
+            {{ t("ui.opensAVisibleBrowserOnTheInstanceHost") }}
           </p>
           <p v-else class="text-xs muted">
-            Set <SettingLink name="BROWSER_HEADFUL_POOL_SIZE">Extra headful browsers</SettingLink> above zero and
-            restart while idle to enable visible debug sessions.
+            {{ t("ui.set") }}
+            <SettingLink name="BROWSER_HEADFUL_POOL_SIZE">{{ t("ui.extraHeadfulBrowsers") }}</SettingLink>
+            {{ t("ui.aboveZeroAndRestartWhileIdleToEnable") }}
           </p>
         </div>
         <p v-if="debugError" class="notice" role="status">{{ debugError }}</p>

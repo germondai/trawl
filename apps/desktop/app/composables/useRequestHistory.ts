@@ -5,6 +5,8 @@ import type {
   RequestHistoryResponse,
   RequestLifecycle,
 } from "@trawl/client"
+import { LocalizedError } from "../utils/localization"
+import { useErrorMessage } from "./useErrorMessage"
 
 export function useRequestHistory(showHistory: () => boolean = () => true) {
   const desktop = useDesktopStore()
@@ -58,7 +60,7 @@ export function useRequestHistory(showHistory: () => boolean = () => true) {
   const activeTruncated = shallowRef(false)
   const nextCursor = shallowRef<string | null>(null)
   const loadingMore = shallowRef(false)
-  const pageError = shallowRef("")
+  const pageError = useErrorMessage()
   let generation = 0
   const feed = useInstanceFeed<RequestLifecycle, RequestHistoryResponse>({
     enabled: () => Boolean(desktop.capabilities?.requests),
@@ -168,7 +170,8 @@ export function useRequestHistory(showHistory: () => boolean = () => true) {
       nextCursor.value = result.nextCursor
     } catch (cause) {
       if (!controller.signal.aborted && serial === generation)
-        pageError.value = cause instanceof Error ? cause.message : "Cannot load history"
+        pageError.value =
+          cause instanceof Error || typeof cause === "string" ? cause : new LocalizedError("ui.cannotLoadHistory")
     } finally {
       if (pageController === controller) {
         loadingMore.value = false
@@ -226,7 +229,8 @@ export function useRequestHistory(showHistory: () => boolean = () => true) {
       nextCursor.value = result.nextCursor
     } catch (cause) {
       if (!controller.signal.aborted && serial === generation)
-        pageError.value = cause instanceof Error ? cause.message : "Cannot load history"
+        pageError.value =
+          cause instanceof Error || typeof cause === "string" ? cause : new LocalizedError("ui.cannotLoadHistory")
     } finally {
       if (pageController === controller) loadingMore.value = false
     }

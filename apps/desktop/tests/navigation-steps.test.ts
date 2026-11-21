@@ -7,6 +7,22 @@ const move = (navigation: ReturnType<typeof createNavigationSteps>, direction: -
   if (target) navigation.go(target.id)
 }
 
+test("leaving a dismiss-only navigation menu cannot reopen it on page Back or Forward", () => {
+  const navigation = createNavigationSteps()
+  const menu = shallowRef(false)
+  const stop = navigation.bindModal(menu, false, true)
+  menu.value = true
+  navigation.visit("history")
+  expect(menu.value).toBe(false)
+  move(navigation, -1)
+  expect(navigation.current.value.page).toBe("overview")
+  expect(menu.value).toBe(false)
+  move(navigation, 1)
+  expect(navigation.current.value.page).toBe("history")
+  expect(menu.value).toBe(false)
+  stop()
+})
+
 test("settings selections are individual steps and survive page Back/Forward without changing values", () => {
   const navigation = createNavigationSteps()
   navigation.visit("settings")
@@ -181,4 +197,25 @@ test("Back dismisses a popup once and Forward never reopens it", () => {
   expect(navigation.current.value.page).toBe("history")
   expect(popup.value).toBe(false)
   stop()
+})
+
+test("guided tour visits pages and restores its step without closing the tour", () => {
+  const navigation = createNavigationSteps()
+  const open = shallowRef(false)
+  const stopModal = navigation.bindModal(open, false)
+  open.value = true
+  const step = shallowRef("navigation")
+  const stopStep = navigation.bindSelection("app-tour-step", step, { transient: true })
+  navigation.visit("connections", { "app-tour-step": "instance" }, { preserveModals: true })
+  navigation.visit("workbench", { "app-tour-step": "send" }, { preserveModals: true })
+  expect(open.value).toBe(true)
+  expect(step.value).toBe("send")
+  move(navigation, -1)
+  expect(navigation.current.value.page).toBe("connections")
+  expect(step.value).toBe("instance")
+  expect(open.value).toBe(true)
+  open.value = false
+  expect(navigation.current.value.selections["app-tour-step"]).toBeUndefined()
+  stopStep()
+  stopModal()
 })

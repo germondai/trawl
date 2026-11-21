@@ -1,7 +1,8 @@
 import { computed, ref, watch } from "vue"
 import { newWorkbenchDraft, type WorkbenchDraft } from "~/utils/workbench"
+import { LocalizedError } from "../utils/localization"
 
-const newTab = () => ({ id: crypto.randomUUID(), draft: newWorkbenchDraft() })
+const newTab = (number = 1) => ({ id: crypto.randomUUID(), number, draft: newWorkbenchDraft() })
 type RequestTabs = { tabs: ReturnType<typeof newTab>[]; activeId: string }
 
 export const useWorkbenchStore = defineStore("workbench", () => {
@@ -11,7 +12,7 @@ export const useWorkbenchStore = defineStore("workbench", () => {
   const activeTabId = ref<string>(first.id)
   function activeTab() {
     const tab = tabs.value.find(({ id }) => id === activeTabId.value) ?? tabs.value[0]
-    if (!tab) throw new Error("No active request tab")
+    if (!tab) throw new LocalizedError("ui.noActiveRequestTab")
     return tab
   }
   const draft = computed({
@@ -23,7 +24,7 @@ export const useWorkbenchStore = defineStore("workbench", () => {
   const drafts = new Map<string, RequestTabs>()
   function addTab() {
     if (tabs.value.length >= 8) return false
-    const tab = newTab()
+    const tab = newTab(Math.max(...tabs.value.map((item, index) => item.number ?? index + 1)) + 1)
     tabs.value.push(tab)
     activeTabId.value = tab.id
     return true
@@ -38,6 +39,12 @@ export const useWorkbenchStore = defineStore("workbench", () => {
     tabs.value.splice(index, 1)
     const next = tabs.value[Math.min(index, tabs.value.length - 1)]
     if (activeTabId.value === id && next) activeTabId.value = next.id
+  }
+  function moveTab(id: string, index: number) {
+    const from = tabs.value.findIndex((tab) => tab.id === id)
+    if (from < 0 || index < 0 || index >= tabs.value.length || from === index) return
+    const [tab] = tabs.value.splice(from, 1)
+    if (tab) tabs.value.splice(index, 0, tab)
   }
   watch(
     () => desktop.activeId,
@@ -60,5 +67,5 @@ export const useWorkbenchStore = defineStore("workbench", () => {
     { flush: "sync" },
   )
   // Drafts remain in memory only; request bodies and target credentials are never persisted automatically.
-  return { draft, tabs, activeTabId, addTab, closeTab }
+  return { draft, tabs, activeTabId, addTab, closeTab, moveTab }
 })

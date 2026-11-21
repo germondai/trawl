@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { t } from "~/utils/localization"
+
 const emit = defineEmits<{ browse: [] }>()
 const downloads = useBrowserDownloadsStore()
 const open = shallowRef(false)
@@ -12,31 +14,33 @@ watch(
 </script>
 <template>
   <UPopover v-model:open="open" :content="{ side: 'top', align: 'end', sideOffset: 12 }">
-    <UTooltip text="Browser downloads"
+    <AppTooltip :text="t('ui.browserDownloads')"
       ><UButton
         icon="i-lucide-download"
         color="neutral"
         variant="outline"
         class="download-queue-fab"
-        aria-label="Browser downloads"
+        :aria-label="t('ui.browserDownloads')"
       >
         <span class="queue-count" aria-hidden="true">{{ downloads.pending.length }}</span>
-      </UButton></UTooltip
+      </UButton></AppTooltip
     >
     <template #content>
-      <section class="download-queue" aria-label="Download queue">
+      <section class="download-queue" :aria-label="t('ui.downloadQueue')">
         <div class="queue-heading">
-          <strong>Browser downloads</strong
-          ><span class="muted text-xs">{{ running }} running · {{ downloads.pending.length - running }} queued</span>
+          <strong>{{ t("ui.browserDownloads") }}</strong
+          ><span class="muted text-xs"
+            >{{ running }} {{ t("ui.running") }} {{ downloads.pending.length - running }} {{ t("ui.queued") }}</span
+          >
         </div>
         <div class="queue-items">
           <div v-for="job in downloads.pending" :key="job.id" class="queue-item">
-            <strong class="text-sm">Camoufox <span class="mono">{{ job.version }}</span></strong>
+            <strong class="text-sm">{{ t("ui.camoufox") }} <span class="mono">{{ job.version }}</span></strong>
             <div v-if="job.state === 'queued'" class="flex items-center justify-between gap-3 mt-2">
-              <span class="text-xs muted">Waiting for a download slot</span
-              ><UButton size="xs" color="neutral" variant="ghost" @click="downloads.cancel(job.version)"
-                >Cancel</UButton
-              >
+              <span class="text-xs muted">{{ t("ui.waitingForADownloadSlot") }}</span
+              ><UButton size="xs" color="neutral" variant="ghost" @click="downloads.cancel(job.version)">{{
+                t("ui.cancel")
+              }}</UButton>
             </div>
             <OperationProgress
               v-else
@@ -54,7 +58,9 @@ watch(
             open = false;
             emit('browse');
           "
-          >Browser installations</UButton
+          >{{
+            t("ui.browserInstallations")
+          }}</UButton
         >
       </section>
     </template>

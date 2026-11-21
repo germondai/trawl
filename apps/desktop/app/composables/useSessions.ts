@@ -1,9 +1,11 @@
 import type { BrowserSession } from "@trawl/client"
+import { LocalizedError } from "../utils/localization"
+import { useErrorMessage } from "./useErrorMessage"
 
 export function useSessions() {
   const desktop = useDesktopStore()
   const sessions = shallowRef<BrowserSession[]>([])
-  const error = shallowRef("")
+  const error = useErrorMessage()
   const loading = shallowRef(false)
   let controller: AbortController | undefined
   async function refresh() {
@@ -18,7 +20,8 @@ export function useSessions() {
       if (!abort.signal.aborted && id === desktop.activeId) sessions.value = values
     } catch (cause) {
       if (!abort.signal.aborted && id === desktop.activeId)
-        error.value = cause instanceof Error ? cause.message : "Could not list sessions"
+        error.value =
+          cause instanceof Error || typeof cause === "string" ? cause : new LocalizedError("ui.couldNotListSessions")
     } finally {
       if (!abort.signal.aborted && id === desktop.activeId) loading.value = false
     }

@@ -1,4 +1,6 @@
 import type { JournalEntry, StreamEvent, StreamOptions, Trawl } from "@trawl/client"
+import { LocalizedError } from "../utils/localization"
+import { useErrorMessage } from "./useErrorMessage"
 import { useRefreshRevision } from "./useRefreshRevision"
 
 export function useInstanceFeed<T, Snapshot extends { cursor: string }>(options: {
@@ -12,7 +14,7 @@ export function useInstanceFeed<T, Snapshot extends { cursor: string }>(options:
 }) {
   const desktop = useDesktopStore()
   const visible = useDocumentVisibility()
-  const error = shallowRef("")
+  const error = useErrorMessage()
   const state = shallowRef<"paused" | "connecting" | "live" | "reconnecting">("paused")
   const { revision, refresh, finish } = useRefreshRevision()
   watch(
@@ -88,7 +90,10 @@ export function useInstanceFeed<T, Snapshot extends { cursor: string }>(options:
           if (!current || desktop.activeId !== id) return
           flush()
           finish(refreshCount)
-          error.value = cause instanceof Error ? cause.message : "Live updates are unavailable"
+          error.value =
+            cause instanceof Error || typeof cause === "string"
+              ? cause
+              : new LocalizedError("ui.liveUpdatesAreUnavailable")
           state.value = "reconnecting"
         }
         if (!current || desktop.activeId !== id) return

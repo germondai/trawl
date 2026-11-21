@@ -1,13 +1,29 @@
 <script setup lang="ts">
+import { t } from "~/utils/localization"
 import { type Page, pages } from "~/utils/page-history"
 
-defineProps<{ page: Page }>()
+defineProps<{ page: Page; hidden?: boolean }>()
 const open = defineModel<boolean>("open", { default: false })
 const collapsed = defineModel<boolean>("collapsed", { default: false })
 const groups = [
-  { label: "Workspace", items: pages.filter((page) => ["overview", "history", "sessions"].includes(page.id)) },
-  { label: "Create request", items: pages.filter((page) => page.id === "workbench") },
-  { label: "Runtime", items: pages.filter((page) => page.group === "Runtime") },
+  {
+    get label() {
+      return t("ui.workspace")
+    },
+    items: pages.filter((page) => ["overview", "history", "sessions"].includes(page.id)),
+  },
+  {
+    get label() {
+      return t("ui.createRequest")
+    },
+    items: pages.filter((page) => page.id === "workbench"),
+  },
+  {
+    get label() {
+      return t("ui.runtime")
+    },
+    items: pages.filter((page) => page.group === "Runtime"),
+  },
 ]
 const emit = defineEmits<{
   navigate: [page: Page]
@@ -73,14 +89,14 @@ const connections = computed(() => desktop.instances.map(({ id, name }) => ({ la
     v-model:collapsed="collapsed"
     id="main"
     collapsible
-    resizable
+    :resizable="!hidden"
     toggle-side="right"
     :default-size="15"
     :min-size="14"
     :max-size="20"
     :collapsed-size="4"
     :ui="{
-      root: 'desktop-sidebar min-h-0 min-w-16 overflow-hidden border-0',
+      root: `desktop-sidebar min-h-0 min-w-16 overflow-hidden border-0 ${hidden ? 'sidebar-hidden' : ''}`,
       header: 'sidebar-header native-sidebar-header border-0',
       body: 'sidebar-body native-sidebar-body',
       footer: 'sidebar-bottom native-sidebar-footer border-0',
@@ -88,13 +104,13 @@ const connections = computed(() => desktop.instances.map(({ id, name }) => ({ la
     }"
   >
     <template #header="{ collapsed }">
-      <UTooltip text="Overview" :kbds="kbds('overview')"
+      <AppTooltip :text="t('ui.overview')" :kbds="kbds('overview')"
         ><UButton
           class="brand"
           :class="{ 'brand-collapsed': collapsed }"
           color="neutral"
           variant="ghost"
-          aria-label="TRAWL Overview"
+          :aria-label="t('ui.trawlOverview')"
           @click="emit('navigate', 'overview')"
         >
           <span class="brand-content"
@@ -103,40 +119,46 @@ const connections = computed(() => desktop.instances.map(({ id, name }) => ({ la
               >trawl<span class="text-primary">.</span></span
             ></span
           >
-        </UButton></UTooltip
+        </UButton></AppTooltip
       >
     </template>
     <template #toggle>
-      <UTooltip text="Close menu"
+      <AppTooltip :text="t('ui.closeMenu')"
         ><UButton
           class="sidebar-menu-close"
           icon="i-lucide-x"
-          aria-label="Close menu"
+          :aria-label="t('ui.closeMenu')"
           color="neutral"
           variant="ghost"
           @click="open = false"
-        /></UTooltip
+        /></AppTooltip
       >
     </template>
     <template #default="{ collapsed }">
       <div class="sidebar-search">
-        <UTooltip text="Search commands" :kbds="kbds('search')" :disabled="!collapsed" :content="{ side: 'right' }">
+        <AppTooltip
+          :text="t('ui.searchCommands')"
+          :kbds="kbds('search')"
+          :disabled="!collapsed"
+          :content="{ side: 'right' }"
+        >
           <UButton
             icon="i-lucide-search"
-            label="Search…"
-            aria-label="Search commands"
+            data-tour="commands"
+            :label="t('ui.search')"
+            :aria-label="t('ui.searchCommands')"
             color="neutral"
             variant="ghost"
             :ui="{ leadingIcon: 'size-5 shrink-0', label: `sidebar-text ${collapsed ? 'opacity-0' : 'opacity-100'}` }"
             @click="emit('search')"
           />
-        </UTooltip>
+        </AppTooltip>
       </div>
-      <div class="sidebar-navigation">
+      <div class="sidebar-navigation" data-tour="navigation">
         <div v-for="(group, index) in groups" :key="group.label" class="sidebar-group">
           <hr v-if="index > 0" class="sidebar-divider" />
           <nav class="sidebar-nav" :aria-label="group.label">
-            <UTooltip
+            <AppTooltip
               v-for="item in group.items"
               :key="item.id"
               :text="item.label"
@@ -158,18 +180,23 @@ const connections = computed(() => desktop.instances.map(({ id, name }) => ({ la
                 variant="ghost"
                 @click="emit('navigate', item.id)"
               />
-            </UTooltip>
+            </AppTooltip>
           </nav>
         </div>
       </div>
     </template>
     <template #footer="{ collapsed }">
-      <UTooltip text="App settings" :kbds="kbds('connections')" :disabled="!collapsed" :content="{ side: 'right' }">
+      <AppTooltip
+        :text="t('ui.appSettings')"
+        :kbds="kbds('connections')"
+        :disabled="!collapsed"
+        :content="{ side: 'right' }"
+      >
         <UButton
           class="sidebar-settings"
           icon="i-lucide-settings"
-          label="App settings"
-          aria-label="App settings"
+          :label="t('ui.appSettings')"
+          :aria-label="t('ui.appSettings')"
           :aria-current="page === 'connections' ? 'page' : undefined"
           :class="{ selected: page === 'connections' }"
           color="neutral"
@@ -180,13 +207,18 @@ const connections = computed(() => desktop.instances.map(({ id, name }) => ({ la
           }"
           @click="emit('navigate', 'connections')"
         />
-      </UTooltip>
-      <UTooltip text="Server settings" :kbds="kbds('settings')" :disabled="!collapsed" :content="{ side: 'right' }">
+      </AppTooltip>
+      <AppTooltip
+        :text="t('ui.serverSettings')"
+        :kbds="kbds('settings')"
+        :disabled="!collapsed"
+        :content="{ side: 'right' }"
+      >
         <UButton
           class="sidebar-settings"
           icon="i-lucide-settings-2"
-          label="Server settings"
-          aria-label="Server settings"
+          :label="t('ui.serverSettings')"
+          :aria-label="t('ui.serverSettings')"
           :aria-current="page === 'settings' ? 'page' : undefined"
           :class="{ selected: page === 'settings' }"
           color="neutral"
@@ -197,7 +229,7 @@ const connections = computed(() => desktop.instances.map(({ id, name }) => ({ la
           }"
           @click="emit('navigate', 'settings')"
         />
-      </UTooltip>
+      </AppTooltip>
       <hr class="sidebar-divider" />
       <UPopover
         :content="{
@@ -212,16 +244,22 @@ const connections = computed(() => desktop.instances.map(({ id, name }) => ({ la
       >
         <UButton
           class="instance-trigger"
+          data-tour="instance"
           color="neutral"
           variant="ghost"
-          :aria-label="`Active instance: ${desktop.active?.name ?? 'Local instance'}, ${connected ? 'connected' : 'not connected'}`"
+          :aria-label="
+            t('ui.activeInstance', {
+              p0: desktop.active?.name ?? t('ui.localInstance'),
+              p1: connected ? t('ui.connected') : t('ui.notConnected'),
+            })
+          "
         >
           <span class="instance-icon" :class="{ connected }"
             ><UIcon name="i-lucide-server" class="size-5" /><span class="dot" :class="{ ready: connected }" /></span
           >
           <span class="sidebar-text instance-label" :class="{ 'opacity-0': collapsed }"
-            ><span>{{ desktop.active?.name ?? "Local instance" }}</span
-            ><small>{{ connected ? "Connected" : "Not connected" }}</small></span
+            ><span>{{ desktop.active?.name ?? t("ui.localInstance") }}</span
+            ><small>{{ connected ? t("ui.connected") : t("ui.notConnected") }}</small></span
           >
           <UIcon
             name="i-lucide-chevrons-up-down"
@@ -231,11 +269,11 @@ const connections = computed(() => desktop.instances.map(({ id, name }) => ({ la
         </UButton>
         <template #content
           ><div class="instance-popover">
-            <strong>Active instance</strong>
+            <strong>{{ t("ui.activeInstance2") }}</strong>
             <USelect
               :model-value="desktop.activeId"
               :items="connections"
-              aria-label="Active instance"
+              :aria-label="t('ui.activeInstance2')"
               @update:model-value="emit('select', String($event))"
             />
             <div class="instance-address">
@@ -244,25 +282,25 @@ const connections = computed(() => desktop.instances.map(({ id, name }) => ({ la
                 class="mono"
                 :value="address"
                 readonly
-                aria-label="Instance address"
+                :aria-label="t('ui.instanceAddress')"
                 @focus="($event.target as HTMLInputElement).select()"
               />
-              <UTooltip :text="copyState === 'copied' ? 'Copied' : 'Copy address'"
+              <AppTooltip :text="copyState === 'copied' ? t('ui.copied') : t('ui.copyAddress')"
                 ><UButton
                   :icon="copyState === 'copied' ? 'i-lucide-check' : 'i-lucide-copy'"
-                  :aria-label="copyState === 'copied' ? 'Instance address copied' : 'Copy instance address'"
+                  :aria-label="copyState === 'copied' ? t('ui.instanceAddressCopied') : t('ui.copyInstanceAddress')"
                   color="neutral"
                   variant="ghost"
                   :disabled="!address || copyState === 'copying'"
                   @click="copyAddress"
-                /></UTooltip
+                /></AppTooltip
               >
             </div>
             <p v-if="copyState === 'copied' || copyState === 'failed'" role="status">
-              {{ copyState === "copied" ? "Address copied" : "Select the address and copy it manually." }}
+              {{ copyState === "copied" ? t("ui.addressCopied") : t("ui.selectTheAddressAndCopyItManually") }}
             </p>
             <UButton
-              label="Manage connections"
+              :label="t('ui.manageConnections')"
               icon="i-lucide-network"
               color="neutral"
               variant="ghost"

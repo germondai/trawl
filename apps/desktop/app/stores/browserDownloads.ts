@@ -2,6 +2,7 @@ import { Channel, invoke } from "@tauri-apps/api/core"
 import { defineStore } from "pinia"
 import { computed } from "vue"
 import { createBrowserDownloads } from "../utils/browser-downloads"
+import { nativeErrorMessage, t } from "../utils/localization"
 import type { InstallationProgress } from "./desktop"
 
 export const useBrowserDownloadsStore = defineStore("browserDownloads", () => {
@@ -27,7 +28,11 @@ export const useBrowserDownloadsStore = defineStore("browserDownloads", () => {
         await desktop.refreshBrowser().catch(() => {})
       } catch (error) {
         if (String(error).startsWith("Could not clean cancelled download:"))
-          toast.add({ title: "Download stopped; cleanup needs attention", description: String(error), color: "error" })
+          toast.add({
+            title: t("ui.downloadStoppedCleanupNeedsAttention"),
+            description: nativeErrorMessage(error),
+            color: "error",
+          })
         throw error
       } finally {
         signal.removeEventListener("abort", cancel)
@@ -36,16 +41,20 @@ export const useBrowserDownloadsStore = defineStore("browserDownloads", () => {
     (job) => {
       if (job.state === "done")
         toast.add({
-          title: `Camoufox ${job.version} is ready`,
+          title: t("ui.camoufoxIsReady", { p0: job.version }),
           description:
             job.action === "repairBrowser" &&
             desktop.browser.choices?.find((choice) => choice.version === job.version)?.pending
-              ? "The repair is ready to apply from Browser installations."
-              : "The browser is available in Browser installations.",
+              ? t("ui.theRepairIsReadyToApplyFromBrowser")
+              : t("ui.theBrowserIsAvailableInBrowserInstallations"),
           color: "success",
         })
       else if (job.state === "error")
-        toast.add({ title: `Could not install Camoufox ${job.version}`, description: job.error, color: "error" })
+        toast.add({
+          title: t("ui.couldNotInstallCamoufox", { p0: job.version }),
+          description: nativeErrorMessage(job.error),
+          color: "error",
+        })
     },
     (job) => desktop.management({ action: "discardBrowserDownload", browserVersion: job.version }),
   )
@@ -54,7 +63,7 @@ export const useBrowserDownloadsStore = defineStore("browserDownloads", () => {
       if (desktop.native) await invoke("enable_notifications").catch(() => {})
       await downloads.start(...args)
     } catch (error) {
-      toast.add({ title: "Could not start download", description: String(error), color: "error" })
+      toast.add({ title: t("ui.couldNotStartDownload"), description: nativeErrorMessage(error), color: "error" })
     }
   }
   const pending = computed(() =>

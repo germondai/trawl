@@ -3,6 +3,7 @@ import { confirmationContent, useNavigationModal, useNavigationSelection } from 
 import { useWorkbenchRun } from "~/composables/useWorkbenchRun"
 import { useDesktopStore } from "~/stores/desktop"
 import { useWorkbenchStore } from "~/stores/workbench"
+import { formatLocale, LocalizedError, nativeErrorMessage, t } from "~/utils/localization"
 import { readRequestFile } from "~/utils/request-body"
 import { serializeRequestFields } from "~/utils/request-fields"
 import {
@@ -16,6 +17,8 @@ import {
 const emit = defineEmits<{ history: [id: string] }>()
 const desktop = useDesktopStore()
 const workbench = useWorkbenchStore()
+const tabDrag = useRequestTabDrag(workbench.moveTab)
+const { dragging, offset } = tabDrag
 const { draft } = storeToRefs(workbench)
 const { state, error, failureDetails, result, requestId, requestIdConfirmed, elapsed, send, stop, reset } =
   useWorkbenchRun()
@@ -45,11 +48,11 @@ watch(
     reveal.value = false
   },
 )
-const tabLabel = (url: string, index: number) => {
+const tabLabel = (url: string, number: number) => {
   try {
     return new URL(url).hostname
   } catch {
-    return `Request ${index + 1}`
+    return t("ui.request2", { p0: number })
   }
 }
 const native = computed(() => desktop.native)
@@ -58,7 +61,8 @@ const { sessions, error: sessionError } = useSessions()
 const reveal = shallowRef(false)
 const editorTab = shallowRef("params")
 useNavigationSelection("request-editor", editorTab)
-const fieldErrors = ref<Record<string, string>>({})
+const fieldErrors = ref<Record<string, unknown>>({})
+const bodyError = computed(() => nativeErrorMessage(fieldErrors.value.body))
 let binaryGeneration = 0
 onScopeDispose(() => {
   binaryGeneration++
@@ -76,12 +80,42 @@ watch(
   { flush: "sync" },
 )
 const editorTabs = [
-  { label: "Params", value: "params" },
-  { label: "Headers", value: "headers" },
-  { label: "Auth", value: "auth" },
-  { label: "Body", value: "body" },
-  { label: "Session", value: "session" },
-  { label: "Options", value: "options" },
+  {
+    get label() {
+      return t("ui.params")
+    },
+    value: "params",
+  },
+  {
+    get label() {
+      return t("ui.headers")
+    },
+    value: "headers",
+  },
+  {
+    get label() {
+      return t("ui.auth")
+    },
+    value: "auth",
+  },
+  {
+    get label() {
+      return t("ui.body")
+    },
+    value: "body",
+  },
+  {
+    get label() {
+      return t("ui.session")
+    },
+    value: "session",
+  },
+  {
+    get label() {
+      return t("ui.options")
+    },
+    value: "options",
+  },
 ]
 const queryText = computed({
   get: () => {
@@ -157,7 +191,7 @@ async function chooseBinary(file: { name: string } | File | null | undefined) {
   if (!(file instanceof File)) return
   const current = draft.value
   const generation = ++binaryGeneration
-  fieldErrors.value.body = "Reading file…"
+  fieldErrors.value.body = new LocalizedError("ui.readingFile")
   try {
     const selected = await readRequestFile(file)
     if (generation !== binaryGeneration || current !== draft.value || draft.value.bodyMode !== "binary") return
@@ -166,7 +200,7 @@ async function chooseBinary(file: { name: string } | File | null | undefined) {
     fieldErrors.value.body = ""
   } catch (cause) {
     if (generation === binaryGeneration && current === draft.value && draft.value.bodyMode === "binary")
-      fieldErrors.value.body = cause instanceof Error ? cause.message : "Unable to read file"
+      fieldErrors.value.body = cause instanceof Error ? cause : new LocalizedError("ui.unableToReadFile")
   }
 }
 watch(
@@ -177,19 +211,38 @@ watch(
 )
 </script>
 <template>
-  <div class="request-tabs" role="tablist" aria-label="Request drafts">
+  <TransitionGroup
+    tag="div"
+    name="request-tab"
+    move-class="request-tab-move"
+    class="request-tabs"
+    role="tablist"
+    :aria-label="t('ui.requestDrafts')"
+  >
     <div
       v-for="(tab, index) in workbench.tabs"
       :key="tab.id"
       class="request-tab"
-      :class="{ active: tab.id === workbench.activeTabId }"
+      :class="{ active: tab.id === workbench.activeTabId, dragging: dragging === tab.id }"
+      :style="dragging === tab.id ? { translate: `${offset}px 0` } : undefined"
+      @pointerdown="tabDrag.start($event, tab.id)"
+      @pointermove="tabDrag.motion"
+      @touchmove="tabDrag.touch"
+      @pointerup="tabDrag.end"
+      @pointercancel="tabDrag.cancel"
+      @click.capture="tabDrag.click"
+      @keydown.esc="tabDrag.cancel"
+      @contextmenu.prevent
     >
       <UButton
         role="tab"
         :aria-selected="tab.id === workbench.activeTabId"
         variant="ghost"
         color="neutral"
-        :label="tabLabel(tab.draft.url, index)"
+        :label="tabLabel(tab.draft.url, tab.number ?? index + 1)"
+        aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight"
+        @keydown.alt.left.prevent.stop="workbench.moveTab(tab.id, Math.max(0, index - 1))"
+        @keydown.alt.right.prevent.stop="workbench.moveTab(tab.id, Math.min(workbench.tabs.length - 1, index + 1))"
         @click="workbench.activeTabId = tab.id"
       />
       <UButton
@@ -197,32 +250,36 @@ watch(
         variant="ghost"
         color="neutral"
         size="xs"
-        :aria-label="`Close ${tabLabel(tab.draft.url, index)}`"
+        :aria-label="t('ui.close', { p0: tabLabel(tab.draft.url, tab.number ?? index + 1) })"
         @click="requestDiscard(tab.id, true)"
       />
     </div>
     <UButton
+      key="add"
       icon="i-lucide-plus"
       variant="ghost"
       color="neutral"
-      aria-label="Add request tab"
+      :aria-label="t('ui.addRequestTab')"
       :disabled="workbench.tabs.length >= 8"
       @click="workbench.addTab()"
     />
-  </div>
+  </TransitionGroup>
   <form class="panel" @submit.prevent="sendRequest">
     <div class="panel-heading">
-      <h2>New request</h2>
+      <h2>{{ t("ui.newRequest") }}</h2>
       <div class="actions">
         <UPopover>
-          <UTooltip text="Request behavior"
-            ><UButton icon="i-lucide-info" color="neutral" variant="ghost" aria-label="Request behavior" /></UTooltip
+          <AppTooltip :text="t('ui.requestBehavior')"
+            ><UButton
+              icon="i-lucide-info"
+              color="neutral"
+              variant="ghost"
+              :aria-label="t('ui.requestBehavior')"
+            /></AppTooltip
           >
           <template #content
             ><div class="request-help">
-              Requests are sent only when you press Send. No automatic retries. Up to 1 MiB input and 8 MiB response.
-              Leaving this page or switching tabs clears the response. Up to eight drafts per instance stay in memory
-              for up to four instances, until the app window closes.
+              {{ t("ui.requestsAreSentOnlyWhenYouPressSend") }}
             </div></template
           >
         </UPopover>
@@ -232,15 +289,20 @@ watch(
           variant="ghost"
           :disabled="pending"
           @click="requestDiscard(workbench.activeTabId)"
-          >Reset request</UButton
+          >{{
+            t("ui.resetRequest")
+          }}</UButton
         >
       </div>
     </div>
     <fieldset class="panel-body form-stack" :disabled="pending">
-      <div class="target-row">
-        <UFormField label="Target method"><USelect v-model="draft.method" :items="[...targetMethods]" /></UFormField>
-        <UFormField label="Target URL" required class="min-w-0"
+      <div class="target-row" data-tour="request-target">
+        <UFormField :label="t('ui.targetMethod')"
+          ><USelect v-model="draft.method" :items="[...targetMethods]" /></UFormField
+        >
+        <UFormField :label="t('ui.targetUrl')" required class="min-w-0"
           ><UInput
+            data-type-focus
             v-model="draft.url"
             type="url"
             required
@@ -251,9 +313,9 @@ watch(
             spellcheck="false"
           /></UFormField
         >
-        <UButton type="submit" icon="i-lucide-play" :disabled="!native || Object.values(fieldErrors).some(Boolean)"
-          >Send</UButton
-        >
+        <UButton type="submit" icon="i-lucide-play" :disabled="!native || Object.values(fieldErrors).some(Boolean)">{{
+          t("ui.send")
+        }}</UButton>
       </div>
       <UTabs
         class="inspection-tabs"
@@ -267,18 +329,18 @@ watch(
         <RequestFields
           v-model="queryText"
           v-model:rows="draft.fields.params"
-          label="Query parameters"
+          :label="t('ui.queryParameters')"
           format="query"
           :disabled="!validURL"
           @invalid="fieldErrors.params = $event"
         />
-        <p v-if="!validURL" class="text-xs muted">Enter a target URL to edit its parameters.</p>
+        <p v-if="!validURL" class="text-xs muted">{{ t("ui.enterATargetUrlToEditItsParameters") }}</p>
       </div>
       <div v-if="editorTab === 'headers'" class="form-stack">
         <RequestFields
           v-model="draft.headers"
           v-model:rows="draft.fields.headers"
-          label="Target headers"
+          :label="t('ui.targetHeaders')"
           format="headers"
           @invalid="fieldErrors.headers = $event"
         />
@@ -287,14 +349,14 @@ watch(
         <URadioGroup
           v-model="bodyKind"
           orientation="horizontal"
-          aria-label="Body type"
+          :aria-label="t('ui.bodyType')"
           :items="[
-            { label: 'No body', value: 'none' },
-            { label: 'form-data', value: 'form' },
-            { label: 'x-www-form-urlencoded', value: 'urlencoded' },
-            { label: 'Raw', value: 'raw' },
-            { label: 'Binary', value: 'binary' },
-            { label: 'GraphQL', value: 'graphql' },
+            { label: t('ui.noBody'), value: 'none' },
+            { label: t('ui.formData'), value: 'form' },
+            { label: t('ui.xWwwFormUrlencoded'), value: 'urlencoded' },
+            { label: t('ui.raw'), value: 'raw' },
+            { label: t('ui.binary'), value: 'binary' },
+            { label: t('ui.graphql'), value: 'graphql' },
           ]"
         />
         <RequestFields
@@ -302,50 +364,50 @@ watch(
           :key="draft.bodyMode"
           v-model="draft.body"
           v-model:rows="draft.fields.body"
-          label="Body fields"
+          :label="t('ui.bodyFields')"
           format="query"
           :allow-files="draft.bodyMode === 'form'"
           @invalid="fieldErrors.body = $event"
         />
         <UFormField
           v-if="bodyKind === 'binary'"
-          label="Binary body"
-          description="Choose a file up to 128 KiB. Content-Type defaults to application/octet-stream; override it in Headers if needed. Non-POST binary bodies use HTTP only."
+          :label="t('ui.binaryBody')"
+          :description="t('ui.chooseAFileUpTo128KibContent')"
         >
           <UFileUpload
             :model-value="draft.binaryName ? { name: draft.binaryName } : null"
-            label="Choose a file or drop it here"
-            description="Up to 128 KiB"
+            :label="t('ui.chooseAFileOrDropItHere')"
+            :description="t('ui.upTo128Kib')"
             icon="i-lucide-upload"
             :file-image="false"
             :disabled="pending"
             class="w-full"
-            aria-label="Binary body file"
+            :aria-label="t('ui.binaryBodyFile')"
             @update:model-value="chooseBinary"
           />
-          <p v-if="fieldErrors.body" class="text-error text-sm" role="alert">{{ fieldErrors.body }}</p>
+          <p v-if="fieldErrors.body" class="text-error text-sm" role="alert">{{ bodyError }}</p>
         </UFormField>
-        <UFormField v-if="bodyKind === 'raw'" label="Content type"
+        <UFormField v-if="bodyKind === 'raw'" :label="t('ui.contentType')"
           ><USelect
             v-model="rawFormat"
             :items="[
               { label: 'JSON', value: 'json' },
-              { label: 'Plain text', value: 'text/plain; charset=utf-8' },
+              { label: t('ui.plainText'), value: 'text/plain; charset=utf-8' },
               { label: 'HTML', value: 'text/html; charset=utf-8' },
               { label: 'XML', value: 'application/xml' },
-              { label: 'JavaScript', value: 'application/javascript' },
+              { label: t('ui.javascript'), value: 'application/javascript' },
             ]"
           /></UFormField
         >
         <UFormField
           v-if="bodyKind === 'raw' || bodyKind === 'graphql'"
-          :label="bodyKind === 'graphql' ? 'GraphQL query' : 'Target request body'"
+          :label="bodyKind === 'graphql' ? t('ui.graphqlQuery') : t('ui.targetRequestBody')"
           :description="
             draft.bodyMode === 'graphql'
-              ? 'The query and variables are sent as a JSON object.'
+              ? t('ui.theQueryAndVariablesAreSentAsA')
               : draft.bodyMode === 'json'
-                ? 'JSON is serialized and Content-Type is set automatically.'
-                : `Content-Type: ${draft.bodyContentType}. Override it in target headers if needed.`
+                ? t('ui.jsonIsSerializedAndContentTypeIsSet')
+                : t('ui.contentTypeOverrideItInTargetHeadersIf', { p0: draft.bodyContentType })
           "
         >
           <UTextarea
@@ -355,7 +417,7 @@ watch(
                 ? 'query { viewer { id name } }'
                 : draft.bodyMode === 'json'
                   ? '{\n  &quot;name&quot;: &quot;value&quot;\n}'
-                  : 'Enter the target request body'
+                  : t('request.bodyPlaceholder')
             "
             :maxlength="131072"
             :rows="6"
@@ -364,7 +426,7 @@ watch(
             autocomplete="off"
           />
         </UFormField>
-        <UFormField v-if="bodyKind === 'graphql'" label="Variables (JSON)"
+        <UFormField v-if="bodyKind === 'graphql'" :label="t('ui.variablesJson')"
           ><UTextarea
             v-model="draft.graphqlVariables"
             placeholder='{ "id": "123" }'
@@ -376,31 +438,31 @@ watch(
         >
       </div>
       <div v-if="editorTab === 'auth'" class="form-stack">
-        <UFormField label="Auth type"
+        <UFormField :label="t('ui.authType')"
           ><USelect
             v-model="draft.auth.type"
             :items="[
-              { label: 'No Auth', value: 'none' },
-              { label: 'Basic Auth', value: 'basic' },
-              { label: 'Bearer Token', value: 'bearer' },
-              { label: 'API Key', value: 'api-key' },
+              { label: t('ui.noAuth'), value: 'none' },
+              { label: t('ui.basicAuth'), value: 'basic' },
+              { label: t('ui.bearerToken'), value: 'bearer' },
+              { label: t('ui.apiKey'), value: 'api-key' },
             ]"
           /></UFormField
         >
         <template v-if="draft.auth.type === 'basic'">
-          <UFormField label="Username"
+          <UFormField :label="t('ui.username')"
             ><UInput
               v-model="draft.auth.username"
-              placeholder="Username"
+              :placeholder="t('ui.username')"
               :maxlength="8192"
               autocomplete="off"
               class="w-full"
             /></UFormField
           >
-          <UFormField label="Password"
+          <UFormField :label="t('ui.password')"
             ><UInput
               v-model="draft.auth.password"
-              placeholder="Password"
+              :placeholder="t('ui.password')"
               type="password"
               :maxlength="8192"
               autocomplete="off"
@@ -408,10 +470,10 @@ watch(
             /></UFormField
           >
         </template>
-        <UFormField v-if="draft.auth.type === 'bearer'" label="Bearer token"
+        <UFormField v-if="draft.auth.type === 'bearer'" :label="t('ui.bearerToken2')"
           ><UInput
             v-model="draft.auth.token"
-            placeholder="Token without Bearer prefix"
+            :placeholder="t('ui.tokenWithoutBearerPrefix')"
             type="password"
             :maxlength="8192"
             autocomplete="off"
@@ -419,73 +481,73 @@ watch(
           /></UFormField
         >
         <template v-if="draft.auth.type === 'api-key'">
-          <UFormField label="Key name"
+          <UFormField :label="t('ui.keyName')"
             ><UInput
               v-model="draft.auth.name"
-              placeholder="X-API-Key"
+              :placeholder="t('ui.xApiKey')"
               :maxlength="256"
               autocomplete="off"
               class="w-full"
             /></UFormField
           >
-          <UFormField label="Key value"
+          <UFormField :label="t('ui.keyValue')"
             ><UInput
               v-model="draft.auth.value"
-              placeholder="API key"
+              :placeholder="t('ui.apiKey2')"
               type="password"
               :maxlength="8192"
               autocomplete="off"
               class="w-full"
             /></UFormField
           >
-          <UFormField label="Add key to"
+          <UFormField :label="t('ui.addKeyTo')"
             ><USelect
               v-model="draft.auth.in"
               :items="[
-                { label: 'Header', value: 'header' },
-                { label: 'Query parameter', value: 'query' },
+                { label: t('ui.header'), value: 'header' },
+                { label: t('ui.queryParameter'), value: 'query' },
               ]"
             /></UFormField
           >
         </template>
         <p class="text-xs muted">
-          These credentials authenticate the target, separately from your TRAWL instance key. Target Auth uses HTTP
-          only, without browser sessions, imported cookies, screenshots or browser diagnostics. Header credentials are
-          removed on cross-origin redirects. Request capture, when enabled on the server, can retain credentials.
+          {{ t("ui.theseCredentialsAuthenticateTheTargetSeparatelyFromYour") }}
         </p>
       </div>
       <div v-if="editorTab === 'session'" class="form-stack">
         <p v-if="authenticated" class="text-xs muted">
-          Target Auth requires an empty Session ID. Choose No Auth to use browser sessions.
+          {{ t("ui.targetAuthRequiresAnEmptySessionIdChoose") }}
         </p>
         <div class="session-fields">
-          <UFormField label="Session ID">
+          <UFormField :label="t('ui.sessionId')">
             <UInput
               v-model="draft.sessionId"
               :maxlength="128"
-              placeholder="Optional session ID"
+              :placeholder="t('ui.optionalSessionId')"
               autocomplete="off"
               class="w-full"
             />
           </UFormField>
-          <UFormField label="Available sessions"
+          <UFormField :label="t('ui.availableSessions')"
             ><USelect
               v-model="draft.sessionId"
               :items="sessionItems"
-              placeholder="Select an active session"
+              :placeholder="t('ui.selectAnActiveSession')"
               class="w-full"
             /></UFormField
           >
         </div>
         <p class="text-xs muted">
-          Reuse a session from the list or enter its ID. Manage retained pages and cookies in Sessions.
+          {{ t("ui.reuseASessionFromTheListOrEnter") }}
         </p>
         <p v-if="sessionError" class="notice error" role="alert">{{ sessionError }}</p>
       </div>
       <div v-if="editorTab === 'options'" class="form-stack">
         <div class="options-row">
-          <UFormField label="Output"><USelect v-model="draft.output" :items="outputItems" class="w-full" /></UFormField>
-          <UFormField label="Timeout (seconds)"
+          <UFormField :label="t('ui.output')"
+            ><USelect v-model="draft.output" :items="outputItems" class="w-full" /></UFormField
+          >
+          <UFormField :label="t('ui.timeoutSeconds')"
             ><UInput
               v-model.number="draft.timeout"
               type="number"
@@ -495,34 +557,34 @@ watch(
               class="w-full"
             /></UFormField
           >
-          <UFormField label="Maximum tier"
+          <UFormField :label="t('ui.maximumTier')"
             ><USelect
               v-model="effectiveTier"
               :disabled="httpOnly"
               class="w-full"
               :items="[
-                { label: 'All tiers (4)', value: 4 },
-                { label: 'Up to tier 3', value: 3 },
-                { label: 'Up to tier 2', value: 2 },
-                { label: 'HTTP only (1)', value: 1 },
+                { label: t('ui.allTiers4'), value: 4 },
+                { label: t('ui.upToTier3'), value: 3 },
+                { label: t('ui.upToTier2'), value: 2 },
+                { label: t('ui.httpOnly1'), value: 1 },
               ]"
             /></UFormField
           >
         </div>
         <div v-if="draft.output === 'extract'">
           <UFormField
-            label="Extraction options (JSON)"
-            description="CSS itemSelector, fields with selector/attribute, and optional maxItems/render."
+            :label="t('ui.extractionOptionsJson')"
+            :description="t('ui.cssItemselectorFieldsWithSelectorAttributeAndOptional')"
           >
             <UTextarea v-model="draft.extraction" :maxlength="32768" :rows="7" class="w-full mono" spellcheck="false" />
           </UFormField>
         </div>
 
-        <UCheckbox v-model="reveal" label="Show advanced options and credentials" />
+        <UCheckbox v-model="reveal" :label="t('ui.showAdvancedOptionsAndCredentials')" />
         <template v-if="reveal">
           <UFormField
-            label="Advanced native options (JSON)"
-            description="For example proxy, cookies, waitForSelector, screenshotFullPage or followMetaRefresh; maxCharacters limits read output. Validation is also applied by the server."
+            :label="t('ui.advancedNativeOptionsJson')"
+            :description="t('ui.forExampleProxyCookiesWaitforselectorScreenshotfullpageOrFollowmetarefresh')"
             ><UTextarea
               v-model="draft.options"
               placeholder='{ "waitForSelector": "#results" }'
@@ -538,44 +600,50 @@ watch(
     </fieldset>
   </form>
   <div v-if="pending" class="notice flex items-center justify-between gap-4" role="status">
-    <span>Waiting for this request…</span
-    ><UButton color="neutral" variant="outline" @click="stop">Stop waiting</UButton>
+    <span class="request-running"
+      ><UIcon name="i-lucide-rotate-cw" class="size-4 animate-spin motion-reduce:animate-none" />
+      <span
+        >{{ t("ui.waitingForThisRequest") }}
+        <span class="mono" aria-hidden="true"
+          >{{ (elapsed / 1000).toLocaleString(formatLocale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 }) }}
+          s</span
+        ></span
+      ></span
+    ><UButton color="neutral" variant="outline" @click="stop">{{ t("ui.stopWaiting") }}</UButton>
   </div>
   <p v-if="error" class="notice error" role="alert">{{ error }}</p>
   <details v-if="failureDetails" class="panel panel-body">
-    <summary>Failure diagnostics</summary>
+    <summary>{{ t("ui.failureDiagnostics") }}</summary>
     <pre class="failure-diagnostics mono">{{ failureDetails }}</pre>
-    <p class="text-xs muted">Diagnostics preview limited to 128 KiB characters</p>
+    <p class="text-xs muted">{{ t("ui.diagnosticsPreviewLimitedTo128KibCharacters") }}</p>
   </details>
   <p v-if="state === 'stopped'" class="notice" role="status">
-    Stopped waiting locally. The server or target may still finish work already accepted. Check request history before
-    sending again.
+    {{ t("ui.stoppedWaitingLocallyTheServerOrTargetMay") }}
   </p>
   <p v-if="requestId && !result" class="mono text-xs break-all">
-    {{ requestIdConfirmed ? "Request ID" : "Proposed request ID" }}: {{ requestId }}
-    <UButton v-if="historyAvailable" color="neutral" variant="link" @click="emit('history', requestId)"
-      >Request history</UButton
-    >
+    {{ requestIdConfirmed ? t("ui.requestId") : t("ui.proposedRequestId") }}: {{ requestId }}
+    <UButton v-if="historyAvailable" color="neutral" variant="link" @click="emit('history', requestId)">{{
+      t("ui.requestHistory")
+    }}</UButton>
   </p>
   <p v-if="requestId && !requestIdConfirmed" class="text-xs muted">
-    The server has not confirmed this ID yet. A busy server may replace it, so missing history does not prove that the
-    request stopped.
+    {{ t("ui.theServerHasNotConfirmedThisIdYet") }}
   </p>
   <WorkbenchResponse v-if="result" :result="result" :elapsed="elapsed" @history="emit('history', $event)" />
-  <UModal
+  <AppDialog
     :open="Boolean(discard)"
     :content="confirmationContent"
-    title="Discard this request draft?"
-    description="The request fields will be cleared. Saved server history is kept."
+    :title="t('ui.discardThisRequestDraft')"
+    :description="t('ui.theRequestFieldsWillBeClearedSavedServer')"
     @update:open="if (!$event) discard = undefined;"
   >
     <template #footer
-      ><UButton color="neutral" variant="outline" @click="discard = undefined">Keep draft</UButton
-      ><UButton data-confirm-default @click="discard && applyDiscard(discard.id, discard.close)"
-        >Discard draft</UButton
-      ></template
+      ><UButton color="neutral" variant="outline" @click="discard = undefined">{{ t("ui.keepDraft") }}</UButton
+      ><UButton data-confirm-default @click="discard && applyDiscard(discard.id, discard.close)">{{
+        t("ui.discardDraft")
+      }}</UButton></template
     >
-  </UModal>
+  </AppDialog>
 </template>
 <style scoped>
 .request-tabs {
@@ -583,7 +651,9 @@ watch(
   align-items: center;
   gap: 8px;
   overflow-x: auto;
-  margin-bottom: 16px;
+  padding: 4px;
+  margin: -4px -4px 12px;
+  position: relative;
 }
 .request-tab {
   display: flex;
@@ -594,11 +664,13 @@ watch(
   padding: 0 4px 0 0;
   gap: 0;
   overflow: hidden;
+  background: var(--ui-bg);
 }
 .request-tab:hover {
   background: var(--ui-bg-elevated);
 }
-.request-tab:focus-within {
+.request-tab:focus-within,
+.request-tab.dragging {
   outline: 2px solid var(--ui-primary);
   outline-offset: 2px;
 }

@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import { useErrorMessage } from "~/composables/useErrorMessage"
 import { useNavigationSelection } from "~/composables/useNavigationSteps"
 import { capturedDocument } from "~/utils/captured-document"
 import { jpegPreviewBytes } from "~/utils/jpeg-preview"
 import { jsonPreview } from "~/utils/json-preview"
+import { formatLocale, LocalizedError, t } from "~/utils/localization"
 import { type WorkbenchResult, workbenchText } from "~/utils/workbench"
 
 const props = defineProps<{ result: WorkbenchResult; elapsed: number }>()
@@ -10,7 +12,7 @@ const desktop = useDesktopStore()
 const emit = defineEmits<{ history: [id: string] }>()
 const view = shallowRef<"content" | "json" | "image" | "preview">("content")
 const imageURL = shallowRef("")
-const imageError = shallowRef("")
+const imageError = useErrorMessage()
 const previewLimited = shallowRef(false)
 const limit = 128 * 1024
 const content = computed(() => workbenchText(props.result))
@@ -57,34 +59,36 @@ watch(
       imageURL.value = url
       onCleanup(() => URL.revokeObjectURL(url))
     } catch (cause) {
-      imageError.value = cause instanceof Error ? cause.message : "Preview unavailable"
+      imageError.value =
+        cause instanceof Error || typeof cause === "string" ? cause : new LocalizedError("ui.previewUnavailable")
     }
   },
   { immediate: true },
 )
 </script>
 <template>
-  <section class="panel" aria-label="Workbench response">
+  <section class="panel" :aria-label="t('ui.workbenchResponse')">
     <div class="panel-heading flex-wrap gap-3">
-      <h2>Response</h2>
+      <h2>{{ t("ui.response") }}</h2>
       <span class="status"
-        ><span class="dot" :class="{ ready: result.statusCode < 400, failed: result.statusCode >= 400 }" />Target HTTP
+        ><span class="dot" :class="{ ready: result.statusCode < 400, failed: result.statusCode >= 400 }" />
+        {{ t("ui.targetHttp") }}
         {{ result.statusCode }}</span
       >
     </div>
     <div class="panel-body form-stack">
       <dl class="response-facts">
         <div>
-          <dt>Execution</dt>
-          <dd>Tier {{ result.tier }}</dd>
+          <dt>{{ t("ui.execution") }}</dt>
+          <dd>{{ t("ui.tier") }} {{ result.tier }}</dd>
         </div>
         <div>
-          <dt>Engine time</dt>
-          <dd class="mono">{{ result.totalMs.toLocaleString() }} ms</dd>
+          <dt>{{ t("ui.engineTime") }}</dt>
+          <dd class="mono">{{ result.totalMs.toLocaleString(formatLocale()) }} {{ t("ui.ms") }}</dd>
         </div>
         <div>
-          <dt>Total wait</dt>
-          <dd class="mono">{{ elapsed.toLocaleString() }} ms</dd>
+          <dt>{{ t("ui.totalWait") }}</dt>
+          <dd class="mono">{{ elapsed.toLocaleString(formatLocale()) }} {{ t("ui.ms") }}</dd>
         </div>
       </dl>
       <div v-if="result.requestId" class="response-id">
@@ -95,20 +99,24 @@ watch(
           variant="link"
           trailing-icon="i-lucide-chevron-right"
           @click="emit('history', result.requestId)"
-          >Request history</UButton
+          >{{
+            t("ui.requestHistory")
+          }}</UButton
         >
       </div>
       <p v-if="result.statusCode >= 400" class="notice">
-        The API completed the request, but the target returned HTTP {{ result.statusCode }}.
+        {{ t("ui.theApiCompletedTheRequestButTheTarget") }} {{ result.statusCode }}.
       </p>
-      <fieldset class="actions response-tabs" aria-label="Response view">
+      <fieldset class="actions response-tabs" :aria-label="t('ui.responseView')">
         <UButton
           v-if="hasHTML"
           color="neutral"
           :variant="view === 'preview' ? 'soft' : 'ghost'"
           :aria-pressed="view === 'preview'"
           @click="view = 'preview'"
-          >Preview</UButton
+          >{{
+            t("ui.preview")
+          }}</UButton
         >
         <UButton
           color="neutral"
@@ -116,7 +124,7 @@ watch(
           :aria-pressed="view === 'content'"
           @click="view = 'content'"
           >{{
-            hasHTML ? "Source" : "Content"
+            hasHTML ? t("ui.source") : t("ui.content")
           }}</UButton
         >
         <UButton
@@ -124,7 +132,9 @@ watch(
           :variant="view === 'json' ? 'soft' : 'ghost'"
           :aria-pressed="view === 'json'"
           @click="view = 'json'"
-          >Response JSON</UButton
+          >{{
+            t("ui.responseJson")
+          }}</UButton
         >
         <UButton
           v-if="hasImage"
@@ -132,7 +142,9 @@ watch(
           :variant="view === 'image' ? 'soft' : 'ghost'"
           :aria-pressed="view === 'image'"
           @click="view = 'image'"
-          >Screenshot</UButton
+          >{{
+            t("ui.screenshot")
+          }}</UButton
         >
       </fieldset>
       <template v-if="view === 'image' || view === 'preview'">
@@ -142,24 +154,28 @@ watch(
           :src="imageURL"
           sandbox=""
           referrerpolicy="no-referrer"
-          title="Readable response with scripts and external resources removed"
+          :title="t('ui.readableResponseWithScriptsAndExternalResourcesRemoved')"
           class="response-document"
         />
-        <img v-else-if="imageURL" :src="imageURL" alt="Screenshot captured by this request" class="response-image" />
+        <img
+          v-else-if="imageURL"
+          :src="imageURL"
+          :alt="t('ui.screenshotCapturedByThisRequest')"
+          class="response-image"
+        />
         <p v-if="previewLimited" class="text-xs muted">
-          Preview limited for responsiveness. The response is unchanged.
+          {{ t("ui.previewLimitedForResponsivenessTheResponseIsUnchanged") }}
         </p>
       </template>
       <template v-else>
         <!-- biome-ignore lint/a11y/noNoninteractiveTabindex: Keyboard users must be able to scroll long response content. -->
-        <pre class="response-content mono" tabindex="0">{{ displayed || 'Empty response content' }}</pre>
+        <pre class="response-content mono" tabindex="0">{{ displayed || t('ui.emptyResponseContent') }}</pre>
         <p v-if="truncated" class="text-xs muted">
-          Preview limited to 128 KiB characters. The response in memory is unchanged.
+          {{ t("ui.previewLimitedTo128KibCharactersTheResponse") }}
         </p>
       </template>
       <p class="text-xs muted">
-        Response data stays in memory until you leave this page or clear it. HTML preview keeps supported page styles,
-        removes scripts and forms, and blocks network resources. A screenshot preserves the captured appearance.
+        {{ t("ui.responseDataStaysInMemoryUntilYouLeave") }}
       </p>
     </div>
   </section>

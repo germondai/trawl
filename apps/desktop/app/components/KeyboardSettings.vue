@@ -8,7 +8,10 @@ import {
   shortcutDefinitions,
   validateKeybindings,
 } from "@trawl/config/catalog"
+import { useErrorMessage } from "~/composables/useErrorMessage"
 import { eventShortcut } from "~/utils/keybindings"
+import { t } from "~/utils/localization"
+import { shortcutErrorMessage } from "~/utils/localized-keybindings"
 
 const emit = defineEmits<{ dirty: [value: boolean] }>()
 const desktop = useDesktopStore()
@@ -16,19 +19,29 @@ const native = isTauri()
 const mac = /Mac/.test(navigator.platform)
 const actions = Object.keys(shortcutDefinitions) as ShortcutAction[]
 const groups = [
-  { label: "App", actions: actions.filter((action) => !("scope" in shortcutDefinitions[action])) },
-  { label: "Tray", actions: actions.filter((action) => "scope" in shortcutDefinitions[action]) },
+  {
+    get label() {
+      return t("ui.app")
+    },
+    actions: actions.filter((action) => !("scope" in shortcutDefinitions[action])),
+  },
+  {
+    get label() {
+      return t("ui.tray")
+    },
+    actions: actions.filter((action) => "scope" in shortcutDefinitions[action]),
+  },
 ]
 const values = () =>
   Object.fromEntries(
     actions.map((action) => [
       action,
-      formatShortcut(desktop.config.desktop.keybindings[action], mac).replace("Not set", ""),
+      desktop.config.desktop.keybindings[action] ? formatShortcut(desktop.config.desktop.keybindings[action], mac) : "",
     ]),
   ) as Record<ShortcutAction, string>
 const draft = ref(values())
 const recording = shallowRef<ShortcutAction>()
-const captureError = shallowRef("")
+const captureError = useErrorMessage()
 const keycaps = (value: string) => (value ? value.split("+") : [])
 const kbdValue = (key: string) =>
   key === "Cmd" ? "command" : key === "Ctrl" ? "ctrl" : key.length > 1 ? key.toLowerCase() : key
@@ -45,7 +58,7 @@ function recorded(value: { shortcut: string | null; cancel: boolean }) {
     return
   }
   if (!value.shortcut) {
-    captureError.value = `Include ${mac ? "Cmd" : "Ctrl"} and a supported key`
+    captureError.value = new LocalizedError("ui.includeAndASupportedKey", { p0: mac ? "Cmd" : "Ctrl" })
     return
   }
   draft.value[action] = formatShortcut(value.shortcut, mac)
@@ -85,7 +98,7 @@ const validation = computed(() => {
   try {
     return { bindings: validateKeybindings(draft.value), error: "" }
   } catch (error) {
-    return { bindings: undefined, error: error instanceof Error ? error.message : "Invalid shortcut" }
+    return { bindings: undefined, error: shortcutErrorMessage(error) }
   }
 })
 watch(
@@ -132,19 +145,20 @@ async function save() {
   <section class="panel">
     <div class="panel-heading">
       <div>
-        <h2>Keyboard shortcuts</h2>
+        <h2>{{ t("ui.keyboardShortcuts") }}</h2>
         <p>
-          Click a shortcut, then press its new combination. Esc cancels recording. Standard editing and system shortcuts
-          stay reserved.
+          {{ t("ui.clickAShortcutThenPressItsNewCombination") }}
         </p>
       </div>
-      <UButton color="neutral" variant="ghost" :disabled="desktop.busy" @click="defaults">Restore defaults</UButton>
+      <UButton color="neutral" variant="ghost" :disabled="desktop.busy" @click="defaults">{{
+        t("ui.restoreDefaults")
+      }}</UButton>
     </div>
     <section
       v-for="group in groups"
       :key="group.label"
       class="panel-body form-stack shortcut-group"
-      :aria-label="`${group.label} shortcuts`"
+      :aria-label="t('keyboard.groupShortcuts', { group: group.label })"
     >
       <h3>{{ group.label }}</h3>
       <UFormField
@@ -152,24 +166,24 @@ async function save() {
         :key="action"
         class="preference-row"
         :ui="{ container: 'preference-control' }"
-        :label="shortcutDefinitions[action].label"
-        :description="`Default: ${formatShortcut(shortcutDefinitions[action].default, mac)}`"
+        :label="t(`shortcuts.${action}.label`)"
+        :description="t('ui.default', { p0: formatShortcut(shortcutDefinitions[action].default, mac) })"
       >
         <div class="shortcut-control" :data-shortcut-recording="recording === action ? '' : undefined">
           <button
             class="shortcut-recorder"
             :class="{ recording: recording === action }"
             type="button"
-            :aria-label="`Change ${shortcutDefinitions[action].label} shortcut`"
+            :aria-label="t('ui.changeShortcut', { p0: t(`shortcuts.${action}.label`) })"
             :aria-pressed="recording === action"
             :disabled="!desktop.native || desktop.busy"
             @click="capture(recording === action ? undefined : action)"
           >
-            <span v-if="recording === action" class="text-primary">Press shortcut…</span>
+            <span v-if="recording === action" class="text-primary">{{ t("ui.pressShortcut") }}</span>
             <template v-else-if="draft[action]"
               ><UKbd v-for="key in keycaps(draft[action])" :key="key" :value="kbdValue(key)" /></template
             >
-            <span v-else class="muted">Not set</span>
+            <span v-else class="muted">{{ t("ui.notSet") }}</span>
           </button>
           <UButton
             v-if="draft[action] || recording === action"
@@ -178,8 +192,8 @@ async function save() {
             icon="i-lucide-x"
             :aria-label="
               recording === action
-                ? 'Cancel shortcut recording'
-                : `Disable ${shortcutDefinitions[action].label} shortcut`
+                ? t('ui.cancelShortcutRecording')
+                : t('ui.disableShortcut', { p0: t(`shortcuts.${action}.label`) })
             "
             :disabled="!desktop.native || desktop.busy"
             @click="recording === action ? capture() : (draft[action] = '')"
@@ -189,21 +203,22 @@ async function save() {
     </section>
     <div v-if="recording || validation.error" class="panel-body">
       <p v-if="recording" class="text-xs muted" role="status">
-        {{ captureError || "Waiting for a key combination. Esc cancels without changing the shortcut." }}
+        {{ captureError || t("ui.waitingForAKeyCombinationEscCancelsWithout") }}
       </p>
       <p v-if="validation.error" class="text-error text-sm" role="alert">{{ validation.error }}</p>
     </div>
     <div class="panel-footer">
-      <span class="muted text-xs"
-        >Changes also update application and tray menus. Ctrl+Tab cycles pages; Shift reverses direction.</span
-      >
+      <span class="muted text-xs">{{ t("ui.changesAlsoUpdateApplicationAndTrayMenusCtrl") }}</span>
       <div class="actions">
-        <UButton color="neutral" variant="outline" :disabled="!dirty || desktop.busy" @click="discard">Discard</UButton
-        ><UButton
+        <UButton color="neutral" variant="outline" :disabled="!dirty || desktop.busy" @click="discard">{{
+          t("ui.discard")
+        }}</UButton><UButton
           :disabled="!desktop.native || !dirty || !!validation.error || desktop.busy || !!recording"
           :loading="desktop.busy"
           @click="save"
-          >Save shortcuts</UButton
+          >{{
+            t("ui.saveShortcuts")
+          }}</UButton
         >
       </div>
     </div>

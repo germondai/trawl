@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Connection } from "@trawl/config/catalog"
 import { connectionChanges } from "~/utils/connections"
+import { LocalizedError, t } from "~/utils/localization"
 
 const connection = defineModel<Connection>()
 const emit = defineEmits<{ dirty: [value: boolean] }>()
@@ -45,7 +46,7 @@ async function save() {
   else {
     const index = config.desktop.connections.findIndex(({ id }) => id === previous.id)
     if (index < 0) {
-      desktop.error = "This connection is no longer available"
+      desktop.setError(new LocalizedError("ui.thisConnectionIsNoLongerAvailable"))
       return
     }
     config.desktop.connections[index] = connectionChanges(previous, {
@@ -59,28 +60,26 @@ async function save() {
 }
 </script>
 <template>
-  <UModal
+  <AppDialog
     :open="Boolean(connection)"
-    title="Edit connection"
-    :description="
-      local ? 'Rename the server managed on this device.' : 'Update the saved name, API URL or access token.'
-    "
+    :title="t('ui.editConnection')"
+    :description="local ? t('ui.renameTheServerManagedOnThisDevice') : t('ui.updateTheSavedNameApiUrlOrAccess')"
     :dismissible="!desktop.busy"
     @update:open="if (!$event) connection = undefined;"
   >
     <template #body>
       <form id="edit-connection" class="form-stack" @submit.prevent="save">
-        <UFormField label="Name" required
+        <UFormField :label="t('ui.name')" required
           ><UInput
             v-model="name"
-            placeholder="Home server"
+            :placeholder="t('ui.homeServer')"
             :maxlength="100"
             required
             :disabled="desktop.busy"
           /></UFormField
         >
         <template v-if="!local">
-          <UFormField label="API URL" required
+          <UFormField :label="t('ui.apiUrl')" required
             ><UInput
               v-model="baseURL"
               :placeholder="instanceURLPlaceholder"
@@ -89,19 +88,19 @@ async function save() {
               :disabled="desktop.busy"
             /></UFormField
           >
-          <UFormField label="API / dashboard token"
+          <UFormField :label="t('ui.apiDashboardToken')"
             ><UInput
               v-model="apiKey"
               type="password"
               autocomplete="off"
-              :placeholder="connection?.apiKey ? 'Leave blank to keep the current token' : 'Optional'"
+              :placeholder="connection?.apiKey ? t('ui.leaveBlankToKeepTheCurrentToken') : t('ui.optional')"
               :disabled="desktop.busy || removeKey"
             /></UFormField
           >
           <UCheckbox
             v-if="connection?.apiKey"
             v-model="removeKey"
-            label="Remove the saved token"
+            :label="t('ui.removeTheSavedToken')"
             :disabled="desktop.busy"
           />
         </template>
@@ -109,13 +108,15 @@ async function save() {
       </form>
     </template>
     <template #footer>
-      <UButton color="neutral" variant="outline" :disabled="desktop.busy" @click="cancel">Cancel</UButton>
+      <UButton color="neutral" variant="outline" :disabled="desktop.busy" @click="cancel">{{ t("ui.cancel") }}</UButton>
       <UButton
         type="submit"
         form="edit-connection"
         :disabled="!desktop.native || desktop.busy || !dirty || !name.trim() || (!local && !baseURL.trim())"
-        >Save changes</UButton
+        >{{
+          t("ui.saveChanges")
+        }}</UButton
       >
     </template>
-  </UModal>
+  </AppDialog>
 </template>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { type ActivityBucket, activityIndex, activityPoints } from "~/utils/dashboard"
+import { formatLocale, t } from "~/utils/localization"
 
 const props = defineProps<{ timeline: ActivityBucket[]; bucketMs: number; rangeMinutes: number }>()
 const selected = shallowRef<number | null>(null)
@@ -32,16 +33,25 @@ const tooltipContent = computed(() => ({
 const max = computed(() => Math.max(1, ...props.timeline.map((row) => row.requests)))
 const requests = computed(() => activityPoints(props.timeline, "requests"))
 const failures = computed(() => activityPoints(props.timeline, "failures"))
-const time = (value: number) => new Date(value).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+const time = (value: number) =>
+  new Date(value).toLocaleTimeString(formatLocale(), { hour: "2-digit", minute: "2-digit" })
 const interval = computed(() =>
   active.value
-    ? `${time(Date.parse(active.value.minute))} to ${time(Date.parse(active.value.minute) + props.bucketMs)}`
+    ? t("activity.interval", {
+        from: time(Date.parse(active.value.minute)),
+        to: time(Date.parse(active.value.minute) + props.bucketMs),
+      })
     : "",
 )
 const accessibleValue = computed(() =>
   active.value
-    ? `${interval.value}: ${active.value.requests} ${active.value.requests === 1 ? "request" : "requests"}, ${active.value.failures} failed, average ${active.value.requests ? `${active.value.averageMs} milliseconds` : "not applicable"}`
-    : "Select a time interval",
+    ? t("activity.summary", {
+        interval: interval.value,
+        requests: t("counts.requests", { count: active.value.requests }),
+        failures: active.value.failures,
+        average: active.value.requests ? `${active.value.averageMs} ms` : t("activity.notApplicable"),
+      })
+    : t("ui.selectATimeInterval"),
 )
 function inspect(event: PointerEvent) {
   const bounds = (event.currentTarget as HTMLInputElement).getBoundingClientRect()
@@ -52,17 +62,17 @@ function leave(event: PointerEvent) {
 }
 </script>
 <template>
-  <section class="panel" aria-label="Request activity">
+  <section class="panel" :aria-label="t('ui.requestActivity')">
     <div class="panel-heading">
-      <h2>Request activity</h2>
-      <span class="status">Last {{ rangeMinutes }} minutes</span>
+      <h2>{{ t("ui.requestActivity") }}</h2>
+      <span class="status">{{ t("ui.last") }} {{ rangeMinutes }} {{ t("ui.minutes") }}</span>
     </div>
     <div class="panel-body">
       <template v-if="timeline.length">
         <div class="activity-legend">
-          <span><i class="dot ready" />Requests</span
-          ><span v-if="timeline.some((row) => row.failures)"><i class="dot failed" />Failed</span>
-          <span class="activity-hint">Hover or focus to inspect</span>
+          <span><i class="dot ready" />{{ t("ui.requests") }}</span
+          ><span v-if="timeline.some((row) => row.failures)"><i class="dot failed" />{{ t("ui.failed") }}</span>
+          <span class="activity-hint">{{ t("ui.hoverOrFocusToInspect") }}</span>
         </div>
         <div ref="plot" class="activity-plot">
           <svg
@@ -70,7 +80,7 @@ function leave(event: PointerEvent) {
             viewBox="0 0 1000 180"
             preserveAspectRatio="none"
             role="img"
-            aria-label="Request activity over time"
+            :aria-label="t('ui.requestActivityOverTime')"
           >
             <line class="chart-baseline" x1="0" y1="160" x2="1000" y2="160" />
             <line class="chart-grid" x1="0" y1="20" x2="1000" y2="20" />
@@ -98,7 +108,7 @@ function leave(event: PointerEvent) {
             :max="timeline.length - 1"
             step="1"
             :value="activeIndex"
-            aria-label="Inspect activity interval"
+            :aria-label="t('ui.inspectActivityInterval')"
             :aria-valuetext="accessibleValue"
             @pointermove="inspect"
             @pointerleave="leave"
@@ -107,7 +117,7 @@ function leave(event: PointerEvent) {
             @input="selected = Number(($event.target as HTMLInputElement).value)"
           />
         </div>
-        <UTooltip
+        <AppTooltip
           :open="Boolean(active)"
           :reference="chartReference"
           :content="tooltipContent"
@@ -119,21 +129,30 @@ function leave(event: PointerEvent) {
               <strong>{{ interval }}</strong>
               <div class="activity-tooltip-metrics">
                 <span
-                  ><b class="mono">{{ active.requests.toLocaleString() }}</b>
-                  {{ active.requests === 1 ? "request" : "requests" }}</span
+                  ><LocalizedMessage message="counts.requests" :parameters="{ count: active.requests }"
+                    ><template #count
+                      ><b class="mono">{{ active.requests.toLocaleString(formatLocale()) }}</b></template
+                    ></LocalizedMessage
+                  ></span
                 >
-                <span><b class="mono">{{ active.failures.toLocaleString() }}</b> failed</span>
+                <span
+                  ><b class="mono">{{ active.failures.toLocaleString(formatLocale()) }}</b> {{ t("ui.failed2") }}</span
+                >
                 <span class="activity-tooltip-average"
-                  >Average
-                  <b class="mono">{{ active.requests ? `${active.averageMs.toLocaleString()} ms` : "n/a" }}</b></span
+                  >{{ t("ui.average") }}
+                  <b class="mono">{{
+                    active.requests ? `${active.averageMs.toLocaleString(formatLocale())} ms` : t("ui.notAvailable")
+                  }}</b></span
                 >
               </div>
             </template></template
           >
-        </UTooltip>
-        <div class="chart-caption"><span>{{ rangeMinutes }} minutes ago</span><span>Now</span></div>
+        </AppTooltip>
+        <div class="chart-caption">
+          <span>{{ rangeMinutes }} {{ t("ui.minutesAgo") }}</span><span>{{ t("ui.now") }}</span>
+        </div>
       </template>
-      <div v-else class="empty">No activity intervals available</div>
+      <div v-else class="empty">{{ t("ui.noActivityIntervalsAvailable") }}</div>
     </div>
   </section>
 </template>

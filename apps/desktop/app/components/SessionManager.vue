@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import type { BrowserSession } from "@trawl/client"
+import { useErrorMessage } from "~/composables/useErrorMessage"
 import { confirmationContent, useNavigationModal } from "~/composables/useNavigationSteps"
+import { formatLocale, LocalizedError, nativeErrorMessage, t } from "~/utils/localization"
 
 const emit = defineEmits<{ use: [id: string] }>()
 const desktop = useDesktopStore()
 const { sessions, error, loading, refresh } = useSessions()
 const busy = shallowRef(false)
-const actionError = shallowRef("")
+const actionError = useErrorMessage()
 const selected = shallowRef<BrowserSession>()
 const name = shallowRef("")
 const keepPage = shallowRef(true)
@@ -54,7 +56,11 @@ async function change(remove = false) {
     }
   } catch (cause) {
     if (!abort.signal.aborted && id === desktop.activeId)
-      actionError.value = `${cause instanceof Error ? cause.message : "Session operation failed"}. Refresh sessions before retrying.`
+      actionError.value = new LocalizedError("errors.refreshSessions", {
+        get error() {
+          return nativeErrorMessage(cause) || t("errors.sessionOperation")
+        },
+      })
   } finally {
     if (!abort.signal.aborted && id === desktop.activeId) busy.value = false
   }
@@ -75,17 +81,19 @@ onScopeDispose(() => controller?.abort())
 </script>
 <template>
   <section class="panel sessions-panel">
-    <div class="panel-heading">
+    <div class="panel-heading" data-tour="sessions">
       <div>
-        <h2>Browser sessions</h2>
-        <p class="text-sm muted mt-1">Reuse cookies and browser state across requests.</p>
+        <h2>{{ t("ui.browserSessions") }}</h2>
+        <p class="text-sm muted mt-1">{{ t("ui.reuseCookiesAndBrowserStateAcrossRequests") }}</p>
       </div>
       <div class="actions">
         <UButton
           icon="i-lucide-plus"
           :disabled="!desktop.native || busy || desktop.health?.status !== 'ok'"
           @click="createOpen = true"
-          >New session</UButton
+          >{{
+            t("ui.newSession")
+          }}</UButton
         >
       </div>
     </div>
@@ -93,8 +101,9 @@ onScopeDispose(() => controller?.abort())
       <UInput
         v-model="search"
         icon="i-lucide-search"
-        placeholder="Search sessions"
-        aria-label="Search sessions"
+        :placeholder="t('ui.searchSessions')"
+        :aria-label="t('ui.searchSessions')"
+        data-type-focus
         class="min-w-0 flex-1"
         :ui="{ trailing: 'p-0' }"
       >
@@ -104,7 +113,7 @@ onScopeDispose(() => controller?.abort())
             color="neutral"
             variant="link"
             icon="i-lucide-x"
-            aria-label="Clear session search"
+            :aria-label="t('ui.clearSessionSearch')"
             @click="search = ''"
           /></template
         >
@@ -112,26 +121,28 @@ onScopeDispose(() => controller?.abort())
       <USelect
         v-model="filter"
         :items="[
-          { label: 'All sessions', value: 'all' },
-          { label: 'Available', value: 'available' },
-          { label: 'Busy', value: 'busy' },
+          { label: t('ui.allSessions'), value: 'all' },
+          { label: t('ui.available'), value: 'available' },
+          { label: t('ui.busy'), value: 'busy' },
         ]"
-        aria-label="Session status"
+        :aria-label="t('ui.sessionStatus')"
         class="w-40"
       />
     </div>
     <div v-if="!shown.length" class="panel-body empty">
       <UIcon name="i-lucide-layers" class="size-8 muted" />
       <h3 class="mt-3">
-        {{ loading ? "Loading sessions…" : sessions.length ? "No matching sessions" : "No active sessions" }}
+        {{
+          loading ? t("ui.loadingSessions") : sessions.length ? t("ui.noMatchingSessions") : t("ui.noActiveSessions")
+        }}
       </h3>
       <p>
         {{
           sessions.length
-            ? "Try another search or status."
+            ? t("ui.tryAnotherSearchOrStatus")
             : desktop.health?.status === "ok"
-              ? "Create a session to keep cookies between requests, with an optional retained browser page."
-              : "Start or connect to an instance to manage its browser sessions."
+              ? t("ui.createASessionToKeepCookiesBetweenRequests")
+              : t("ui.startOrConnectToAnInstanceToManage")
         }}
       </p>
     </div>
@@ -139,11 +150,11 @@ onScopeDispose(() => controller?.abort())
       <table class="session-table">
         <thead>
           <tr>
-            <th>Session</th>
-            <th>Status</th>
-            <th>State</th>
-            <th>Expires</th>
-            <th><span class="sr-only">Actions</span></th>
+            <th>{{ t("ui.session") }}</th>
+            <th>{{ t("ui.status") }}</th>
+            <th>{{ t("ui.state") }}</th>
+            <th>{{ t("ui.expires") }}</th>
+            <th><span class="sr-only">{{ t("ui.actions") }}</span></th>
           </tr>
         </thead>
         <tbody>
@@ -151,15 +162,16 @@ onScopeDispose(() => controller?.abort())
             <td class="mono session-id">{{ session.id }}</td>
             <td>
               <span class="status"
-                ><i class="dot" :class="{ ready: !session.busy }" />{{ session.busy ? "Busy" : "Available" }}</span
+                ><i class="dot" :class="{ ready: !session.busy }" />
+                {{ session.busy ? t("ui.busy") : t("ui.available") }}</span
               >
             </td>
-            <td>{{ session.keepPage ? "Page and cookies" : "Cookies" }}</td>
+            <td>{{ session.keepPage ? t("ui.pageAndCookies") : t("ui.cookies") }}</td>
             <td>
-              <UTooltip :text="new Date(session.expiresAt).toLocaleString()"
-                ><time :datetime="session.expiresAt">{{
-                  new Date(session.expiresAt).toLocaleTimeString()
-                }}</time></UTooltip
+              <AppTooltip :text="new Date(session.expiresAt).toLocaleString(formatLocale(), { timeZoneName: 'short' })"
+                ><time :datetime="new Date(session.expiresAt).toISOString()">{{
+                  new Date(session.expiresAt).toLocaleTimeString(formatLocale())
+                }}</time></AppTooltip
               >
             </td>
             <td>
@@ -169,13 +181,15 @@ onScopeDispose(() => controller?.abort())
                   variant="outline"
                   :disabled="busy || session.busy"
                   @click="emit('use', session.id)"
-                  >Use in request</UButton
+                  >{{
+                    t("ui.useInRequest")
+                  }}</UButton
                 >
                 <UButton
                   icon="i-lucide-trash-2"
                   color="neutral"
                   variant="ghost"
-                  :aria-label="`Close session ${session.id}`"
+                  :aria-label="t('ui.closeSession', { p0: session.id })"
                   :disabled="busy || session.busy"
                   @click="selected = session"
                 />
@@ -186,62 +200,67 @@ onScopeDispose(() => controller?.abort())
       </table>
     </div>
     <div class="panel-footer muted text-xs">
-      {{ sessions.length }} active · {{ available }} available · {{ retained }} retained pages
+      {{ sessions.length }} {{ t("ui.active2") }} {{ available }} {{ t("ui.available2") }} {{ retained }}
+      {{ t("ui.retainedPages") }}
     </div>
   </section>
-  <UModal
+  <SessionActivity />
+  <AppDialog
     v-model:open="createOpen"
-    title="New browser session"
-    description="Use its ID in a request to reuse the same browser state."
+    :title="t('ui.newBrowserSession')"
+    :description="t('ui.useItsIdInARequestToReuse')"
     :dismissible="!busy"
     :close="{ disabled: busy }"
   >
     <template #body>
       <form id="create-session" class="form-stack" @submit.prevent="change()">
         <p v-if="actionError" class="notice error" role="alert">{{ actionError }}</p>
-        <UFormField label="Session ID" description="Optional. Leave empty to generate an ID."
+        <UFormField :label="t('ui.sessionId')" :description="t('ui.optionalLeaveEmptyToGenerateAnId')"
           ><UInput
             v-model="name"
             class="w-full"
             :maxlength="128"
             pattern="[A-Za-z0-9_-]+"
-            placeholder="Generated automatically"
+            :placeholder="t('ui.generatedAutomatically')"
             :disabled="busy"
           /></UFormField
         >
         <UFormField
           class="preference-row"
           :ui="{ container: 'preference-control' }"
-          label="Retain browser page"
-          description="Keep one page open for this session. Turn off to retain only cookies."
-          ><USwitch v-model="keepPage" :disabled="busy" /></UFormField
+          :label="t('ui.retainBrowserPage')"
+          :description="t('ui.keepOnePageOpenForThisSessionTurn')"
+          ><USwitch v-model="keepPage" :disabled="busy" :aria-label="t('ui.retainBrowserPage')" /></UFormField
         >
       </form>
     </template>
     <template #footer
-      ><UButton color="neutral" variant="outline" :disabled="busy" @click="createOpen = false">Cancel</UButton
-      ><UButton
+      ><UButton color="neutral" variant="outline" :disabled="busy" @click="createOpen = false">{{
+        t("ui.cancel")
+      }}</UButton><UButton
         form="create-session"
         type="submit"
         :loading="busy"
         :disabled="!desktop.native || desktop.health?.status !== 'ok'"
-        >Create session</UButton
+        >{{
+          t("ui.createSession")
+        }}</UButton
       ></template
     >
-  </UModal>
+  </AppDialog>
   <p v-if="error || (!createOpen && actionError)" class="notice error" role="alert">{{ error || actionError }}</p>
-  <UModal
+  <AppDialog
     :open="Boolean(selected)"
     :content="confirmationContent"
-    title="Close this session?"
-    :description="`Close ${selected?.id ?? ''}, its retained page and cookies. Requests using this ID will need a new session.`"
+    :title="t('ui.closeThisSession')"
+    :description="t('ui.closeItsRetainedPageAndCookiesRequestsUsing', { p0: selected?.id ?? '' })"
     @update:open="if (!$event) selected = undefined;"
   >
     <template #footer
-      ><UButton color="neutral" variant="outline" @click="selected = undefined">Cancel</UButton
-      ><UButton data-confirm-default color="error" @click="change(true)">Close session</UButton></template
+      ><UButton color="neutral" variant="outline" @click="selected = undefined">{{ t("ui.cancel") }}</UButton
+      ><UButton data-confirm-default color="error" @click="change(true)">{{ t("ui.closeSession2") }}</UButton></template
     >
-  </UModal>
+  </AppDialog>
 </template>
 <style scoped>
 .session-toolbar {

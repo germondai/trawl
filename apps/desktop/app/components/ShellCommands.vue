@@ -2,14 +2,17 @@
 import type { CommandPaletteGroup } from "@nuxt/ui"
 import { type ShortcutAction } from "@trawl/config/catalog"
 import { useNavigationModal } from "~/composables/useNavigationSteps"
+import { t } from "~/utils/localization"
 import { type Page, pages } from "~/utils/page-history"
-import { settingLabel } from "~/utils/settings"
+import { settingDescription, settingLabel } from "~/utils/settings"
 
 const open = defineModel<boolean>("open", { default: false })
 useNavigationModal(open, false)
 const props = defineProps<{ page: Page }>()
 const emit = defineEmits<{
   action: [action: ShortcutAction]
+  navigate: [page: Page]
+  onboarding: []
   setting: [name: string]
   select: [id: string]
 }>()
@@ -30,7 +33,7 @@ const kbds = useShortcutKeys()
 const groups = computed<CommandPaletteGroup[]>(() => [
   {
     id: "pages",
-    label: "Pages",
+    label: t("ui.pages"),
     items: pages
       .filter((page) => page.id !== "workbench")
       .map((page) => ({
@@ -39,23 +42,29 @@ const groups = computed<CommandPaletteGroup[]>(() => [
         icon: page.icon,
         active: props.page === page.id,
         kbds: kbds(page.id),
-        onSelect: () => choose(() => emit("action", page.id)),
+        onSelect: () => choose(() => emit("navigate", page.id)),
       })),
   },
   {
     id: "actions",
-    label: "Actions",
+    label: t("ui.actions"),
     items: [
       {
+        id: "onboarding",
+        label: t("onboarding.open"),
+        icon: "i-lucide-info",
+        onSelect: () => choose(() => emit("onboarding")),
+      },
+      {
         id: "new-request",
-        label: "New request",
+        label: t("ui.newRequest"),
         icon: "i-lucide-plus",
         kbds: kbds("workbench"),
         onSelect: () => choose(() => emit("action", "workbench")),
       },
       {
         id: "refresh",
-        label: "Refresh page",
+        label: t("ui.refreshPage"),
         icon: "i-lucide-refresh-cw",
         kbds: kbds("refresh"),
         disabled: !desktop.native || desktop.busy,
@@ -63,14 +72,14 @@ const groups = computed<CommandPaletteGroup[]>(() => [
       },
       {
         id: "sidebar",
-        label: "Toggle sidebar",
+        label: t("ui.toggleSidebar"),
         icon: "i-lucide-panel-left-close",
         kbds: kbds("sidebar"),
         onSelect: () => choose(() => emit("action", "sidebar")),
       },
       {
         id: "server",
-        label: running.value ? "Stop local server" : "Start local server",
+        label: running.value ? t("ui.stopLocalServer") : t("ui.startLocalServer"),
         icon: running.value ? "i-lucide-square" : "i-lucide-play",
         kbds: kbds("server"),
         disabled:
@@ -82,7 +91,7 @@ const groups = computed<CommandPaletteGroup[]>(() => [
       },
       {
         id: "restart",
-        label: "Restart local server",
+        label: t("ui.restartLocalServer"),
         icon: "i-lucide-rotate-cw",
         kbds: kbds("restart"),
         disabled: !desktop.native || desktop.activeId !== "local" || !running.value || desktop.busy,
@@ -92,7 +101,7 @@ const groups = computed<CommandPaletteGroup[]>(() => [
   },
   {
     id: "instances",
-    label: "Instances",
+    label: t("ui.instances"),
     items: desktop.instances.map((connection) => ({
       id: connection.id,
       label: connection.name,
@@ -103,13 +112,13 @@ const groups = computed<CommandPaletteGroup[]>(() => [
   },
   {
     id: "settings",
-    label: "Server settings",
+    label: t("ui.serverSettings"),
     items: search.value.trim()
       ? desktop.catalog.map((setting) => ({
           id: setting.name,
           label: settingLabel(setting),
           suffix: setting.name,
-          description: setting.description,
+          description: settingDescription(setting),
           icon: "i-lucide-settings-2",
           onSelect: () => choose(() => emit("setting", setting.name)),
         }))
@@ -147,23 +156,23 @@ function jumpGroup(event: KeyboardEvent) {
 }
 </script>
 <template>
-  <UModal
+  <AppDialog
     v-model:open="open"
-    title="Search commands"
-    description="Find a page, action, instance or server setting."
+    :title="t('ui.searchCommands')"
+    :description="t('ui.findAPageActionInstanceOrServerSetting')"
     :ui="{ content: 'command-dialog overflow-hidden' }"
   >
     <template #content>
       <UCommandPalette
         v-model:search-term="search"
         :groups="groups"
-        placeholder="Search pages, settings and commands…"
+        :placeholder="t('ui.searchPagesSettingsAndCommands')"
         close
         @keydown.capture="jumpGroup"
         @update:open="open = $event"
       />
     </template>
-  </UModal>
+  </AppDialog>
 </template>
 <style>
 .command-dialog {

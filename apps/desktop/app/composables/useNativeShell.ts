@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core"
 import { isNativeWindowDrag, nativeChromePosition } from "~/utils/native-window-drag"
+import { LocalizedError, nativeErrorMessage } from "../utils/localization"
 
 export function useNativeShell(sidebarOpen: Readonly<Ref<boolean>>) {
   const desktop = useDesktopStore()
@@ -27,7 +28,7 @@ export function useNativeShell(sidebarOpen: Readonly<Ref<boolean>>) {
         if (target) await invoke("native_window_chrome", { documentId, position: target })
       } while (queued && !disposed)
     } catch (error) {
-      if (!disposed) console.warn("Could not align window controls", error)
+      if (!disposed) console.warn(t("ui.couldNotAlignWindowControls"), error)
     } finally {
       sending = false
     }
@@ -44,7 +45,7 @@ export function useNativeShell(sidebarOpen: Readonly<Ref<boolean>>) {
       latest: clock.latest + event.timeStamp / 1000,
     }
     void invoke("native_window_drag", { documentId, timestamp }).catch((error) =>
-      console.warn("Could not move the window", error),
+      console.warn(t("ui.couldNotMoveTheWindow"), error),
     )
   }
   onMounted(async () => {
@@ -63,6 +64,7 @@ export function useNativeShell(sidebarOpen: Readonly<Ref<boolean>>) {
         }
         if (!clock || next.latest - next.earliest < clock.latest - clock.earliest) clock = next
       }
+      await until(() => desktop.preferencesReady).toBe(true)
       await document.fonts.ready
       const logo = document.querySelector<HTMLImageElement>(".brand img")
       if (logo) await logo.decode().catch(() => {})
@@ -78,7 +80,14 @@ export function useNativeShell(sidebarOpen: Readonly<Ref<boolean>>) {
       window.addEventListener("resize", schedule)
       document.addEventListener("mousedown", drag)
     } catch (error) {
-      if (!disposed) desktop.error = `Could not prepare window: ${String(error)}`
+      if (!disposed)
+        desktop.setError(
+          new LocalizedError("ui.couldNotPrepareWindow", {
+            get p0() {
+              return nativeErrorMessage(error)
+            },
+          }),
+        )
     }
   })
   const cleanup = () => {

@@ -7,10 +7,13 @@ import {
   TrawlError,
 } from "@trawl/client"
 import { emptyConfig, orderedInstanceIds, type Setting, settings, type UserConfig } from "@trawl/config/catalog"
+import { type AppLocale, appLocales } from "@trawl/config/i18n"
 import { defineStore } from "pinia"
 import { computed, ref, shallowRef } from "vue"
+import { useErrorMessage } from "../composables/useErrorMessage"
 import { mergeConfigChanges } from "../utils/config-changes"
 import { createInstanceFetch } from "../utils/instance-fetch"
+import { appLocale, applyAppLanguage, LocalizedError, t } from "../utils/localization"
 
 interface Status {
   running: boolean
@@ -69,6 +72,7 @@ export const useDesktopStore = defineStore("desktop", () => {
   const native = isTauri()
   const mobile = native && typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent)
   const loaded = shallowRef(false)
+  const preferencesReady = shallowRef(!native)
   const config = ref<UserConfig>(emptyConfig())
   const effective = ref<Record<string, string>>({})
   const inherited = ref<Record<string, string>>({})
@@ -85,13 +89,13 @@ export const useDesktopStore = defineStore("desktop", () => {
   let operationSerial = 0
   let browserRevision = 0
   const settingsDirty = shallowRef(false)
-  const error = shallowRef("")
-  const metricError = shallowRef("")
+  const error = useErrorMessage()
+  const metricError = useErrorMessage()
   const activeId = shallowRef("local")
   const instances = computed(() => {
     const local = {
       id: "local",
-      name: config.value.desktop.localName || "Local instance",
+      name: config.value.desktop.localName || t("ui.localInstance"),
       baseURL: status.value.baseURL || `http://127.0.0.1:${effective.value.PORT || "8191"}`,
     }
     const profiles = new Map([local, ...config.value.desktop.connections].map((profile) => [profile.id, profile]))
@@ -99,31 +103,41 @@ export const useDesktopStore = defineStore("desktop", () => {
   })
   const active = computed(() => instances.value.find(({ id }) => id === activeId.value))
   async function management<T>(request: Record<string, unknown>): Promise<T> {
-    if (!native) throw new Error("Open the native TRAWL application to manage this device")
+    if (!native) throw new LocalizedError("ui.openTheNativeTrawlApplicationToManageThis")
     return invoke<T>("management", { request })
   }
   async function bootstrap() {
     if (!native) return
-    const serial = operationSerial
-    const configSerial = configRevision
-    const browserSerial = ++browserRevision
-    const data = await management<Bootstrap>({ action: "bootstrap" })
-    if (serial !== operationSerial) return
-    if (configSerial === configRevision) {
-      config.value = data.config
-      effective.value = data.effective
-      inherited.value = data.inherited
-      sources.value = data.sources
+    try {
+      const serial = operationSerial
+      const configSerial = configRevision
+      const browserSerial = ++browserRevision
+      const data = await management<Bootstrap>({ action: "bootstrap" })
+      if (serial !== operationSerial) return
+      if (configSerial === configRevision) {
+        config.value = data.config
+        const language = data.config.desktop.language ?? "system"
+        if (language === "system") {
+          const locale = await invoke<AppLocale>("app_locale")
+          if (serial !== operationSerial || configSerial !== configRevision) return
+          appLocale.value = appLocales.includes(locale) ? locale : "en"
+        } else applyAppLanguage(language)
+        effective.value = data.effective
+        inherited.value = data.inherited
+        sources.value = data.sources
+      }
+      catalog.value = data.catalog
+      status.value = data.status
+      if (browserSerial === browserRevision) browser.value = data.browser
+      loaded.value = true
+      if (data.startupError) error.value = data.startupError
+    } finally {
+      preferencesReady.value = true
     }
-    catalog.value = data.catalog
-    status.value = data.status
-    if (browserSerial === browserRevision) browser.value = data.browser
-    loaded.value = true
-    if (data.startupError) error.value = data.startupError
   }
   function client(observeId?: import("~/utils/instance-fetch").ObserveRequestId): Trawl {
     const instance = active.value
-    if (!instance) throw new Error("Select a connection first")
+    if (!instance) throw new LocalizedError("ui.selectAConnectionFirst")
     return new Trawl({
       baseURL: instance.baseURL,
       timeoutMs: 15000,
@@ -177,14 +191,17 @@ export const useDesktopStore = defineStore("desktop", () => {
       } catch {
         if (!current()) return
         metrics.value = undefined
-        metricError.value = "Metrics are unavailable. Enable the dashboard on this instance and check its access token."
+        metricError.value = new LocalizedError("ui.metricsAreUnavailableEnableTheDashboardOnThis")
       }
       error.value = ""
     } catch (cause) {
       if (!current()) return
       health.value = undefined
       metrics.value = undefined
-      error.value = cause instanceof Error ? cause.message : "Cannot connect to this instance"
+      error.value =
+        cause instanceof Error || typeof cause === "string"
+          ? cause
+          : new LocalizedError("ui.cannotConnectToThisInstance")
     } finally {
       if (serial === generation) refreshing = undefined
     }
@@ -201,7 +218,8 @@ export const useDesktopStore = defineStore("desktop", () => {
       await refresh(true)
       return true
     } catch (cause) {
-      error.value = cause instanceof Error ? cause.message : typeof cause === "string" ? cause : "Operation failed"
+      error.value =
+        cause instanceof Error || typeof cause === "string" ? cause : new LocalizedError("ui.operationFailed")
       return false
     } finally {
       busy.value = false
@@ -255,7 +273,7 @@ export const useDesktopStore = defineStore("desktop", () => {
         return true
       } catch (cause) {
         configRevision++
-        error.value = String(cause)
+        error.value = cause
         return false
       }
     })
@@ -276,6 +294,7 @@ export const useDesktopStore = defineStore("desktop", () => {
     native,
     mobile,
     loaded,
+    preferencesReady,
     config,
     effective,
     inherited,
@@ -289,6 +308,9 @@ export const useDesktopStore = defineStore("desktop", () => {
     busy,
     settingsDirty,
     error,
+    setError: (cause: unknown) => {
+      error.value = cause
+    },
     metricError,
     activeId,
     active,

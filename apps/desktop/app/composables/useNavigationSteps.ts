@@ -199,8 +199,13 @@ export function createNavigationSteps(page: Page = "overview") {
     canForward: computed(() => state.value.index < state.value.entries.length - 1),
     peek: (direction: -1 | 1) => state.value.entries[state.value.index + direction],
     find: (id: number) => state.value.entries.find((entry) => entry.id === id),
-    visit: (next: Page, selections: Record<string, string> = {}) =>
-      commit({ ...current.value, page: next, selections: { ...current.value.selections, ...selections }, modals: [] }),
+    visit: (next: Page, selections: Record<string, string> = {}, options: { preserveModals?: boolean } = {}) =>
+      commit({
+        ...current.value,
+        page: next,
+        selections: { ...current.value.selections, ...selections },
+        modals: options.preserveModals ? current.value.modals : [],
+      }),
     reset: () => apply([{ ...current.value, modals: [], id: ++sequence }], 0, "replace"),
     go,
     bindSelection,
@@ -229,9 +234,9 @@ export function useNavigationSelection<T extends string>(
   onScopeDispose(() => stop?.())
   return navigation
 }
-export function useNavigationModal<T>(source: Ref<T>, closed: T) {
+export function useNavigationModal<T>(source: Ref<T>, closed: T, dismissOnly = false) {
   const navigation = inject(navigationKey, undefined)
-  const stop = navigation?.bindModal(source, closed)
+  const stop = navigation?.bindModal(source, closed, dismissOnly)
   onScopeDispose(() => stop?.())
 }
 

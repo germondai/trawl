@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { LocalizedError, nativeErrorMessage, t } from "~/utils/localization"
 import { readRequestFile } from "~/utils/request-body"
 import {
   emptyRequestField,
@@ -13,7 +14,8 @@ const rows = defineModel<RequestField[]>("rows", { required: true })
 const props = defineProps<{ format: FieldFormat; label: string; disabled?: boolean; allowFiles?: boolean }>()
 const emit = defineEmits<{ invalid: [message: string] }>()
 const mode = shallowRef("table")
-const error = shallowRef("")
+const failure = shallowRef<unknown>("")
+const error = computed(() => nativeErrorMessage(failure.value))
 const reading = shallowRef(0)
 const hasFiles = computed(() => rows.value.some((row) => row.file))
 const rawDraft = shallowRef(value.value)
@@ -28,7 +30,9 @@ async function editRaw(text: string) {
 watch(mode, () => {
   rawDraft.value = value.value
 })
-watch([error, reading], ([message, count]) => emit("invalid", count ? "Reading file…" : message), { immediate: true })
+watch([error, reading], ([message, count]) => emit("invalid", count ? t("ui.readingFile") : message), {
+  immediate: true,
+})
 watch(
   value,
   (text) => {
@@ -39,15 +43,15 @@ watch(
     } catch {}
     if (serialized === text) {
       if (!rows.value.length) rows.value = [emptyRequestField()]
-      error.value = ""
+      failure.value = ""
       return
     }
     try {
       const next = parseRequestFields(text, props.format)
       rows.value = next.length ? next : [emptyRequestField()]
-      error.value = ""
+      failure.value = ""
     } catch (cause) {
-      error.value = cause instanceof Error ? cause.message : "Invalid fields"
+      failure.value = cause instanceof Error ? cause : new LocalizedError("ui.invalidFields")
       mode.value = "raw"
     }
   },
@@ -56,9 +60,9 @@ watch(
 function commit() {
   try {
     value.value = serializeRequestFields(rows.value, props.format)
-    error.value = ""
+    failure.value = ""
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : "Invalid fields"
+    failure.value = cause instanceof Error ? cause : new LocalizedError("ui.invalidFields")
   }
 }
 function remove(index: number) {
@@ -92,7 +96,7 @@ async function chooseFile(row: RequestField, file?: File) {
     }
   } catch (cause) {
     if (!disposed && rows.value.includes(row) && row.file === previous && fileSelections.get(row) === generation)
-      error.value = cause instanceof Error ? cause.message : "Unable to read file"
+      failure.value = cause instanceof Error ? cause : new LocalizedError("ui.unableToReadFile")
   } finally {
     reading.value--
   }
@@ -111,7 +115,7 @@ function dropFile(row: RequestField, event: DragEvent) {
   if (!props.allowFiles || props.disabled || (event.currentTarget as HTMLElement).closest("fieldset[disabled]")) return
   if (!event.dataTransfer?.files.length) return
   event.preventDefault()
-  if (event.dataTransfer.files.length > 1) error.value = "Choose one file per row"
+  if (event.dataTransfer.files.length > 1) failure.value = new LocalizedError("ui.chooseOneFilePerRow")
   else void chooseFile(row, event.dataTransfer.files[0])
 }
 </script>
@@ -126,7 +130,9 @@ function dropFile(row: RequestField, event: DragEvent) {
           :aria-pressed="mode === 'table'"
           :disabled="Boolean(error)"
           @click="mode = 'table'"
-          >Table</UButton
+          >{{
+            t("ui.table")
+          }}</UButton
         >
         <UButton
           color="neutral"
@@ -135,7 +141,7 @@ function dropFile(row: RequestField, event: DragEvent) {
           :disabled="hasFiles || (Boolean(error) && mode === 'table')"
           @click="mode = 'raw'"
           >{{
-            format === "headers" ? "Raw JSON" : "Bulk"
+            format === "headers" ? t("ui.rawJson") : t("ui.bulk")
           }}</UButton
         >
       </div>
@@ -145,11 +151,11 @@ function dropFile(row: RequestField, event: DragEvent) {
         <table class="field-editor-table">
           <thead>
             <tr>
-              <th><span class="sr-only">Enabled</span></th>
-              <th>Key</th>
-              <th>Value</th>
-              <th>Description</th>
-              <th><span class="sr-only">Remove</span></th>
+              <th><span class="sr-only">{{ t("ui.enabled") }}</span></th>
+              <th>{{ t("ui.key") }}</th>
+              <th>{{ t("ui.value") }}</th>
+              <th>{{ t("ui.description") }}</th>
+              <th><span class="sr-only">{{ t("ui.remove2") }}</span></th>
             </tr>
           </thead>
           <tbody>
@@ -158,7 +164,7 @@ function dropFile(row: RequestField, event: DragEvent) {
                 <UCheckbox
                   v-model="row.enabled"
                   :ui="{ root: 'justify-center' }"
-                  :aria-label="`Enable ${label} row ${index + 1}`"
+                  :aria-label="t('ui.enableRow', { p0: label, p1: index + 1 })"
                   @update:model-value="commit"
                 />
               </td>
@@ -167,8 +173,8 @@ function dropFile(row: RequestField, event: DragEvent) {
                   v-model="row.key"
                   variant="none"
                   class="w-full"
-                  placeholder="Key"
-                  :aria-label="`${label} key ${index + 1}`"
+                  :placeholder="t('ui.key')"
+                  :aria-label="t('fields.key', { label, row: index + 1 })"
                   :maxlength="4096"
                   autocomplete="off"
                   spellcheck="false"
@@ -180,7 +186,7 @@ function dropFile(row: RequestField, event: DragEvent) {
                   v-if="allowFiles"
                   type="file"
                   hidden
-                  :aria-label="`${label} file ${index + 1}`"
+                  :aria-label="t('fields.file', { label, row: index + 1 })"
                   @change="
                     chooseFile(row, ($event.target as HTMLInputElement).files?.[0]);
                     ($event.target as HTMLInputElement).value = '';
@@ -192,8 +198,8 @@ function dropFile(row: RequestField, event: DragEvent) {
                   :ui="{ trailing: 'gap-1', base: allowFiles && row.file ? 'pe-16' : undefined }"
                   variant="none"
                   class="w-full"
-                  placeholder="Value"
-                  :aria-label="`${label} value ${index + 1}`"
+                  :placeholder="t('ui.value')"
+                  :aria-label="t('fields.value', { label, row: index + 1 })"
                   :maxlength="8192"
                   autocomplete="off"
                   spellcheck="false"
@@ -203,28 +209,28 @@ function dropFile(row: RequestField, event: DragEvent) {
                   "
                 >
                   <template v-if="allowFiles" #trailing>
-                    <UTooltip v-if="row.file" text="Remove file">
+                    <AppTooltip v-if="row.file" :text="t('ui.removeFile')">
                       <UButton
                         color="neutral"
                         variant="ghost"
                         icon="i-lucide-x"
                         size="xs"
                         :disabled="disabled"
-                        :aria-label="`Remove ${label} file ${index + 1}`"
+                        :aria-label="t('ui.removeFile2', { p0: label, p1: index + 1 })"
                         @click="clearFile(row)"
                       />
-                    </UTooltip>
-                    <UTooltip :text="row.file ? 'Replace file' : 'Upload file or drop it into this field'">
+                    </AppTooltip>
+                    <AppTooltip :text="row.file ? t('ui.replaceFile') : t('ui.uploadFileOrDropItIntoThisField')">
                       <UButton
                         color="neutral"
                         variant="ghost"
                         icon="i-lucide-upload"
                         size="xs"
                         :disabled="disabled"
-                        :aria-label="`Upload ${label} file ${index + 1}`"
+                        :aria-label="t('ui.uploadFile', { p0: label, p1: index + 1 })"
                         @click="upload"
                       />
-                    </UTooltip>
+                    </AppTooltip>
                   </template>
                 </UInput>
               </td>
@@ -233,8 +239,8 @@ function dropFile(row: RequestField, event: DragEvent) {
                   v-model="row.description"
                   variant="none"
                   class="w-full"
-                  placeholder="Description"
-                  :aria-label="`${label} description ${index + 1}`"
+                  :placeholder="t('ui.description')"
+                  :aria-label="t('fields.description', { label, row: index + 1 })"
                   :maxlength="512"
                 />
               </td>
@@ -243,7 +249,7 @@ function dropFile(row: RequestField, event: DragEvent) {
                   icon="i-lucide-x"
                   color="neutral"
                   variant="ghost"
-                  :aria-label="`Remove ${label} row ${index + 1}`"
+                  :aria-label="t('ui.removeRow', { p0: label, p1: index + 1 })"
                   @click="remove(index)"
                 />
               </td>
@@ -258,7 +264,9 @@ function dropFile(row: RequestField, event: DragEvent) {
         icon="i-lucide-plus"
         :disabled="rows.length >= 100"
         @click="rows.push(emptyRequestField())"
-        >Add row</UButton
+        >{{
+          t("ui.addRow")
+        }}</UButton
       >
     </template>
     <UTextarea
@@ -269,7 +277,7 @@ function dropFile(row: RequestField, event: DragEvent) {
           ? '{\n  &quot;Accept&quot;: &quot;application/json&quot;\n}'
           : 'name=value\ntag=first\ntag=second'
       "
-      :aria-label="`${label} ${format === 'headers' ? 'JSON' : 'bulk edit'}`"
+      :aria-label="t(format === 'headers' ? 'fields.json' : 'fields.bulk', { label })"
       :maxlength="32768"
       :rows="6"
       class="w-full mono"
@@ -279,8 +287,7 @@ function dropFile(row: RequestField, event: DragEvent) {
     />
     <p v-if="error" class="text-error text-sm" role="alert">{{ error }}</p>
     <p v-if="allowFiles" class="text-xs muted">
-      Files stay in this draft only. Maximum 128 KiB of files per request. Switching body type removes attachments.
-      Non-POST file bodies use HTTP only. Bulk editing is available for text fields.
+      {{ t("ui.filesStayInThisDraftOnlyMaximum128") }}
     </p>
   </fieldset>
 </template>

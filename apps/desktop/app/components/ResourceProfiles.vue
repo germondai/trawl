@@ -8,6 +8,7 @@ import {
   settingByName,
 } from "@trawl/config/catalog"
 import { useNavigationModal } from "~/composables/useNavigationSteps"
+import { t } from "~/utils/localization"
 import { applyResourceProfile, resourceOverrides, resourceProfileName } from "~/utils/resource-profiles"
 import { settingLabel, settingValueHint } from "~/utils/settings"
 
@@ -53,12 +54,13 @@ function revert() {
 <template>
   <section class="profile-strip">
     <div>
-      <strong>Resource profile <UBadge color="neutral" variant="subtle" size="sm">{{ current }}</UBadge></strong>
+      <strong class="profile-title"
+        >{{ t("ui.resourceProfile") }} <UBadge color="neutral" variant="subtle" size="sm">{{ current }}</UBadge></strong
+      >
       <p>
-        Preview changes before applying. Profiles change browser startup, idle timeout and WAF diagnostics; other
-        settings stay as configured.
+        {{ t("ui.previewChangesBeforeApplyingProfilesChangeBrowserStartup") }}
       </p>
-      <p v-if="undo" class="text-xs muted">You can undo the last profile change, including after saving.</p>
+      <p v-if="undo" class="text-xs muted">{{ t("ui.youCanUndoTheLastProfileChangeIncluding") }}</p>
     </div>
     <div class="actions">
       <UButton
@@ -66,14 +68,18 @@ function revert() {
         variant="outline"
         :disabled="!desktop.native || desktop.busy"
         @click="selected = 'balanced'"
-        >Standard</UButton
+        >{{
+          t("ui.standard")
+        }}</UButton
       >
       <UButton
         color="neutral"
         variant="outline"
         :disabled="!desktop.native || desktop.busy"
         @click="selected = 'economy'"
-        >Economy</UButton
+        >{{
+          t("ui.economy")
+        }}</UButton
       >
       <UButton
         v-if="undo"
@@ -82,14 +88,16 @@ function revert() {
         variant="ghost"
         :disabled="desktop.busy"
         @click="revert"
-        >Undo profile</UButton
+        >{{
+          t("ui.undoProfile")
+        }}</UButton
       >
     </div>
   </section>
-  <UModal
+  <AppDialog
     :open="Boolean(selected)"
-    title="Preview resource profile"
-    description="Changes remain a draft until you save Server settings. Environment overrides take priority."
+    :title="t('ui.previewResourceProfile')"
+    :description="t('ui.changesRemainADraftUntilYouSaveServer')"
     @update:open="if (!$event) selected = undefined;"
   >
     <template #body
@@ -97,9 +105,9 @@ function revert() {
         <table class="request-table profile-preview">
           <thead>
             <tr>
-              <th>Setting</th>
-              <th>Current</th>
-              <th>After</th>
+              <th>{{ t("ui.setting") }}</th>
+              <th>{{ t("ui.current") }}</th>
+              <th>{{ t("ui.after") }}</th>
             </tr>
           </thead>
           <tbody>
@@ -110,14 +118,14 @@ function revert() {
                 {{ row.after
                 }}<small class="block muted">{{
                   row.locked
-                    ? "Environment override"
+                    ? t("ui.environmentOverride")
                     : !row.changed
-                      ? "Unchanged"
+                      ? t("ui.unchanged")
                       : row.inherited
-                        ? "Inherited"
-                        : "Override"
+                        ? t("ui.inherited")
+                        : t("ui.override")
                 }}</small><small v-if="row.locked && row.configured !== undefined" class="block muted"
-                  >Saved value: {{ row.configured }}</small
+                  >{{ t("ui.savedValue") }} {{ row.configured }}</small
                 >
               </td>
             </tr>
@@ -126,14 +134,20 @@ function revert() {
       </div>
     </template>
     <template #footer
-      ><UButton color="neutral" variant="outline" @click="selected = undefined">Cancel</UButton
-      ><UButton :disabled="desktop.busy" @click="apply"
-        >Use {{ selected === "balanced" ? "Standard" : "Economy" }}</UButton
-      ></template
+      ><UButton color="neutral" variant="outline" @click="selected = undefined">{{ t("ui.cancel") }}</UButton
+      ><UButton :disabled="desktop.busy" @click="apply">{{
+        t(selected === "balanced" ? "profile.useStandard" : "profile.useEconomy")
+      }}</UButton></template
     >
-  </UModal>
+  </AppDialog>
 </template>
 <style scoped>
+.profile-title {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .profile-table {
   border: 1px solid var(--ui-border);
   border-radius: 8px;

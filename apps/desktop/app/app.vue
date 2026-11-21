@@ -1,18 +1,54 @@
 <script setup lang="ts">
+import { cs, de, en, fr, pl, sk } from "@nuxt/ui/locale"
 import { invoke } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { type ShortcutAction, shortcutDefinitions } from "@trawl/config/catalog"
 import { confirmationContent, provideNavigationSteps, useBrowserNavigation } from "~/composables/useNavigationSteps"
 import { eventShortcut } from "~/utils/keybindings"
+import { appLocale, nativeErrorMessage, t } from "~/utils/localization"
+import { type HistoryGesturePhase, installNativeHistoryGesture } from "~/utils/native-history-gesture"
 import { cyclePage, type Page } from "~/utils/page-history"
 import { type SettingTarget, settingNavigation } from "~/utils/setting-navigation"
 import { newWorkbenchDraft, replacesWorkbenchDraft } from "~/utils/workbench"
 
 const desktop = useDesktopStore()
+const appUpdates = useAppUpdates()
+onMounted(() => {
+  void appUpdates.start().catch(() => {})
+})
+watch(
+  () => appUpdates.result.value?.version,
+  (version) => {
+    if (version && appUpdates.result.value?.state === "available")
+      useToast().add({
+        title: t("ui.trawlIsAvailable", { p0: version }),
+        description: t("ui.installItFromAppSettings"),
+        actions: [{ label: t("ui.appSettings"), onClick: () => navigate("connections") }],
+      })
+  },
+)
 const downloads = useBrowserDownloadsStore()
 const nativeShortcuts = desktop.native
 const macOS = /Mac/.test(navigator.platform)
 const nativeMac = desktop.native && macOS
+let historyGesture: ReturnType<typeof installNativeHistoryGesture> | undefined
+let historyPhase: UnlistenFn | undefined
+onMounted(async () => {
+  if (!desktop.native || desktop.mobile) return
+  historyGesture = installNativeHistoryGesture({
+    enabled: () => !phone.value && !document.querySelector('[role="dialog"],[data-shortcut-recording]'),
+    canNavigate: (direction) => (direction === "back" ? canBack.value : canForward.value),
+    navigate: (direction) => move(direction === "back" ? -1 : 1),
+  })
+  if (nativeMac)
+    historyPhase = await listen<HistoryGesturePhase>("trawl:history-gesture-phase", ({ payload }) =>
+      historyGesture?.phase(payload),
+    )
+})
+onBeforeUnmount(() => {
+  historyGesture?.dispose()
+  historyPhase?.()
+})
 const kbds = useShortcutKeys()
 const quitKeys = computed(() => kbds("quit"))
 const navigation = provideNavigationSteps()
@@ -46,6 +82,20 @@ function moveTo(id: number) {
 useBrowserNavigation(navigation, moveTo)
 const sidebarOpen = shallowRef(false)
 const sidebarCollapsed = shallowRef(false)
+const sidebarHidden = computed(
+  () => sidebarCollapsed.value && desktop.config.desktop.sidebarBehavior === "hide" && !onboardingOpen.value,
+)
+const { television, phone } = useAppLayout()
+const sidebarMode = computed(() => (sidebarHidden.value ? "hidden" : sidebarCollapsed.value ? "icons" : "expanded"))
+useHead(() => ({ htmlAttrs: { "data-layout": television ? "television" : phone.value ? "phone" : "desktop" } }))
+const { dismiss: dismissTooltips } = useTooltipLifecycle()
+onScopeDispose(navigation.subscribe(dismissTooltips))
+const onboardingOpen = shallowRef(false)
+function openTour() {
+  guard(() => {
+    onboardingOpen.value = true
+  })
+}
 const commandsOpen = shallowRef(false)
 function openCommands() {
   sidebarOpen.value = false
@@ -55,6 +105,18 @@ useEventListener(window, "resize", () => {
   if (window.matchMedia("(min-width: 1024px)").matches) sidebarOpen.value = false
 })
 const settingTarget = shallowRef<SettingTarget>()
+const connectionFocus = shallowRef(0)
+const findOpen = shallowRef(false)
+const pageFinder = useTemplateRef("pageFinder")
+watch(page, () => {
+  findOpen.value = false
+})
+function openConnections() {
+  guard(() => {
+    connectionFocus.value++
+    navigation.visit("connections")
+  })
+}
 let settingRevision = 0
 function openSetting(name: string) {
   if (!desktop.catalog.some((setting) => setting.name === name)) return
@@ -68,9 +130,28 @@ function openSetting(name: string) {
 }
 provide(settingNavigation, openSetting)
 function toggleSidebar() {
-  if (window.matchMedia("(min-width: 1024px)").matches) sidebarCollapsed.value = !sidebarCollapsed.value
-  else sidebarOpen.value = !sidebarOpen.value
+  if (phone.value) openCommands()
+  else sidebarCollapsed.value = !sidebarCollapsed.value
 }
+useEventListener(
+  document,
+  "pointerdown",
+  (event: PointerEvent) => {
+    const target = event.target as Element | null
+    if (target?.closest('input, textarea, [contenteditable="true"]')) return
+    const selection = window.getSelection()
+    if (!selection || selection.isCollapsed || !selection.rangeCount) return
+    const inside = [...selection.getRangeAt(0).getClientRects()].some(
+      (rect) =>
+        event.clientX >= rect.left &&
+        event.clientX <= rect.right &&
+        event.clientY >= rect.top &&
+        event.clientY <= rect.bottom,
+    )
+    if (!inside) selection.removeAllRanges()
+  },
+  { capture: true },
+)
 function runShortcut(action: ShortcutAction) {
   if ("scope" in shortcutDefinitions[action]) return
   if (action === "search") openCommands()
@@ -103,6 +184,17 @@ useEventListener(
       return
     }
     if (document.querySelector("[data-shortcut-recording]")) return
+    if (!phone.value && (event.metaKey || event.ctrlKey) && !event.altKey && event.code === "KeyF") {
+      event.preventDefault()
+      findOpen.value = true
+      nextTick(() => pageFinder.value?.focus())
+      return
+    }
+    if (event.key === "Escape" && findOpen.value) {
+      event.preventDefault()
+      findOpen.value = false
+      return
+    }
     if (event.code === "Tab" && event.ctrlKey && !event.metaKey && !event.altKey) {
       event.preventDefault()
       navigate(cyclePage(page.value, event.shiftKey ? -1 : 1))
@@ -134,12 +226,24 @@ function installBrowser() {
   navigate("browser")
   void desktop.install()
 }
-function refreshPage() {
+async function refreshPage() {
   if (!desktop.native || desktop.busy) return
-  void pageRefresh.refresh().catch((cause) => {
-    useToast().add({ title: "Could not refresh page", description: String(cause), color: "error" })
+  await pageRefresh.refresh().catch((cause) => {
+    useToast().add({ title: t("ui.couldNotRefreshPage"), description: nativeErrorMessage(cause), color: "error" })
   })
 }
+const pullRefresh = usePullRefresh(
+  workspaceScroll,
+  () =>
+    phone.value &&
+    desktop.native &&
+    !desktop.busy &&
+    !pageRefresh.busy.value &&
+    !document.querySelector('[role="dialog"]'),
+  refreshPage,
+)
+watch(page, pullRefresh.reset)
+useTypeToFocus(workspaceScroll)
 const scrollbarWidth = shallowRef(0)
 useResizeObserver(workspaceScroll, () => {
   const element = workspaceScroll.value
@@ -192,7 +296,7 @@ useEventListener(window, "auxclick", mouseNavigate, { capture: true })
 const closePrompt = shallowRef(false)
 const restartPrompt = shallowRef(false)
 const stopModals = [
-  navigation.bindModal(sidebarOpen, false),
+  navigation.bindModal(sidebarOpen, false, true),
   navigation.bindModal(pendingAction, null),
   navigation.bindModal(closePrompt, false),
   navigation.bindModal(restartPrompt, false),
@@ -212,15 +316,22 @@ function navigate(next: Page) {
     sidebarOpen.value = false
   })
 }
+function addRequestTab() {
+  if (workbench.addTab()) return true
+  useToast().add({
+    title: t("ui.eightRequestTabsAreAlreadyOpen"),
+    description: t("ui.closeATabBeforeCreatingAnotherRequest"),
+    color: "neutral",
+  })
+  return false
+}
+function tourNavigate(next: Page, step: string) {
+  navigation.visit(next, { "app-tour-step": step }, { preserveModals: true })
+  sidebarOpen.value = false
+}
 function newRequest() {
   guard(() => {
-    if (replacesWorkbenchDraft(workbench.draft, newWorkbenchDraft()) && !workbench.addTab()) {
-      useToast().add({
-        title: "Eight request tabs are already open",
-        description: "Close a tab before creating another request.",
-        color: "neutral",
-      })
-    }
+    if (replacesWorkbenchDraft(workbench.draft, newWorkbenchDraft())) addRequestTab()
     navigation.visit("workbench", { "workbench-tab": workbench.activeTabId })
     sidebarOpen.value = false
   })
@@ -324,7 +435,7 @@ async function close(behavior: "tray" | "quit", rememberChoice = false) {
 }
 </script>
 <template>
-  <UApp
+  <UApp :locale="{ en, cs, sk, pl, de, fr }[appLocale]"
     ><UTheme :props="{ modal: { transition: false } }">
       <UDashboardGroup
         unit="rem"
@@ -332,11 +443,18 @@ async function close(behavior: "tray" | "quit", rememberChoice = false) {
         storage-key="trawl-desktop"
         class="desktop-shell"
         data-native-window-chrome
-        :class="{ 'native-mac': nativeMac }"
+        :class="{
+          'native-mac': nativeMac,
+          'phone-layout': phone,
+          'television-layout': television,
+          'sidebar-fully-hidden': sidebarHidden,
+        }"
       >
         <ShellSidebar
+          v-if="!phone"
           v-model:open="sidebarOpen"
           v-model:collapsed="sidebarCollapsed"
+          :hidden="sidebarHidden"
           :page="page"
           @navigate="(next) => (next === 'workbench' ? newRequest() : navigate(next))"
           @select="selectInstance"
@@ -357,6 +475,8 @@ async function close(behavior: "tray" | "quit", rememberChoice = false) {
           >
             <section ref="workspacePane" class="workspace">
               <ShellHeader
+                :phone="phone"
+                :sidebar-mode="sidebarMode"
                 :refreshing="pageRefresh.busy.value"
                 :page="page"
                 :can-back="canBack"
@@ -366,6 +486,14 @@ async function close(behavior: "tray" | "quit", rememberChoice = false) {
                 @forward="move(1)"
                 @restart="restartPrompt = true"
                 @refresh="refreshPage"
+                @sidebar="toggleSidebar"
+                @search="openCommands"
+              />
+              <PageFind v-if="!phone" ref="pageFinder" v-model="findOpen" :root="workspaceScroll" />
+              <PullRefreshIndicator
+                v-if="phone"
+                :distance="pullRefresh.distance.value"
+                :refreshing="pullRefresh.refreshing.value"
               />
               <div
                 ref="workspaceScroll"
@@ -373,7 +501,6 @@ async function close(behavior: "tray" | "quit", rememberChoice = false) {
                 :class="{
                   'workspace-fill':
                     page === 'logs' ||
-                    page === 'sessions' ||
                     ((page === 'overview' || page === 'history') &&
                       desktop.activeId === 'local' &&
                       !desktop.status.running),
@@ -381,7 +508,7 @@ async function close(behavior: "tray" | "quit", rememberChoice = false) {
               >
                 <div class="content">
                   <div v-if="!desktop.native" class="notice">
-                    Desktop preview. Open the native application to manage the browser, server and saved instances.
+                    {{ t("ui.desktopPreviewOpenTheNativeApplicationToManage") }}
                   </div>
                   <div v-if="desktop.error" class="notice error" role="alert">{{ desktop.error }}</div>
                   <p
@@ -389,7 +516,7 @@ async function close(behavior: "tray" | "quit", rememberChoice = false) {
                     class="notice"
                     role="status"
                   >
-                    Starting local server and preparing the browser…
+                    {{ t("ui.startingLocalServerAndPreparingTheBrowser") }}
                   </p>
                   <Transition :css="false" @before-enter="scrollToTop(false)"
                     ><div :key="page" class="page-view">
@@ -412,8 +539,7 @@ async function close(behavior: "tray" | "quit", rememberChoice = false) {
                         v-else-if="page === 'sessions' && desktop.mobile && desktop.activeId === 'local'"
                         class="notice"
                       >
-                        Android System WebView uses a fresh page for each request. Persistent sessions are unavailable
-                        on this device.
+                        {{ t("ui.androidSystemWebviewUsesAFreshPageFor") }}
                       </div>
                       <SessionManager
                         v-else-if="page === 'sessions'"
@@ -422,7 +548,7 @@ async function close(behavior: "tray" | "quit", rememberChoice = false) {
                           navigate('workbench');
                         "
                       />
-                      <ResourceUsage v-else-if="page === 'resources'" @navigate="navigate" />
+                      <template v-else-if="page === 'resources'"><ResourceUsage @navigate="navigate" /></template>
                       <template v-else-if="page === 'browser'"
                         ><BrowserInspector
                           v-if="!desktop.mobile || desktop.activeId !== 'local'"
@@ -432,9 +558,9 @@ async function close(behavior: "tray" | "quit", rememberChoice = false) {
                             navigate('history');
                           "
                         />
-                        <BrowserManager v-if="desktop.activeId === 'local'" />
+                        <BrowserManager v-if="desktop.activeId === 'local'" @connect="openConnections" />
                         <div v-else class="notice">
-                          Browser installations are managed on their host. Select Local instance to manage this device.
+                          {{ t("ui.browserInstallationsAreManagedOnTheirHostSelect") }}
                         </div></template
                       >
                       <template v-else-if="page === 'settings'"
@@ -444,13 +570,15 @@ async function close(behavior: "tray" | "quit", rememberChoice = false) {
                           @focused="settingTarget = undefined"
                         />
                         <div v-else-if="desktop.activeId === 'local'" class="notice">
-                          Local configuration is not loaded yet.
+                          {{ t("ui.localConfigurationIsNotLoadedYet") }}
                           <UButton
                             color="neutral"
                             variant="link"
                             :loading="desktop.busy"
                             @click="desktop.action(() => desktop.bootstrap())"
-                            >Load configuration</UButton
+                            >{{
+                              t("ui.loadConfiguration")
+                            }}</UButton
                           >
                         </div>
                         <RemoteSettings
@@ -461,15 +589,21 @@ async function close(behavior: "tray" | "quit", rememberChoice = false) {
                       >
                       <template v-else-if="page === 'logs'"><ServerLogs /></template>
                       <template v-else-if="page === 'connections'"
-                        ><ConnectionSettings v-if="!desktop.native || desktop.loaded" />
+                        ><ConnectionSettings
+                          v-if="!desktop.native || desktop.loaded"
+                          :focus-connections="connectionFocus"
+                          @onboarding="openTour"
+                        />
                         <div v-else class="notice">
-                          Load the local configuration before editing connections.
+                          {{ t("ui.loadTheLocalConfigurationBeforeEditingConnections") }}
                           <UButton
                             color="neutral"
                             variant="link"
                             :loading="desktop.busy"
                             @click="desktop.action(() => desktop.bootstrap())"
-                            >Load configuration</UButton
+                            >{{
+                              t("ui.loadConfiguration")
+                            }}</UButton
                           >
                         </div></template
                       >
@@ -487,87 +621,101 @@ async function close(behavior: "tray" | "quit", rememberChoice = false) {
                 <div v-if="downloads.pending.length && page !== 'browser'" key="downloads">
                   <BrowserDownloadQueue @browse="navigate('browser')" />
                 </div>
-                <div v-if="page !== 'workbench'" key="request">
-                  <UTooltip text="New request" :kbds="kbds('workbench')"
+                <div v-if="!phone && page !== 'workbench'" key="request">
+                  <AppTooltip :text="t('ui.newRequest')" :kbds="kbds('workbench')"
                     ><UButton
                       class="new-request-fab"
                       icon="i-lucide-plus"
-                      aria-label="New request"
+                      :aria-label="t('ui.newRequest')"
+                      data-tour="new-request"
                       @click="newRequest"
-                    /></UTooltip
+                    /></AppTooltip
                   >
                 </div>
               </TransitionGroup>
+              <MobileNavigation v-if="phone" :page="page" @navigate="navigate" @request="newRequest" />
             </section>
           </UTheme>
         </main>
       </UDashboardGroup>
+      <AppOnboarding v-model:open="onboardingOpen" @navigate="tourNavigate" />
       <ShellCommands
         v-model:open="commandsOpen"
         :page="page"
         @action="runShortcut"
+        @navigate="navigate"
+        @onboarding="openTour"
         @setting="openSetting"
         @select="selectInstance"
       />
       <div v-if="quitFeedback" class="quit-hold" role="status">
         <UIcon name="i-lucide-power" class="size-5" />
         <span class="quit-message"
-          ><span>{{ quitFeedback === "double" ? "Press" : quitArmed ? "Release" : "Hold" }}</span>
-          <span class="inline-flex items-center gap-1"><UKbd v-for="key in quitKeys" :key="key" :value="key" /></span>
-          <span>{{ quitFeedback === "double" ? "again to quit TRAWL" : "to quit TRAWL" }}</span>
+          ><LocalizedMessage
+            :message="quitFeedback === 'double' ? 'quit.pressAgain' : quitArmed ? 'quit.release' : 'quit.hold'"
+          >
+            <template #keys
+              ><span class="inline-flex items-center gap-1"
+                ><UKbd v-for="key in quitKeys" :key="key" :value="key" /></span
+              ></template
+            >
+          </LocalizedMessage>
         </span>
         <span v-if="quitFeedback === 'hold'" class="quit-progress" aria-hidden="true" />
       </div>
-      <UModal
+      <AppDialog
         v-model:open="closePrompt"
         :content="confirmationContent"
-        title="Keep TRAWL running?"
-        description="Choose what happens when you close the window. You can change this in App settings."
+        :title="t('ui.keepTrawlRunning')"
+        :description="t('ui.chooseWhatHappensWhenYouCloseTheWindow')"
         :dismissible="false"
         ><template #body
           ><p>
-            Keeping TRAWL running leaves the local server available. Quit stops the server started by this application.
+            {{ t("ui.keepingTrawlRunningLeavesTheLocalServerAvailable") }}
           </p>
           <USwitch
             v-model="remember"
-            label="Remember my choice"
+            :label="t('ui.rememberMyChoice')"
             :disabled="!desktop.loaded || desktop.busy"
             class="mt-6"
           />
           <p v-if="!desktop.loaded" class="mt-2 text-sm">
-            Preferences are still loading. This choice will apply to this close only.
+            {{ t("ui.preferencesAreStillLoadingThisChoiceWillApply") }}
           </p></template
         ><template #footer
           ><div class="actions">
-            <UButton color="neutral" variant="ghost" @click="closePrompt = false">Cancel</UButton
-            ><UButton color="neutral" variant="outline" @click="close('quit', true)">Quit completely</UButton
-            ><UButton data-confirm-default @click="close('tray', true)">Keep running</UButton>
+            <UButton color="neutral" variant="ghost" @click="closePrompt = false">{{ t("ui.cancel") }}</UButton
+            ><UButton color="neutral" variant="outline" @click="close('quit', true)">{{
+              t("ui.quitCompletely")
+            }}</UButton><UButton data-confirm-default @click="close('tray', true)">{{ t("ui.keepRunning") }}</UButton>
           </div></template
-        ></UModal
+        ></AppDialog
       >
-      <UModal
+      <AppDialog
         :open="Boolean(pendingAction)"
         :content="confirmationContent"
-        title="Discard unsaved settings?"
-        description="Your changes have not been saved."
+        :title="t('ui.discardUnsavedSettings')"
+        :description="t('ui.yourChangesHaveNotBeenSaved')"
         @update:open="if (!$event) pendingAction = null;"
       >
         <template #footer
-          ><UButton color="neutral" variant="outline" @click="pendingAction = null">Keep editing</UButton
-          ><UButton data-confirm-default @click="acceptDiscard">Discard changes</UButton></template
+          ><UButton color="neutral" variant="outline" @click="pendingAction = null">{{ t("ui.keepEditing") }}</UButton
+          ><UButton data-confirm-default @click="acceptDiscard">{{ t("ui.discardChanges") }}</UButton></template
         >
-      </UModal>
-      <UModal
+      </AppDialog>
+      <AppDialog
         v-model:open="restartPrompt"
         :content="confirmationContent"
-        title="Restart the local server?"
-        description="The server will stop accepting requests while it restarts. Unsaved settings will not be applied."
+        :title="t('ui.restartTheLocalServer')"
+        :description="t('ui.theServerWillStopAcceptingRequestsWhileIt')"
       >
         <template #footer
-          ><UButton color="neutral" variant="outline" @click="restartPrompt = false">Cancel</UButton
-          ><UButton data-confirm-default :loading="desktop.busy" @click="restart">Restart server</UButton></template
+          ><UButton color="neutral" variant="outline" @click="restartPrompt = false">{{ t("ui.cancel") }}</UButton
+          ><UButton data-confirm-default :loading="desktop.busy" @click="restart">{{
+            t("ui.restartServer")
+          }}</UButton></template
         >
-      </UModal>
+      </AppDialog>
     </UTheme></UApp
   >
 </template>

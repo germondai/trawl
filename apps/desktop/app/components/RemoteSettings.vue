@@ -1,17 +1,29 @@
 <script setup lang="ts">
 import type { InstanceSetting } from "@trawl/client"
+import { useErrorMessage } from "~/composables/useErrorMessage"
 import { useNavigationSelection } from "~/composables/useNavigationSteps"
+import { LocalizedError, t } from "~/utils/localization"
 import type { SettingTarget } from "~/utils/setting-navigation"
-import { sectionFor, settingLabel, settingSections } from "~/utils/settings"
+import { groupedSettings, settingDescription, settingLabel, type settingSections } from "~/utils/settings"
 
 const props = defineProps<{ focusSetting?: SettingTarget }>()
 
 const emit = defineEmits<{ focused: [] }>()
 const desktop = useDesktopStore()
+const values = shallowRef<InstanceSetting[]>([])
+const sections = computed(() => groupedSettings(values.value))
 const query = shallowRef("")
 const selected = shallowRef<(typeof settingSections)[number]["id"]>("general")
-useNavigationSelection("settings-category", selected)
-const values = shallowRef<InstanceSetting[]>([])
+const navigation = useNavigationSelection("settings-category", selected, {
+  valid: (value) => !sections.value.length || sections.value.some((section) => section.id === value),
+})
+watchEffect(() => {
+  const first = sections.value[0]
+  if (first && !sections.value.some((section) => section.id === selected.value)) {
+    navigation?.dropSelection("settings-category", selected.value, first.id)
+    selected.value = first.id
+  }
+})
 const { highlighted } = useSettingFocus(
   () => props.focusSetting,
   () => values.value,
@@ -19,7 +31,7 @@ const { highlighted } = useSettingFocus(
   selected,
   () => emit("focused"),
 )
-const error = shallowRef("")
+const error = useErrorMessage()
 const pending = shallowRef(false)
 const { revision, refresh, finish } = useRefreshRevision()
 usePageRefresh(refresh)
@@ -45,7 +57,10 @@ watch(
       if (!controller.signal.aborted) values.value = result.settings
     } catch (cause) {
       if (!controller.signal.aborted)
-        error.value = cause instanceof Error ? cause.message : "Cannot read instance settings"
+        error.value =
+          cause instanceof Error || typeof cause === "string"
+            ? cause
+            : new LocalizedError("ui.cannotReadInstanceSettings")
     } finally {
       finish(refreshCount)
       if (!controller.signal.aborted) pending.value = false
@@ -53,18 +68,12 @@ watch(
   },
   { immediate: true },
 )
-const sections = computed(() =>
-  settingSections.map((section) => ({
-    ...section,
-    settings: values.value.filter((setting) => sectionFor(setting) === section.id),
-  })),
-)
 const filtered = computed(() =>
   sections.value
     .map((section) => ({
       ...section,
       settings: section.settings.filter((setting) =>
-        `${setting.name} ${settingLabel(setting)} ${setting.description}`
+        `${setting.name} ${settingLabel(setting)} ${settingDescription(setting)}`
           .toLowerCase()
           .includes(query.value.trim().toLowerCase()),
       ),
@@ -74,11 +83,11 @@ const filtered = computed(() =>
 const groupItems = computed(() => sections.value.map(({ id, label }) => ({ label, value: id })))
 </script>
 <template>
-  <div v-if="!desktop.health" class="notice">This instance is unavailable. Reconnect to inspect its settings.</div>
+  <div v-if="!desktop.health" class="notice">{{ t("ui.thisInstanceIsUnavailableReconnectToInspectIts") }}</div>
   <div v-else-if="!desktop.capabilities?.settings" class="notice">
-    This instance does not offer settings inspection. It requires a compatible server with
-    <SettingLink name="OBSERVABILITY_ENABLED">OBSERVABILITY_ENABLED=true</SettingLink>
-    and a configured dashboard token.
+    {{ t("ui.thisInstanceDoesNotOfferSettingsInspectionIt") }}
+    <SettingLink name="OBSERVABILITY_ENABLED">{{ t("ui.observabilityEnabledTrue") }}</SettingLink>
+    {{ t("ui.andAConfiguredDashboardToken") }}
   </div>
   <template v-else>
     <div class="settings-toolbar">
@@ -86,8 +95,10 @@ const groupItems = computed(() => sections.value.map(({ id, label }) => ({ label
         v-model="query"
         leading-icon="i-lucide-search"
         :ui="{ trailing: 'p-0' }"
-        placeholder="Search settings"
-        aria-label="Search remote settings"
+        :placeholder="t('ui.searchSettings')"
+        :aria-label="t('ui.searchRemoteSettings')"
+        data-type-focus
+        data-tour="settings-search"
         class="settings-search"
         ><template v-if="query" #trailing
           ><UButton
@@ -96,7 +107,7 @@ const groupItems = computed(() => sections.value.map(({ id, label }) => ({ label
             variant="link"
             icon="i-lucide-x"
             class="search-clear"
-            aria-label="Clear settings search"
+            :aria-label="t('ui.clearSettingsSearch')"
             @click="query = ''"
           /></template
         ></UInput
@@ -104,16 +115,16 @@ const groupItems = computed(() => sections.value.map(({ id, label }) => ({ label
       <span class="settings-count"
         >{{
           query.trim()
-            ? `${filtered.reduce((sum, section) => sum + section.settings.length, 0)} matches`
-            : `${values.length} settings`
+            ? t("counts.matches", { count: filtered.reduce((sum, section) => sum + section.settings.length, 0) })
+            : t("counts.settings", { count: values.length })
         }}
-        · Read only</span
+        {{ t("ui.readOnly") }}</span
       >
     </div>
     <p v-if="error" class="notice error" role="alert">{{ error }}</p>
-    <p v-else-if="pending && !values.length" class="muted" role="status">Reading instance settings…</p>
+    <p v-else-if="pending && !values.length" class="muted" role="status">{{ t("ui.readingInstanceSettings") }}</p>
     <div v-else class="settings-layout">
-      <nav class="settings-nav" aria-label="Remote setting categories">
+      <nav class="settings-nav" :aria-label="t('ui.remoteSettingCategories')">
         <button
           v-for="section in sections"
           :key="section.id"
@@ -132,7 +143,8 @@ const groupItems = computed(() => sections.value.map(({ id, label }) => ({ label
         <USelect
           v-model="selected"
           :items="groupItems"
-          aria-label="Remote setting category"
+          :aria-label="t('ui.remoteSettingCategory')"
+          :disabled="pending || !sections.length"
           @update:model-value="query = ''"
         />
       </div>
@@ -158,7 +170,7 @@ const groupItems = computed(() => sections.value.map(({ id, label }) => ({ label
           >
             <div class="setting-copy">
               <strong>{{ settingLabel(setting) }}</strong>
-              <p class="setting-description"><SettingText :text="setting.description" /></p>
+              <p class="setting-description"><SettingText :text="settingDescription(setting)" /></p>
               <code class="setting-name mono">{{ setting.name }}</code>
             </div>
             <div class="setting-control min-w-0">
@@ -166,26 +178,28 @@ const groupItems = computed(() => sections.value.map(({ id, label }) => ({ label
                 {{
                   setting.secret
                     ? setting.configured
-                      ? "Configured · value hidden"
-                      : "Not configured"
-                    : setting.value || "Not configured"
+                      ? t("ui.configuredValueHidden")
+                      : t("ui.notConfigured")
+                    : setting.value || t("ui.notConfigured")
                 }}
               </p>
               <p class="muted text-xs mt-2">
                 {{
                   setting.source === "normalized"
-                    ? "Normalized by engine"
+                    ? t("ui.normalizedByEngine")
                     : setting.source === "environment"
-                      ? "Server environment"
+                      ? t("ui.serverEnvironment")
                       : setting.source === "runtime"
-                        ? "Runtime"
-                        : "Default"
+                        ? t("ui.runtime")
+                        : t("ui.default2")
                 }}
               </p>
             </div>
           </div>
         </section>
-        <p v-if="!filtered.length" class="empty">No settings match your search</p>
+        <p v-if="!pending && !filtered.length" class="empty">
+          {{ query.trim() ? t("ui.noSettingsMatchYourSearch") : t("ui.noSettingsAreAvailableForThisInstance") }}
+        </p>
       </div>
     </div>
   </template>

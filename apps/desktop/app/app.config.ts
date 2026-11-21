@@ -4,6 +4,7 @@ export default defineAppConfig({
     button: { defaultVariants: { size: "md" } },
     input: { slots: { root: "w-full" } },
     select: { slots: { base: "w-full", content: "navigation-popup" } },
+    tooltip: { slots: { content: "z-50" } },
     popover: { slots: { content: "navigation-popup" } },
     dropdownMenu: { slots: { content: "navigation-popup" } },
     modal: {

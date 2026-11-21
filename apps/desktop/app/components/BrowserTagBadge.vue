@@ -6,7 +6,7 @@ const badge = computed<BrowserTagDefinition>(() => browserTags[tag])
 </script>
 
 <template>
-  <UTooltip :text="badge.description">
+  <AppTooltip :text="badge.description">
     <UBadge :color="badge.color" :variant="badge.variant" :class="badge.class" size="sm">{{ badge.label }}</UBadge>
-  </UTooltip>
+  </AppTooltip>
 </template>

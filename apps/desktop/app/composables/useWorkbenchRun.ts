@@ -1,4 +1,5 @@
 import { TrawlError } from "@trawl/client"
+import { computed } from "vue"
 import { jsonPreview } from "~/utils/json-preview"
 import {
   requireWorkbenchCapabilities,
@@ -6,19 +7,46 @@ import {
   type WorkbenchDraft,
   type WorkbenchResult,
 } from "~/utils/workbench"
+import { nativeErrorMessage, t } from "../utils/localization"
 
 export function useWorkbenchRun() {
   const desktop = useDesktopStore()
   const result = shallowRef<WorkbenchResult>()
   const state = shallowRef<"idle" | "pending" | "completed" | "failed" | "stopped">("idle")
-  const error = shallowRef("")
+  const failure = shallowRef<unknown>()
+  const error = computed(() => {
+    const cause = failure.value
+    if (cause === undefined) return ""
+    const label =
+      cause instanceof TrawlError
+        ? cause.kind === "api"
+          ? t("ui.apiErrorHttp", { p0: cause.status })
+          : cause.kind === "network"
+            ? t("ui.connectionDesktopTransport")
+            : cause.kind === "timeout"
+              ? t("ui.waitTimedOut")
+              : t("ui.responseError")
+        : t("ui.requestValidation")
+    return t("errors.requestDetails", {
+      label,
+      error: nativeErrorMessage(cause).slice(0, 4096) || t("ui.requestFailed"),
+    })
+  })
   const failureDetails = shallowRef("")
   const requestId = shallowRef("")
   const requestIdConfirmed = shallowRef(false)
   const elapsed = shallowRef(0)
   let controller: AbortController | undefined
   let generation = 0
+  let started = 0
+  let timer: ReturnType<typeof setInterval> | undefined
+  function finishTimer() {
+    if (timer !== undefined) elapsed.value = Math.round(performance.now() - started)
+    clearInterval(timer)
+    timer = undefined
+  }
   function stop() {
+    finishTimer()
     generation++
     controller?.abort()
     controller = undefined
@@ -34,10 +62,14 @@ export function useWorkbenchRun() {
     result.value = undefined
     requestId.value = ""
     requestIdConfirmed.value = false
-    error.value = ""
+    failure.value = undefined
     failureDetails.value = ""
     state.value = "pending"
-    const start = performance.now()
+    started = performance.now()
+    elapsed.value = 0
+    timer = setInterval(() => {
+      elapsed.value = Math.round(performance.now() - started)
+    }, 100)
     try {
       requireWorkbenchCapabilities(draft, desktop.capabilities)
       const api = desktop.client((value, proposed) => {
@@ -58,17 +90,7 @@ export function useWorkbenchRun() {
       state.value = "completed"
     } catch (cause) {
       if (current !== generation || desktop.activeId !== id) return
-      const label =
-        cause instanceof TrawlError
-          ? cause.kind === "api"
-            ? `API error (HTTP ${cause.status})`
-            : cause.kind === "network"
-              ? "Connection / desktop transport"
-              : cause.kind === "timeout"
-                ? "Wait timed out"
-                : "Response error"
-          : "Request validation"
-      error.value = `${label}: ${cause instanceof Error ? cause.message.slice(0, 4096) : "Request failed"}`
+      failure.value = cause
       if (cause instanceof TrawlError) {
         requestId.value = cause.requestId ?? requestId.value
         if (cause.requestId) requestIdConfirmed.value = true
@@ -85,7 +107,7 @@ export function useWorkbenchRun() {
       state.value = cause instanceof TrawlError && ["timeout", "aborted"].includes(cause.kind) ? "stopped" : "failed"
     } finally {
       if (current === generation) {
-        elapsed.value = Math.round(performance.now() - start)
+        finishTimer()
         controller = undefined
       }
     }
@@ -95,7 +117,7 @@ export function useWorkbenchRun() {
     result.value = undefined
     requestId.value = ""
     requestIdConfirmed.value = false
-    error.value = ""
+    failure.value = undefined
     failureDetails.value = ""
     state.value = "idle"
     elapsed.value = 0

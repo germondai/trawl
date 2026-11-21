@@ -1,65 +1,166 @@
 <script setup lang="ts">
 import type { DashboardEvent, RequestHistoryEntry } from "@trawl/client"
-import { useNavigationSelection } from "~/composables/useNavigationSteps"
+import { useErrorMessage } from "~/composables/useErrorMessage"
+import { confirmationContent, useNavigationModal, useNavigationSelection } from "~/composables/useNavigationSteps"
 import { executionTier } from "~/utils/dashboard"
+import { formatLocale, LocalizedError, t } from "~/utils/localization"
+import { capturedWorkbenchDraft, replacesWorkbenchDraft } from "~/utils/workbench"
 
 const props = defineProps<{ entry: DashboardEvent & Partial<RequestHistoryEntry>; captures: boolean }>()
 const emit = defineEmits<{ replay: [] }>()
 const tab = shallowRef("headers")
 useNavigationSelection("request-inspector", tab, { transient: true })
-const tabs = [
-  { label: "Headers", value: "headers" },
-  { label: "Payload", value: "payload" },
-  { label: "Cookies", value: "cookies" },
-  { label: "Timing", value: "timing" },
-  { label: "Initiator", value: "initiator" },
-  { label: "Preview", value: "preview" },
-  { label: "Response", value: "response" },
-]
+const tabs = computed(() => [
+  { label: t("ui.headers"), value: "headers" },
+  ...(!["GET", "HEAD"].includes(props.entry.method ?? "GET") ? [{ label: t("ui.payload"), value: "payload" }] : []),
+  { label: t("ui.cookies"), value: "cookies" },
+  { label: t("ui.timing"), value: "timing" },
+  { label: t("ui.initiator"), value: "initiator" },
+  { label: t("ui.response"), value: "response" },
+])
+watch(tabs, (items) => {
+  if (!items.some((item) => item.value === tab.value)) tab.value = "headers"
+})
 const { manifest, loading, error } = useSavedCaptures(() => ({ id: props.entry.id ?? "", at: props.entry.at }))
 const request = computed(() => manifest.value?.artifacts.find((artifact) => artifact.kind === "request"))
 const diagnostics = computed(() => props.entry.diagnostics)
 const bytes = (value?: number) =>
   value === undefined
-    ? "Not recorded"
+    ? t("ui.notRecorded")
     : value < 1024
       ? `${value} B`
-      : `${(value / 1024).toLocaleString(undefined, { maximumFractionDigits: 1 })} KiB`
+      : `${(value / 1024).toLocaleString(formatLocale(), { maximumFractionDigits: 1 })} KiB`
+
+const desktop = useDesktopStore()
+const workbench = useWorkbenchStore()
+const replace = shallowRef(false)
+useNavigationModal(replace, false)
+const replayError = useErrorMessage()
+const {
+  bytes: inputBytes,
+  loading: inputLoading,
+  error: inputError,
+  retry,
+} = useCaptureArtifact(
+  () => ({ id: props.entry.id ?? "", at: props.entry.at }),
+  () => request.value,
+)
+const input = computed<unknown>(() => {
+  if (!inputBytes.value) return undefined
+  try {
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(inputBytes.value))
+  } catch {
+    return undefined
+  }
+})
+const url = computed(() => {
+  const value = input.value as { parameters?: { url?: unknown } } | undefined
+  return typeof value?.parameters?.url === "string" ? value.parameters.url : undefined
+})
+const copied = shallowRef(false)
+const copyError = useErrorMessage()
+const { start: clearCopied } = useTimeoutFn(
+  () => {
+    copied.value = false
+  },
+  2000,
+  { immediate: false },
+)
+async function copy() {
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(input.value, null, 2))
+    copied.value = true
+    copyError.value = ""
+    clearCopied()
+  } catch {
+    copyError.value = new LocalizedError("ui.clipboardIsUnavailableSelectAndCopyTheValues")
+  }
+}
+function replay(confirmed = false) {
+  replace.value = false
+  replayError.value = ""
+  try {
+    const draft = capturedWorkbenchDraft(input.value)
+    if (!confirmed && replacesWorkbenchDraft(workbench.draft, draft)) {
+      replace.value = true
+      return
+    }
+    workbench.draft = draft
+    emit("replay")
+  } catch (cause) {
+    replayError.value =
+      cause instanceof Error || typeof cause === "string"
+        ? cause
+        : new LocalizedError("ui.cannotOpenThisRequestInTheEditor")
+  }
+}
+defineExpose({ copy, replay, copied, available: computed(() => !!input.value) })
 </script>
 <template>
-  <div class="form-stack">
+  <div class="form-stack request-inspector">
+    <p v-if="copyError || replayError" class="notice" role="alert">{{ copyError || replayError }}</p>
     <dl class="inspection-facts">
       <div>
-        <dt>Source</dt>
+        <dt>{{ t("ui.source") }}</dt>
         <dd>{{ entry.source }}</dd>
       </div>
       <div>
-        <dt>Execution</dt>
+        <dt>{{ t("ui.execution") }}</dt>
         <dd>{{ executionTier(entry.tier) }} <span class="muted">· {{ entry.tier ?? "—" }}</span></dd>
       </div>
       <div>
-        <dt>HTTP status</dt>
-        <dd class="mono">{{ entry.statusCode ?? "Not recorded" }}</dd>
+        <dt>{{ t("ui.httpStatus") }}</dt>
+        <dd class="mono">{{ entry.statusCode ?? t("ui.notRecorded") }}</dd>
       </div>
       <div>
-        <dt>Challenge</dt>
-        <dd>{{ diagnostics?.challenges.join(", ") || (diagnostics ? "None recorded" : "Not recorded") }}</dd>
+        <dt>{{ t("ui.challenge") }}</dt>
+        <dd>{{ diagnostics?.challenges.join(", ") || (diagnostics ? t("ui.noneRecorded") : t("ui.notRecorded")) }}</dd>
       </div>
       <div>
-        <dt>Result / cause</dt>
-        <dd>{{ entry.category ?? entry.tierStatus ?? (entry.success ? "Success" : "Failed") }}</dd>
+        <dt>{{ t("ui.resultCause") }}</dt>
+        <dd>
+          {{
+            diagnostics?.cause
+              ? t(`diagnostics.cause.${diagnostics.cause}`)
+              : entry.success
+                ? t("ui.success")
+                : (entry.category ?? entry.tierStatus ?? t("ui.failed"))
+          }}
+        </dd>
       </div>
       <div>
-        <dt>Response type</dt>
-        <dd>{{ diagnostics?.contentType ?? diagnostics?.responseKind ?? "Not recorded" }}</dd>
+        <dt>{{ t("ui.responseType") }}</dt>
+        <dd>{{ diagnostics?.contentType ?? diagnostics?.responseKind ?? t("ui.notRecorded") }}</dd>
       </div>
       <div>
-        <dt>Request body</dt>
+        <dt>{{ t("ui.requestBody") }}</dt>
         <dd>{{ bytes(diagnostics?.requestBodyBytes) }}</dd>
       </div>
       <div>
-        <dt>Response body</dt>
+        <dt>{{ t("ui.responseBody") }}</dt>
         <dd>{{ bytes(diagnostics?.responseBytes) }}</dd>
+      </div>
+    </dl>
+    <dl class="inspection-facts inspection-general">
+      <div v-if="url" class="inspection-url">
+        <dt>URL</dt>
+        <dd class="mono break-all">{{ url }}</dd>
+      </div>
+      <div class="inspection-id">
+        <dt>{{ t("ui.requestId") }}</dt>
+        <dd class="mono break-all">{{ entry.id ?? t("ui.notRecorded") }}</dd>
+      </div>
+      <div>
+        <dt>{{ t("ui.method") }}</dt>
+        <dd class="mono">{{ entry.method ?? t("ui.notRecorded") }}</dd>
+      </div>
+      <div>
+        <dt>{{ t("ui.recordedAt") }}</dt>
+        <dd>{{ new Date(entry.at).toLocaleString(formatLocale(), { timeZoneName: "short" }) }}</dd>
+      </div>
+      <div v-if="entry.waf">
+        <dt>{{ t(entry.waf.products.length ? "ui.wafProvider" : "diagnostics.stage.waf-detection") }}</dt>
+        <dd>{{ entry.waf.products.join(", ") || t(`diagnostics.waf.${entry.waf.state}`) }}</dd>
       </div>
     </dl>
     <UTabs
@@ -70,84 +171,75 @@ const bytes = (value?: number) =>
       variant="link"
       :ui="{ list: 'w-full justify-start', trigger: 'shrink-0' }"
     />
-    <dl v-if="tab === 'headers'" class="request-details">
-      <div>
-        <dt>Request ID</dt>
-        <dd class="mono break-all">{{ entry.id ?? "Not recorded" }}</dd>
-      </div>
-      <div>
-        <dt>Method</dt>
-        <dd class="mono">{{ entry.method ?? "Not recorded" }}</dd>
-      </div>
-      <div>
-        <dt>Recorded at</dt>
-        <dd>{{ new Date(entry.at).toLocaleString() }}</dd>
-      </div>
-      <div v-if="entry.waf">
-        <dt>WAF provider</dt>
-        <dd>{{ entry.waf.products.join(", ") || entry.waf.state }}</dd>
-      </div>
-    </dl>
     <template v-if="tab === 'headers' || tab === 'payload' || tab === 'cookies'">
       <p v-if="error" class="notice" role="status">{{ error }}</p>
       <CapturedRequest
         v-if="captures && entry.id && manifest"
-        :request-id="entry.id"
-        :request-at="entry.at"
+        :input="input"
+        :loading="inputLoading"
+        :error="inputError"
         :artifact="request"
         :view="tab"
-        @replay="emit('replay')"
+        @retry="retry"
       />
-      <p v-else-if="loading" class="text-xs muted" role="status">Loading saved request parameters…</p>
-      <p v-else class="text-xs muted">Saved request parameters are unavailable on this instance.</p>
-      <p v-if="tab === 'headers' || tab === 'cookies'" class="text-xs muted">
-        Response headers and response cookies were not retained with this record.
-      </p>
+      <p v-else-if="loading" class="text-xs muted" role="status">{{ t("ui.loadingSavedRequestParameters") }}</p>
+      <p v-else class="text-xs muted">{{ t("ui.savedRequestParametersAreUnavailableOnThisInstance") }}</p>
     </template>
-    <div v-else-if="tab === 'timing'" class="form-stack">
-      <div class="flex justify-between">
-        <h3>Total duration</h3>
-        <span class="mono">{{ entry.durationMs.toLocaleString() }} ms</span>
-      </div>
-      <div v-for="(attempt, index) in diagnostics?.timings ?? []" :key="index" class="timing-attempt">
-        <span>Tier {{ attempt.tier }} · {{ attempt.status }}</span
-        ><span class="mono">{{ attempt.durationMs.toLocaleString() }} ms</span>
-        <div class="timing-track">
-          <div :style="{ width: `${Math.min(100, (attempt.durationMs / Math.max(1, entry.durationMs)) * 100)}%` }" />
+    <RequestExecution v-else-if="tab === 'timing'" :diagnostics="diagnostics" :duration-ms="entry.durationMs" />
+    <div v-else-if="tab === 'initiator'" class="form-stack">
+      <dl class="request-details detail-metadata">
+        <div>
+          <dt>{{ t("ui.source") }}</dt>
+          <dd>
+            {{ entry.source === "flaresolverr" ? t("ui.flaresolverrApiProwlarrAndCompatibleClients") : entry.source }}
+          </dd>
         </div>
-      </div>
-      <p class="text-xs muted">
-        {{
-          diagnostics?.timings.length
-            ? "Execution time per tier. DNS, connection and transfer phases are not recorded separately."
-            : "Per-tier timing was not recorded for this request."
-        }}
-      </p>
+        <div>
+          <dt>{{ t("ui.target") }}</dt>
+          <dd>{{ entry.domain }}</dd>
+        </div>
+        <div>
+          <dt>{{ t("ui.timestampUtc") }}</dt>
+          <dd class="mono break-all">{{ entry.at }}</dd>
+        </div>
+        <div v-if="diagnostics?.operation">
+          <dt>{{ t("diagnostics.operation") }}</dt>
+          <dd>{{ diagnostics.operation }}</dd>
+        </div>
+        <div v-if="diagnostics?.sessionId">
+          <dt>{{ t("ui.session") }}</dt>
+          <dd class="mono break-all">{{ diagnostics.sessionId }}</dd>
+        </div>
+        <div v-if="diagnostics?.cause">
+          <dt>{{ t("ui.resultCause") }}</dt>
+          <dd>{{ t(`diagnostics.cause.${diagnostics.cause}`) }}</dd>
+        </div>
+      </dl>
+      <SessionActivity
+        v-if="diagnostics?.sessionId && entry.id"
+        :session-id="diagnostics.sessionId"
+        :request-id="entry.id"
+      />
     </div>
-    <dl v-else-if="tab === 'initiator'" class="request-details">
-      <div>
-        <dt>Source</dt>
-        <dd>
-          {{ entry.source === "flaresolverr" ? "FlareSolverr API · Prowlarr and compatible clients" : entry.source }}
-        </dd>
-      </div>
-      <div>
-        <dt>Target</dt>
-        <dd>{{ entry.domain }}</dd>
-      </div>
-      <div>
-        <dt>Timestamp (UTC)</dt>
-        <dd class="mono break-all">{{ entry.at }}</dd>
-      </div>
-    </dl>
     <CapturedContent
-      v-else-if="captures && entry.id"
+      v-else-if="tab === 'response' && captures && entry.id"
       :request-id="entry.id"
       :request-at="entry.at"
-      :view="tab === 'response' ? 'source' : 'preview'"
     />
-    <p v-else class="text-xs muted">Saved response content is unavailable on this instance.</p>
+    <p v-else-if="tab === 'response'" class="text-sm muted">
+      {{ t("ui.savedResponseContentIsUnavailableOnThisInstance") }}
+    </p>
   </div>
+  <AppDialog
+    v-model:open="replace"
+    :content="confirmationContent"
+    :title="t('ui.replaceTheCurrentRequestDraft')"
+    :description="t('ui.yourUnsentDraftWillBeReplacedByThe')"
+    ><template #footer
+      ><UButton color="neutral" variant="outline" @click="replace = false">{{ t("ui.keepCurrentDraft") }}</UButton
+      ><UButton data-confirm-default @click="replay(true)">{{ t("ui.replaceDraft") }}</UButton></template
+    ></AppDialog
+  >
 </template>
 <style scoped>
 .inspection-facts {
@@ -155,6 +247,12 @@ const bytes = (value?: number) =>
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 20px 16px;
   margin: 0;
+}
+.inspection-general .inspection-url {
+  grid-column: 1 / -1;
+}
+.inspection-general .inspection-id {
+  grid-column: span 2;
 }
 .inspection-facts dt {
   font-size: 12px;
@@ -165,23 +263,6 @@ const bytes = (value?: number) =>
   margin: 0;
   font-size: 14px;
   overflow-wrap: anywhere;
-}
-.timing-attempt {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
-  font-size: 13px;
-}
-.timing-track {
-  grid-column: 1 / -1;
-  height: 5px;
-  border-radius: 3px;
-  overflow: hidden;
-  background: var(--ui-bg-elevated);
-}
-.timing-track > div {
-  background: var(--ui-primary);
-  height: 100%;
 }
 @media (max-width: 720px) {
   .inspection-facts {

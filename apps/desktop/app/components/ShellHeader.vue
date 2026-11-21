@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "~/utils/localization"
 import { type Page, pages } from "~/utils/page-history"
 
 const props = defineProps<{
@@ -7,15 +8,29 @@ const props = defineProps<{
   canForward: boolean
   nativeMac: boolean
   refreshing: boolean
+  phone: boolean
+  sidebarMode: "expanded" | "icons" | "hidden"
 }>()
-const emit = defineEmits<{ back: []; forward: []; restart: []; refresh: [] }>()
+const emit = defineEmits<{ back: []; forward: []; restart: []; refresh: []; sidebar: []; search: [] }>()
 const desktop = useDesktopStore()
 const current = computed(() => pages.find(({ id }) => id === props.page) ?? pages[0])
 const kbds = useShortcutKeys()
 const local = computed(() => desktop.activeId === "local")
+const sidebarLabel = computed(() => (props.sidebarMode === "expanded" ? t("ui.toggleSidebar") : t("ui.showSidebar")))
 const overflow = computed(() => [
+  ...(props.phone
+    ? [
+        {
+          label: desktop.status.running ? t("ui.stopServer") : t("ui.startServer"),
+          icon: desktop.status.running ? "i-lucide-square" : "i-lucide-play",
+          color: desktop.status.running ? ("error" as const) : ("primary" as const),
+          disabled: !local.value || !desktop.native || desktop.busy || !desktop.browser.installed,
+          onSelect: () => (desktop.status.running ? desktop.stop() : desktop.start()),
+        },
+      ]
+    : []),
   {
-    label: "Restart server",
+    label: t("ui.restartServer"),
     icon: "i-lucide-rotate-cw",
     kbds: kbds("restart"),
     disabled: !local.value || !desktop.status.running || desktop.busy,
@@ -28,85 +43,109 @@ const overflow = computed(() => [
     as="header"
     :toggle="false"
     class="workspace-navbar"
+    :class="{ 'native-mac': nativeMac }"
     :ui="{ left: 'min-w-0 gap-3', center: 'header-center', right: 'shrink-0 gap-1 ms-auto' }"
   >
     <template #left>
-      <div class="header-navigation">
+      <div class="header-navigation" data-tour="page-navigation">
         <span v-if="nativeMac" data-native-controls class="native-controls" aria-hidden="true" />
-        <UTooltip text="Back"
+        <AppTooltip :text="t('ui.back')"
           ><UButton
             class="header-history"
             icon="i-lucide-chevron-left"
-            aria-label="Back"
+            :aria-label="t('ui.back')"
             color="neutral"
             variant="ghost"
             :disabled="!canBack"
             @click="emit('back')"
-          /></UTooltip
+          /></AppTooltip
         >
-        <UTooltip text="Forward"
+        <AppTooltip :text="t('ui.forward')"
           ><UButton
             class="header-history"
             icon="i-lucide-chevron-right"
-            aria-label="Forward"
+            :aria-label="t('ui.forward')"
             color="neutral"
             variant="ghost"
             :disabled="!canForward"
             @click="emit('forward')"
-          /></UTooltip
+          /></AppTooltip
         >
-        <UTooltip text="Toggle sidebar" :kbds="kbds('sidebar')">
-          <UDashboardSidebarCollapse :ui="{ base: 'header-sidebar-collapse' }" />
-        </UTooltip>
-        <UTooltip text="Toggle sidebar" :kbds="kbds('sidebar')"><UDashboardSidebarToggle class="lg:hidden" /></UTooltip>
+        <AppTooltip v-if="!phone" :text="sidebarLabel" :kbds="kbds('sidebar')">
+          <UButton
+            :icon="sidebarMode === 'hidden' ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'"
+            :aria-label="sidebarLabel"
+            color="neutral"
+            variant="ghost"
+            @click="emit('sidebar')"
+          />
+        </AppTooltip>
+        <UButton
+          v-else
+          icon="i-lucide-search"
+          data-tour="commands"
+          :aria-label="t('ui.searchCommands')"
+          color="neutral"
+          variant="ghost"
+          @click="emit('search')"
+        />
       </div>
     </template>
     <template #default>
-      <span class="header-title"
+      <span class="header-title" data-tour="page-title"
         ><UIcon :name="current.icon" class="size-4 shrink-0 text-muted" /><span>{{ current.label }}</span></span
       >
     </template>
-    <template #right>
-      <UTooltip text="Refresh page" :kbds="kbds('refresh')"
-        ><UButton
-          icon="i-lucide-refresh-cw"
-          aria-label="Refresh page"
-          :loading="refreshing"
-          color="neutral"
-          variant="ghost"
-          :disabled="!desktop.native || desktop.busy"
-          @click="emit('refresh')"
-        /></UTooltip
-      >
-      <UTooltip v-if="local && desktop.status.running" text="Stop server" :kbds="kbds('server')"
-        ><UButton
-          icon="i-lucide-square"
-          aria-label="Stop server"
-          color="neutral"
-          variant="ghost"
-          :loading="desktop.busy"
-          :disabled="desktop.busy"
-          @click="desktop.stop()"
-        /></UTooltip
-      >
-      <UTooltip
-        v-if="local && desktop.browser.installed && !desktop.status.running"
-        text="Start server"
-        :kbds="kbds('server')"
-        ><UButton
-          icon="i-lucide-play"
-          aria-label="Start server"
-          variant="ghost"
-          :disabled="!desktop.native || desktop.busy"
-          :loading="desktop.busy"
-          @click="desktop.start()"
-        /></UTooltip
-      >
-      <UDropdownMenu :items="overflow"
-        ><UTooltip text="More actions"
-          ><UButton icon="i-lucide-ellipsis" aria-label="More actions" color="neutral" variant="ghost" /></UTooltip
-        ></UDropdownMenu
-      >
-    </template>
+    <template #right
+      ><div class="flex items-center gap-1" data-tour="server">
+        <AppTooltip v-if="!phone" :text="t('ui.refreshPage')" :kbds="kbds('refresh')"
+          ><UButton
+            icon="i-lucide-refresh-cw"
+            data-tour="refresh"
+            :aria-label="t('ui.refreshPage')"
+            :loading="refreshing"
+            color="neutral"
+            variant="ghost"
+            :disabled="!desktop.native || desktop.busy"
+            @click="emit('refresh')"
+          /></AppTooltip
+        >
+        <AppTooltip v-if="!phone && local && desktop.status.running" :text="t('ui.stopServer')" :kbds="kbds('server')"
+          ><UButton
+            icon="i-lucide-square"
+            :aria-label="t('ui.stopServer')"
+            color="neutral"
+            variant="ghost"
+            :loading="desktop.busy"
+            :disabled="desktop.busy"
+            @click="desktop.stop()"
+          /></AppTooltip
+        >
+        <AppTooltip
+          v-if="!phone && local && desktop.browser.installed && !desktop.status.running"
+          :text="t('ui.startServer')"
+          :kbds="kbds('server')"
+          ><UButton
+            icon="i-lucide-play"
+            :aria-label="t('ui.startServer')"
+            variant="ghost"
+            :disabled="!desktop.native || desktop.busy"
+            :loading="desktop.busy"
+            @click="desktop.start()"
+          /></AppTooltip
+        >
+        <UDropdownMenu :items="overflow"
+          ><AppTooltip :text="t('ui.moreActions')"
+            ><UButton
+              icon="i-lucide-ellipsis"
+              :aria-label="t('ui.moreActions')"
+              color="neutral"
+              variant="ghost"
+              :loading="phone && desktop.busy"
+            /></AppTooltip
+          ></UDropdownMenu
+        >
+      </div></template
+    >
   </UDashboardNavbar>
 </template>

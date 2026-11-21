@@ -12,7 +12,7 @@ const value = computed(() => Math.max(0, Math.min(Number(props.value), Number(pr
 const percent = computed(() => (known.value ? (value.value / Number(props.max)) * 100 : 0))
 </script>
 <template>
-  <UTooltip :text="label"
+  <AppTooltip :text="label"
     ><div
       class="metric-bar"
       :class="{ 'failed-remainder': known && failedRemainder }"
@@ -24,7 +24,7 @@ const percent = computed(() => (known.value ? (value.value / Number(props.max)) 
       :aria-valuetext="label"
     >
       <span :style="{ width: `${percent}%` }" />
-    </div></UTooltip
+    </div></AppTooltip
   >
 </template>
 <style scoped>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { scrollWorkspaceToTop } from "~/composables/useWorkspaceScroll"
+import { formatLocale, t } from "~/utils/localization"
 
 const desktop = useDesktopStore()
 const props = defineProps<{ history?: boolean; openRequestId?: string }>()
@@ -55,7 +56,9 @@ const tierFilter = computed({
   },
 })
 const rate = computed(() =>
-  desktop.metrics?.requests ? `${Math.round((desktop.metrics.successes / desktop.metrics.requests) * 100)}%` : "n/a",
+  desktop.metrics?.requests
+    ? `${Math.round((desktop.metrics.successes / desktop.metrics.requests) * 100)}%`
+    : t("ui.notAvailable"),
 )
 const maximumMs = computed(() => {
   const metrics = desktop.metrics
@@ -71,59 +74,74 @@ const maximumMs = computed(() => {
 <template>
   <div v-if="!desktop.status.running && desktop.activeId === 'local'" class="panel empty overview-empty">
     <UIcon name="i-lucide-terminal" class="size-8 muted" />
-    <h2 class="mt-4">Your local scraping engine</h2>
+    <h2 class="mt-4">{{ t("ui.yourLocalScrapingEngine") }}</h2>
     <p v-if="!desktop.browser.installed">
-      Install the verified browser once, then start TRAWL. This downloads roughly 300 to 700 MB and can take several
-      minutes. No Docker or external runtime is required.
+      {{ t("ui.installTheVerifiedBrowserOnceThenStartTrawl") }}
     </p>
-    <p v-else>Start the server to accept API requests and see activity here.</p>
+    <p v-else>{{ t("ui.startTheServerToAcceptApiRequestsAnd") }}</p>
     <UButton
       v-if="!desktop.browser.installed"
       icon="i-lucide-download"
       :loading="desktop.busy"
       :disabled="!desktop.native"
       @click="desktop.install"
-      >Install browser</UButton
+      >{{
+        t("ui.installBrowser")
+      }}</UButton
     >
-    <UButton v-else icon="i-lucide-play" :loading="desktop.busy" :disabled="!desktop.native" @click="desktop.start"
-      >Start server</UButton
-    >
+    <UButton v-else icon="i-lucide-play" :loading="desktop.busy" :disabled="!desktop.native" @click="desktop.start">{{
+      t("ui.startServer")
+    }}</UButton>
   </div>
   <template v-else>
     <div v-if="!history" class="stats">
       <div class="stat">
-        <div class="stat-label">Requests · last hour</div>
-        <div class="stat-value mono">{{ desktop.metrics?.requests.toLocaleString() ?? "n/a" }}</div>
-        <div class="stat-hint">Fresh content, reused clearance</div>
+        <div class="stat-label">{{ t("ui.requestsLastHour") }}</div>
+        <div class="stat-value mono">
+          {{ desktop.metrics?.requests.toLocaleString(formatLocale()) ?? t("ui.notAvailable") }}
+        </div>
+        <div class="stat-hint">{{ t("ui.freshContentReusedClearance") }}</div>
         <MetricBar
           :value="desktop.metrics?.requests"
           :max="desktop.metrics?.retainedEvents"
-          :label="`${desktop.metrics?.requests ?? 0} requests in the last hour of ${desktop.metrics?.retainedEvents ?? 0} retained`"
+          :label="
+            t('overview.retainedRequests', {
+              count: desktop.metrics?.requests ?? 0,
+              retained: desktop.metrics?.retainedEvents ?? 0,
+            })
+          "
         />
       </div>
       <div class="stat">
-        <div class="stat-label">Successful requests</div>
+        <div class="stat-label">{{ t("ui.successfulRequests") }}</div>
         <div class="stat-value mono success">{{ rate }}</div>
-        <div class="stat-hint">{{ desktop.metrics?.successes ?? "n/a" }} completed</div>
+        <div class="stat-hint">{{ desktop.metrics?.successes ?? t("ui.notAvailable") }} {{ t("ui.completed") }}</div>
         <MetricBar
           :value="desktop.metrics?.successes"
           :max="desktop.metrics?.requests"
-          :label="`${desktop.metrics?.successes ?? 0} successful, ${desktop.metrics?.failures ?? 0} failed`"
+          :label="
+            t('overview.results', {
+              successes: desktop.metrics?.successes ?? 0,
+              failures: desktop.metrics?.failures ?? 0,
+            })
+          "
           failed-remainder
         />
       </div>
       <div class="stat">
-        <div class="stat-label">Average response</div>
+        <div class="stat-label">{{ t("ui.averageResponse") }}</div>
         <div class="stat-value mono">
-          {{ desktop.metrics ? `${desktop.metrics.averageMs.toLocaleString()} ms` : "n/a" }}
+          {{
+            desktop.metrics ? `${desktop.metrics.averageMs.toLocaleString(formatLocale())} ms` : t("ui.notAvailable")
+          }}
         </div>
         <div class="stat-hint">
           {{
             maximumMs == null
-              ? "Maximum not reported"
+              ? t("ui.maximumNotReported")
               : maximumMs
-                ? `Longest request ${maximumMs.toLocaleString()} ms`
-                : "No completed requests"
+                ? t("ui.longestRequestMs", { p0: maximumMs.toLocaleString(formatLocale()) })
+                : t("ui.noCompletedRequests")
           }}
         </div>
         <MetricBar
@@ -131,8 +149,8 @@ const maximumMs = computed(() => {
           :max="maximumMs"
           :label="
             maximumMs == null
-              ? 'Maximum response time is unavailable'
-              : `Average ${desktop.metrics?.averageMs ?? 0} ms of longest ${maximumMs} ms`
+              ? t('ui.maximumResponseTimeIsUnavailable')
+              : t('ui.averageMsOfLongestMs', { p0: desktop.metrics?.averageMs ?? 0, p1: maximumMs })
           "
         />
       </div>
@@ -147,30 +165,34 @@ const maximumMs = computed(() => {
     <BrowserCapacity v-if="!history && desktop.health" :health="desktop.health" />
     <div v-if="desktop.capabilities?.requestEvents && (active.length || activeTruncated)" class="panel">
       <div class="panel-heading">
-        <h2>Running requests</h2>
-        <span class="text-xs muted">{{ activeTruncated ? "Limited active list" : `${active.length} active` }}</span>
+        <h2>{{ t("ui.runningRequests") }}</h2>
+        <span class="text-xs muted">{{
+          activeTruncated ? t("ui.limitedActiveList") : t("counts.active", { count: active.length })
+        }}</span>
       </div>
       <div v-for="request in active" :key="request.id" class="connection">
         <div>
           <strong>{{ request.domain }}</strong>
           <p class="text-xs muted">
-            {{ request.method }} · {{ request.source }} · Started {{ new Date(request.startedAt).toLocaleTimeString() }}
+            {{ request.method }} · {{ request.source }} {{ t("ui.started") }}
+            {{ new Date(request.startedAt).toLocaleTimeString(formatLocale()) }}
           </p>
         </div>
-        <span class="text-xs muted" role="status">Running</span>
+        <span class="text-xs muted" role="status">{{ t("ui.running2") }}</span>
       </div>
       <p v-if="activeTruncated" class="panel-body text-xs muted">
-        The active-request list reached its display limit. Additional activity may be omitted.
+        {{ t("ui.theActiveRequestListReachedItsDisplayLimit") }}
       </p>
     </div>
-    <p v-if="feedError" class="notice error" role="alert">{{ feedError }}. Reconnecting automatically.</p>
+    <p v-if="feedError" class="notice error" role="alert">{{ t("errors.reconnecting", { error: feedError }) }}</p>
     <div v-if="history && queryable" class="history-toolbar">
       <UInput
         v-model="query.search"
         leading-icon="i-lucide-search"
         :ui="{ trailing: 'p-0' }"
-        placeholder="Search domain, source, cause or ID"
-        aria-label="Search requests"
+        :placeholder="t('ui.searchDomainSourceCauseOrId')"
+        :aria-label="t('ui.searchRequests')"
+        data-type-focus
         :maxlength="200"
         class="grow min-w-48"
         ><template v-if="query.search" #trailing
@@ -179,7 +201,7 @@ const maximumMs = computed(() => {
             color="neutral"
             variant="link"
             class="search-clear"
-            aria-label="Clear request search"
+            :aria-label="t('ui.clearRequestSearch')"
             @click="query.search = undefined"
           /></template
         ></UInput
@@ -187,37 +209,37 @@ const maximumMs = computed(() => {
       <USelect
         v-model="sourceFilter"
         :items="[
-          { label: 'All sources', value: 'all' },
+          { label: t('ui.allSources'), value: 'all' },
           ...['native', 'flaresolverr', 'mcp', 'proxy'].map((value) => ({ label: value, value })),
         ]"
-        aria-label="Request source"
+        :aria-label="t('ui.requestSource')"
       />
       <USelect
         v-model="resultFilter"
         :items="[
-          { label: 'All results', value: 'all' },
-          { label: 'Success', value: 'success' },
-          { label: 'Failed', value: 'failed' },
+          { label: t('ui.allResults'), value: 'all' },
+          { label: t('ui.success'), value: 'success' },
+          { label: t('ui.failed'), value: 'failed' },
         ]"
-        aria-label="Request result"
+        :aria-label="t('ui.requestResult')"
       />
       <USelect
         v-model="tierFilter"
         :items="[
-          { label: 'All tiers', value: 'all' },
-          ...[0, 1, 2, 3, 4].map((value) => ({ label: `Tier ${value}`, value: String(value) })),
+          { label: t('ui.allTiers'), value: 'all' },
+          ...[0, 1, 2, 3, 4].map((value) => ({ label: t('ui.tier2', { p0: value }), value: String(value) })),
         ]"
-        aria-label="Request tier"
+        :aria-label="t('ui.requestTier')"
       />
       <USelect
         v-model="query.sort"
         :items="[
-          { label: 'Newest first', value: 'newest' },
-          { label: 'Oldest first', value: 'oldest' },
-          { label: 'Slowest first', value: 'slowest' },
-          { label: 'Fastest first', value: 'fastest' },
+          { label: t('ui.newestFirst'), value: 'newest' },
+          { label: t('ui.oldestFirst'), value: 'oldest' },
+          { label: t('ui.slowestFirst'), value: 'slowest' },
+          { label: t('ui.fastestFirst'), value: 'fastest' },
         ]"
-        aria-label="Request sort"
+        :aria-label="t('ui.requestSort')"
       />
     </div>
     <div class="request-results">
@@ -237,9 +259,11 @@ const maximumMs = computed(() => {
             size="sm"
             class="p-0 font-normal"
             trailing-icon="i-lucide-chevron-right"
-            aria-label="Show all requests"
+            :aria-label="t('ui.showAllRequests')"
             @click="emit('showAll')"
-            >Show all</UButton
+            >{{
+              t("ui.showAll")
+            }}</UButton
           >
         </template>
       </RequestHistory>
