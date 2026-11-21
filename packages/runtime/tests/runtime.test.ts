@@ -343,9 +343,9 @@ test("instance labels and ordering migrate, validate and survive persistence", a
   const config = emptyConfig()
   const { localName: _name, instanceOrder: _order, ...legacy } = config.desktop
   expect(validateConfig({ ...config, desktop: legacy }).desktop).toMatchObject({
-    localName: "Local instance",
     instanceOrder: [],
   })
+  expect(validateConfig({ ...config, desktop: legacy }).desktop.localName).toBeUndefined()
   config.desktop.localName = "My Mac"
   config.desktop.instanceOrder = ["remote", "local"]
   config.desktop.connections = [{ id: "remote", name: "Home", baseURL: "https://example.com" }]

@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./catalog": "./src/catalog.ts"
+    "./catalog": "./src/catalog.ts",
+    "./i18n": "./src/i18n.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

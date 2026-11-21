@@ -1,3 +1,4 @@
+import type { AppLanguage } from "./i18n"
 import { defaultKeybindings, type Keybindings } from "./keybindings"
 
 export {
@@ -1132,10 +1133,13 @@ export interface UserConfig {
   version: 1
   env: Environment
   desktop: {
+    language?: AppLanguage
     closeBehavior: "ask" | "tray" | "quit"
     quitBehavior: "immediate" | "double-press" | "hold"
     appVisibility: "dock-and-tray" | "dock" | "tray"
     smoothScroll: boolean
+    liveActivities?: boolean
+    sidebarBehavior?: "collapse" | "hide"
     keybindings: Keybindings
     autostart: boolean
     startServerOnLaunch: boolean
@@ -1148,14 +1152,16 @@ export const emptyConfig = (): UserConfig => ({
   version: 1,
   env: { ...profiles.balanced },
   desktop: {
+    language: "system",
     closeBehavior: "tray",
     quitBehavior: "hold",
     appVisibility: "dock-and-tray",
     smoothScroll: true,
+    liveActivities: true,
+    sidebarBehavior: "collapse",
     keybindings: defaultKeybindings(),
     autostart: false,
     startServerOnLaunch: false,
-    localName: "Local instance",
     instanceOrder: [],
     connections: [],
   },

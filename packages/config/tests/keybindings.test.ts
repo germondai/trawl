@@ -25,6 +25,7 @@ test("older preference documents gain scrolling and complete shortcuts; explicit
   }
   const migrated = validateConfig(legacy)
   expect(migrated.desktop.smoothScroll).toBe(true)
+  expect(migrated.desktop.liveActivities).toBe(true)
   expect(migrated.desktop.keybindings).toEqual(defaultKeybindings())
   expect(
     validateConfig({
@@ -33,6 +34,17 @@ test("older preference documents gain scrolling and complete shortcuts; explicit
     }).desktop,
   ).toMatchObject({ smoothScroll: false, keybindings: { quit: null, workbench: "CmdOrCtrl+Shift+N" } })
   expect(() => validateConfig({ ...config, desktop: { ...config.desktop, smoothScroll: "false" } })).toThrow(
+    "preferences",
+  )
+})
+
+test("live activities default on, retain an explicit opt-out and reject non-boolean values", () => {
+  const config = emptyConfig()
+  expect(config.desktop.liveActivities).toBe(true)
+  expect(
+    validateConfig({ ...config, desktop: { ...config.desktop, liveActivities: false } }).desktop.liveActivities,
+  ).toBe(false)
+  expect(() => validateConfig({ ...config, desktop: { ...config.desktop, liveActivities: "false" } })).toThrow(
     "preferences",
   )
 })
@@ -91,4 +103,13 @@ test("preview matching uses physical keys on non-US layouts and exact modifiers"
   expect(eventShortcut({ ...event, metaKey: false, ctrlKey: true }, false)).toBe("CmdOrCtrl+1")
   expect(eventShortcut({ ...event, ctrlKey: true }, true)).toBeNull()
   expect(eventShortcut({ ...event, metaKey: false }, true)).toBeNull()
+})
+test("sidebar toggle preferences default safely and survive configuration validation", () => {
+  const config = emptyConfig()
+  expect(validateConfig(config).desktop.sidebarBehavior).toBe("collapse")
+  config.desktop.sidebarBehavior = "hide"
+  expect(validateConfig(config).desktop.sidebarBehavior).toBe("hide")
+  expect(() => validateConfig({ ...config, desktop: { ...config.desktop, sidebarBehavior: "cycle" } })).toThrow(
+    "preferences",
+  )
 })

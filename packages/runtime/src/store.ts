@@ -3,6 +3,7 @@ import { chmod, lstat, mkdir, open, readFile, rename, rm, stat } from "node:fs/p
 import { dirname } from "node:path"
 import { emptyConfig, redactEnvironment, type UserConfig, validateEnvironment } from "@trawl/config"
 import { validateKeybindings } from "@trawl/config/catalog"
+import { isAppLanguage } from "@trawl/config/i18n"
 import { type RuntimePaths, runtimePaths } from "./paths"
 import { protectWindowsStorage } from "./windows-permissions"
 
@@ -38,17 +39,23 @@ export function validateConfig(raw: unknown): UserConfig {
   const env = validateEnvironment(config.env)
   const desktop = { ...emptyConfig().desktop, ...config.desktop }
   if (
+    !isAppLanguage(desktop.language) ||
     !["ask", "tray", "quit"].includes(desktop.closeBehavior) ||
     !["immediate", "double-press", "hold"].includes(desktop.quitBehavior) ||
     !["dock-and-tray", "dock", "tray"].includes(desktop.appVisibility) ||
     typeof desktop.smoothScroll !== "boolean" ||
+    typeof desktop.liveActivities !== "boolean" ||
+    !["collapse", "hide"].includes(desktop.sidebarBehavior ?? "collapse") ||
     typeof desktop.autostart !== "boolean" ||
     typeof desktop.startServerOnLaunch !== "boolean" ||
     !Array.isArray(desktop.connections) ||
     desktop.connections.length > 32
   )
     throw new Error("Invalid desktop preferences")
-  if (typeof desktop.localName !== "string" || !desktop.localName.trim() || desktop.localName.length > 100)
+  if (
+    desktop.localName !== undefined &&
+    (typeof desktop.localName !== "string" || !desktop.localName.trim() || desktop.localName.length > 100)
+  )
     throw new Error("Invalid local instance name")
   if (
     !Array.isArray(desktop.instanceOrder) ||
@@ -95,14 +102,17 @@ export function validateConfig(raw: unknown): UserConfig {
     version: 1,
     env,
     desktop: {
+      language: desktop.language,
       closeBehavior: desktop.closeBehavior,
       quitBehavior: desktop.quitBehavior,
       appVisibility: desktop.appVisibility,
       smoothScroll: desktop.smoothScroll,
+      liveActivities: desktop.liveActivities,
+      sidebarBehavior: desktop.sidebarBehavior ?? "collapse",
       keybindings: validateKeybindings(desktop.keybindings),
       autostart: desktop.autostart,
       startServerOnLaunch: desktop.startServerOnLaunch,
-      localName: desktop.localName.trim(),
+      ...(desktop.localName !== undefined ? { localName: desktop.localName.trim() } : {}),
       instanceOrder: desktop.instanceOrder,
       connections: desktop.connections.map(({ id, name, baseURL, apiKey }) => ({
         id,
@@ -126,6 +136,12 @@ export async function readConfig(paths = runtimePaths()): Promise<UserConfig> {
       document = JSON.parse(await readFile(paths.config, "utf8"))
     } catch {
       throw new Error("Configuration contains invalid JSON")
+    }
+    if (document && typeof document === "object" && "desktop" in document) {
+      const desktop = (document as { desktop?: unknown }).desktop
+      if (desktop && typeof desktop === "object" && "language" in desktop && !isAppLanguage(desktop.language)) {
+        desktop.language = "en"
+      }
     }
     return validateConfig(document)
   } catch (error) {
