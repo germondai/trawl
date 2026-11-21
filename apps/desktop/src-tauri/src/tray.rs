@@ -22,7 +22,7 @@ impl Default for Instances {
         Self {
             selected: Mutex::new("local".into()),
             requested: Mutex::new(None),
-            choices: Mutex::new(vec![("local".into(), "Local instance".into())]),
+            choices: Mutex::new(vec![("local".into(), String::new())]),
             shortcuts: Mutex::new(Vec::new()),
             menu: Mutex::new(None),
         }
@@ -92,7 +92,7 @@ fn instance_shortcuts(app: &tauri::AppHandle) -> Vec<Option<String>> {
         .map(|index| crate::keybindings::binding(app, &format!("trayInstance{index}")))
         .collect()
 }
-fn render_instances(app: &tauri::AppHandle) -> tauri::Result<()> {
+pub(crate) fn render_instances(app: &tauri::AppHandle) -> tauri::Result<()> {
     let state = app.state::<Instances>();
     let Some(menu) = state.menu.lock().unwrap().clone() else {
         return Ok(());
@@ -100,16 +100,23 @@ fn render_instances(app: &tauri::AppHandle) -> tauri::Result<()> {
     let selected = state.selected.lock().unwrap().clone();
     let choices = state.choices.lock().unwrap().clone();
     let shortcuts = instance_shortcuts(app);
+    let default_name = crate::i18n::text("ui.localInstance");
     let label = choices
         .iter()
         .find(|(id, _)| id == &selected)
         .map(|(_, label)| label.as_str())
-        .unwrap_or("Local instance");
-    menu.set_text(format!("Instance: {label}"))?;
+        .filter(|label| !label.is_empty())
+        .unwrap_or(&default_name);
+    menu.set_text(crate::i18n::format("native.instance", &[("name", label)]))?;
     for item in menu.items()? {
         menu.remove(&item)?;
     }
     for (index, (id, label)) in choices.into_iter().enumerate() {
+        let label = if id == "local" && label.is_empty() {
+            default_name.clone()
+        } else {
+            label
+        };
         menu.append(&CheckMenuItem::with_id(
             app,
             format!("instance:{id}"),
@@ -127,10 +134,7 @@ fn instance_choices(config: &serde_json::Value) -> Vec<(String, String)> {
     let desktop = &config["desktop"];
     let mut remaining = vec![(
         "local".to_string(),
-        desktop["localName"]
-            .as_str()
-            .unwrap_or("Local instance")
-            .to_string(),
+        desktop["localName"].as_str().unwrap_or("").to_string(),
     )];
     if let Some(connections) = desktop["connections"].as_array() {
         for connection in connections {
@@ -197,16 +201,16 @@ pub fn take_instance_request(state: tauri::State<'_, Instances>) -> Option<Strin
 }
 
 pub(crate) fn setup(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    let open = crate::keybindings::item(app.handle(), "trayOpen", "Open TRAWL")?;
-    let server = crate::keybindings::item(app.handle(), "trayServer", "Start local server")?;
-    let restart = crate::keybindings::item(app.handle(), "trayRestart", "Restart local server")?;
+    let open = crate::keybindings::item(app.handle(), "trayOpen", "native.openTrawl")?;
+    let server = crate::keybindings::item(app.handle(), "trayServer", "ui.startLocalServer")?;
+    let restart = crate::keybindings::item(app.handle(), "trayRestart", "ui.restartLocalServer")?;
     restart.set_enabled(false)?;
     let instances = Submenu::new(app, "Instance: Local instance", true)?;
     *app.state::<Instances>().menu.lock().unwrap() = Some(instances.clone());
     render_instances(app.handle())?;
-    let settings = crate::keybindings::item(app.handle(), "connections", "App settings…")?;
-    let server_settings = crate::keybindings::item(app.handle(), "settings", "Server settings…")?;
-    let quit = crate::keybindings::item(app.handle(), "quit", "Quit TRAWL")?;
+    let settings = crate::keybindings::item(app.handle(), "connections", "ui.appSettings")?;
+    let server_settings = crate::keybindings::item(app.handle(), "settings", "ui.serverSettings")?;
+    let quit = crate::keybindings::item(app.handle(), "quit", "native.quitTrawl")?;
     let menu = Menu::with_items(
         app,
         &[
@@ -292,13 +296,17 @@ pub(crate) fn setup(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> 
                     let enabled = !observed.load(Ordering::SeqCst);
                     let _ = item.set_enabled(false);
                     let _ = restart_item.set_enabled(false);
-                    let _ = item.set_text(if restarting {
-                        "Restarting local server…"
-                    } else if enabled {
-                        "Starting local server…"
-                    } else {
-                        "Stopping local server…"
-                    });
+                    crate::keybindings::set_label(
+                        app,
+                        "trayServer",
+                        if restarting {
+                            "native.serverRestarting"
+                        } else if enabled {
+                            "native.serverStarting"
+                        } else {
+                            "native.serverStopping"
+                        },
+                    );
                     let app = app.clone();
                     let item = item.clone();
                     let restart_item = restart_item.clone();
@@ -332,11 +340,15 @@ pub(crate) fn setup(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> 
                         }
                         let running = observed.load(Ordering::SeqCst);
                         icon.update(&app, running);
-                        let _ = item.set_text(if running {
-                            "Stop local server"
-                        } else {
-                            "Start local server"
-                        });
+                        crate::keybindings::set_label(
+                            &app,
+                            "trayServer",
+                            if running {
+                                "ui.stopLocalServer"
+                            } else {
+                                "ui.startLocalServer"
+                            },
+                        );
                         let _ = restart_item.set_enabled(running);
                         let _ = item.set_enabled(true);
                         pending.fetch_add(1, Ordering::SeqCst);
@@ -350,6 +362,7 @@ pub(crate) fn setup(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> 
     tauri::async_runtime::spawn(async move {
         let state = app.state::<Arc<AppState>>().inner().clone();
         while !state.quitting.load(Ordering::SeqCst) {
+            let _ = crate::i18n::refresh_app_language(app.clone());
             let current = revision.load(Ordering::SeqCst);
             if current % 2 == 0 {
                 if let Ok(status) = runtime::local_status(&state).await {
@@ -364,13 +377,17 @@ pub(crate) fn setup(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> 
                             break;
                         };
                         let local = is_local(&app);
-                        let _ = server.set_text(if !local {
-                            "Server managed on its host"
-                        } else if is_running {
-                            "Stop local server"
-                        } else {
-                            "Start local server"
-                        });
+                        crate::keybindings::set_label(
+                            &app,
+                            "trayServer",
+                            if !local {
+                                "native.serverManaged"
+                            } else if is_running {
+                                "ui.stopLocalServer"
+                            } else {
+                                "ui.startLocalServer"
+                            },
+                        );
                         let _ = server.set_enabled(local);
                         let _ = restart.set_enabled(local && is_running);
                     }

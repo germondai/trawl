@@ -24,6 +24,8 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 tokio = { version = "1", features = ["process", "io-util", "time", "sync", "fs", "net", "macros"] }
 libc = "0.2"
 [target.'cfg(not(target_os = "android"))'.dependencies]
+tauri-plugin-dialog = "2"
+tauri-plugin-updater = "2"
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
@@ -32,10 +34,11 @@ sysinfo = { version = "0.40.3", default-features = false, features = ["system"] 
 [target.'cfg(target_os = "android")'.dependencies]
 trawl-mobile-runtime = { path = "../../../native/mobile-runtime" }
 jni = "0.21"
+semver = "1"
 
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "=0.6.2"
 objc2 = "=0.6.5"
 objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSApplication", "NSEvent", "NSImage", "NSWindow", "NSView", "NSButton", "NSScreen", "block2"] }
-objc2-foundation = { version = "=0.3.2", default-features = false, features = ["NSData", "NSNotification", "NSOperation", "NSProcessInfo", "NSString", "block2"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["NSData", "NSLocale", "NSArray", "NSNotification", "NSOperation", "NSProcessInfo", "NSString", "block2"] }

@@ -3,12 +3,13 @@ use serde_json::{json, Value};
 use std::{sync::Arc, time::Duration};
 use tauri::State;
 pub(crate) async fn instance_connection(
-    state: &AppState,
+    _state: &AppState,
     id: &str,
 ) -> Result<(String, String), String> {
-    let cfg = state.core.config();
+    let snapshot = crate::mobile::service_request(json!({"action":"connection"})).await?;
+    let cfg = &snapshot["config"];
     if id == "local" {
-        let status = state.core.status();
+        let status = &snapshot["status"];
         if status["running"] != true {
             return Err("Start the local server first".into());
         }

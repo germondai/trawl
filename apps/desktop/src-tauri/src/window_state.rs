@@ -75,6 +75,26 @@ fn fitted_frame(frame: NSRect, area: NSRect, minimum: NSSize, constrain_frame: b
     )
 }
 
+fn relative_frame(frame: NSRect, from: NSRect, to: NSRect, minimum: NSSize) -> NSRect {
+    let width = (frame.size.width / from.size.width * to.size.width)
+        .max(minimum.width)
+        .min(to.size.width);
+    let height = (frame.size.height / from.size.height * to.size.height)
+        .max(minimum.height)
+        .min(to.size.height);
+    let x = ((frame.origin.x - from.origin.x) / (from.size.width - frame.size.width).max(1.0))
+        .clamp(0.0, 1.0);
+    let y = ((frame.origin.y - from.origin.y) / (from.size.height - frame.size.height).max(1.0))
+        .clamp(0.0, 1.0);
+    NSRect::new(
+        NSPoint::new(
+            to.origin.x + x * (to.size.width - width),
+            to.origin.y + y * (to.size.height - height),
+        ),
+        NSSize::new(width, height),
+    )
+}
+
 fn fit(
     window: &WebviewWindow,
     minimum: NSSize,
@@ -132,6 +152,11 @@ pub fn setup(window: &WebviewWindow) -> tauri::Result<()> {
     if !native.setFrameAutosaveName(&name) {
         eprintln!("Cannot enable native window frame autosave");
     }
+    let previous = Rc::new(Cell::new(
+        native
+            .screen()
+            .map(|screen| (native.frame(), screen.visibleFrame())),
+    ));
 
     let active = Rc::new(Cell::new(true));
     let center = NSNotificationCenter::defaultCenter();
@@ -150,15 +175,47 @@ pub fn setup(window: &WebviewWindow) -> tauri::Result<()> {
             let window = window.clone();
             let active = active.clone();
             let callback_active = active.clone();
+            let previous = previous.clone();
             let block = RcBlock::new(move |_| {
                 if !callback_active.get() {
                     return;
                 }
                 if let Some(mtm) = MainThreadMarker::new() {
+                    if let Ok(pointer) = window.ns_window() {
+                        let native = &*pointer.cast::<NSWindow>();
+                        if !native.styleMask().contains(NSWindowStyleMask::FullScreen) {
+                            if let (Some((frame, area)), Some(screen)) =
+                                (previous.get(), native.screen())
+                            {
+                                let target = screen.visibleFrame();
+                                if area != target && area.size.width > 0.0 && area.size.height > 0.0
+                                {
+                                    let minimum_frame = native
+                                        .frameRectForContentRect(NSRect::new(
+                                            NSPoint::new(0.0, 0.0),
+                                            minimum,
+                                        ))
+                                        .size;
+                                    native.setFrame_display(
+                                        relative_frame(frame, area, target, minimum_frame),
+                                        true,
+                                    );
+                                }
+                            }
+                        }
+                    }
                     if let Err(error) = fit(&window, minimum, constrain_frame, mtm) {
                         eprintln!("Cannot fit native window to display: {error}");
                     }
                     let _ = crate::window_chrome::update(&window);
+                    if let Ok(pointer) = window.ns_window() {
+                        let native = &*pointer.cast::<NSWindow>();
+                        previous.set(
+                            native
+                                .screen()
+                                .map(|screen| (native.frame(), screen.visibleFrame())),
+                        );
+                    }
                 }
             });
             let token = center.addObserverForName_object_queue_usingBlock(
@@ -175,9 +232,21 @@ pub fn setup(window: &WebviewWindow) -> tauri::Result<()> {
             let window = window.clone();
             let active = active.clone();
             let callback_active = active.clone();
+            let previous = previous.clone();
             let block = RcBlock::new(move |_| {
                 if callback_active.get() {
                     let _ = crate::window_chrome::update(&window);
+                    if let Ok(pointer) = window.ns_window() {
+                        let native = &*pointer.cast::<NSWindow>();
+                        if !native.styleMask().contains(NSWindowStyleMask::FullScreen) {
+                            if let Some(screen) = native.screen() {
+                                let area = screen.visibleFrame();
+                                if previous.get().is_none_or(|(_, old)| old == area) {
+                                    previous.set(Some((native.frame(), area)));
+                                }
+                            }
+                        }
+                    }
                 }
             });
             let token = center.addObserverForName_object_queue_usingBlock(
@@ -203,6 +272,16 @@ mod tests {
 
     fn rect(x: f64, y: f64, width: f64, height: f64) -> NSRect {
         NSRect::new(NSPoint::new(x, y), NSSize::new(width, height))
+    }
+    #[test]
+    fn preserves_window_fraction_when_moving_between_displays() {
+        let large = rect(0.0, 0.0, 4000.0, 2000.0);
+        let small = rect(-2000.0, 24.0, 2000.0, 1000.0);
+        let original = rect(400.0, 200.0, 3200.0, 1600.0);
+        let minimum = NSSize::new(480.0, 540.0);
+        let resized = relative_frame(original, large, small, minimum);
+        assert_eq!(resized, rect(-1800.0, 124.0, 1600.0, 800.0));
+        assert_eq!(relative_frame(resized, small, large, minimum), original);
     }
 
     #[test]

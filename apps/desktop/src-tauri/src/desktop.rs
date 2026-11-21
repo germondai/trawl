@@ -12,6 +12,8 @@ fn cancel_quit_gesture(app: tauri::AppHandle) {
     let _ = app;
 }
 mod keybindings;
+#[cfg(target_os = "macos")]
+mod history_gesture;
 mod operations;
 mod resources;
 mod runtime;
@@ -152,6 +154,8 @@ async fn close_window(app: tauri::AppHandle, behavior: String) -> Result<(), Str
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(keybindings::Keybindings::default())
         .manage(tray::Instances::default())
         .menu(keybindings::menu)
@@ -327,7 +331,8 @@ pub fn run() {
                 _ => {}
             }
         })
-        .invoke_handler(tauri::generate_handler![enable_notifications,
+        .invoke_handler(tauri::generate_handler![crate::app_locale, crate::i18n::refresh_app_language, crate::updates::check_app_update, crate::updates::install_app_update, crate::updates::app_update_download_status, enable_notifications,
+            crate::setting_paths::choose_setting_path,
             cancel_quit_gesture,
             runtime::management,
             runtime::open_connection_url,

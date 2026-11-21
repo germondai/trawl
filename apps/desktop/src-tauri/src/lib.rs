@@ -58,16 +58,20 @@ pub(crate) fn finish_background_task(app: &tauri::AppHandle, success: bool, noti
         app.state::<std::sync::Arc<AppState>>()
             .client_jobs
             .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        let handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            mobile::sync_state(&handle).await;
+        });
     }
     if notify {
         notify_background(
             app,
             if success {
-                "Request completed"
+                "native.requestCompleted"
             } else {
-                "Request failed"
+                "native.requestFailed"
             },
-            "Open TRAWL to view the result.",
+            "native.openResult",
         );
     }
 }
@@ -82,7 +86,29 @@ pub(crate) fn notify_background(app: &tauri::AppHandle, title: &str, body: &str)
             .get_webview_window("main")
             .is_some_and(|w| w.is_focused().unwrap_or(false))
         {
-            let _ = app.notification().builder().title(title).body(body).show();
+            let _ = app
+                .notification()
+                .builder()
+                .title(i18n::text(title))
+                .body(i18n::text(body))
+                .show();
         }
     }
 }
+#[cfg(not(target_os = "android"))]
+mod i18n;
+#[tauri::command]
+async fn app_locale(app: tauri::AppHandle) -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    {
+        mobile::app_locale(&app).await
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        i18n::refresh_app_language(app)?;
+        Ok(i18n::locale().to_owned())
+    }
+}
+#[cfg(not(target_os = "android"))]
+mod setting_paths;
+mod updates;

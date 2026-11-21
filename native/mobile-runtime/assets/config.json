@@ -5,13 +5,18 @@
     "PORT": "8191",
     "SCRAPE_MAX_TIMEOUT_MS": "60000",
     "SCRAPE_MIN_TIER": "1",
-    "SCRAPE_MAX_TIER": "3"
+    "SCRAPE_MAX_TIER": "3",
+    "DNS_RESOLVER": "system",
+    "DNS_SERVERS": ""
   },
   "desktop": {
+    "language": "system",
     "closeBehavior": "tray",
     "quitBehavior": "hold",
     "appVisibility": "dock-and-tray",
     "smoothScroll": true,
+    "liveActivities": true,
+    "sidebarBehavior": "collapse",
     "keybindings": {
       "overview": "CmdOrCtrl+1",
       "history": "CmdOrCtrl+2",
@@ -44,7 +49,6 @@
     },
     "autostart": false,
     "startServerOnLaunch": false,
-    "localName": "Local instance",
     "instanceOrder": [],
     "connections": []
   }

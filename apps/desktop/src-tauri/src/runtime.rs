@@ -219,9 +219,16 @@ pub async fn browser_operation(
     let result = call_progress(&state, request, Some(on_progress), Some(cancellation)).await;
     drop(_registration);
     if result.is_ok() {
-        crate::notify_background(&app, &format!("Camoufox {} is ready", version.as_str().unwrap_or("browser")), "Open TRAWL to manage this browser.");
+        crate::notify_background(
+            &app,
+            &crate::i18n::format(
+                "ui.camoufoxIsReady",
+                &[("p0", version.as_str().unwrap_or("browser"))],
+            ),
+            "native.manageBrowser",
+        );
     } else if !*cancelled.borrow() && !state.quitting.load(Ordering::SeqCst) {
-        crate::notify_background(&app, "Browser installation failed", "Open TRAWL for details and retry options.");
+        crate::notify_background(&app, "native.browserFailed", "native.browserRetry");
     }
     if result.is_err() && *cancelled.borrow() && !state.quitting.load(Ordering::SeqCst) {
         call(
@@ -363,8 +370,14 @@ pub fn update_behavior(
         );
     }
     if config["desktop"].is_object() {
+        let language_changed =
+            crate::i18n::set_language(config["desktop"]["language"].as_str().unwrap_or("system"));
         crate::keybindings::apply(app, &config["desktop"]["keybindings"])?;
         crate::tray::update_instances(app, config)?;
+        if language_changed {
+            crate::keybindings::localize(app)?;
+            crate::tray::render_instances(app).map_err(|error| error.to_string())?;
+        }
     }
     #[cfg(target_os = "macos")]
     if config["desktop"].is_object() {

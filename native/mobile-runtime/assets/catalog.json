@@ -1,5 +1,31 @@
 [
   {
+    "name": "DNS_RESOLVER",
+    "default": "system",
+    "kind": "enum",
+    "choices": [
+      "system",
+      "cloudflare",
+      "google",
+      "quad9",
+      "quad9-unfiltered",
+      "adguard",
+      "adguard-unfiltered",
+      "custom"
+    ],
+    "description": "Resolver for this instance only. HTTPS presets leave device DNS and VPN unchanged. Upstream proxies resolve on their host. Restart to apply.",
+    "group": "dns",
+    "restart": true
+  },
+  {
+    "name": "DNS_SERVERS",
+    "default": "",
+    "kind": "string",
+    "description": "Custom mode: up to four IP addresses (optional port; bracket IPv6 ports) or HTTPS DNS-over-HTTPS URLs, separated by commas. IP servers use unencrypted DNS over TCP. Custom HTTPS hostnames use system DNS only to locate the resolver. No system fallback for destination queries.",
+    "group": "dns",
+    "restart": true
+  },
+  {
     "name": "PORT",
     "default": "8191",
     "kind": "integer",

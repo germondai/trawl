@@ -1,3 +1,5 @@
+mod dns;
+mod dns_wire;
 use axum::{
     extract::{DefaultBodyLimit, Request, State},
     http::StatusCode,
@@ -114,6 +116,9 @@ impl Runtime {
                 .unwrap()
                 .extend(saved["desktop"].as_object().unwrap().clone());
         }
+        if !config["desktop"]["language"].as_str().is_some_and(|language| ["en", "cs", "sk", "pl", "de", "fr", "system"].contains(&language)) {
+            config["desktop"]["language"] = json!("en");
+        }
         if config["env"]["API_KEY"].as_str().is_none_or(str::is_empty) {
             config["env"]["API_KEY"] = json!(format!("{}{}", id(), id()));
         }
@@ -186,6 +191,7 @@ impl Runtime {
         {
             return Err("Use an API key of at least 16 characters".into());
         }
+        dns::Resolver::new(value["env"]["DNS_RESOLVER"].as_str().unwrap_or("system"), value["env"]["DNS_SERVERS"].as_str().unwrap_or(""))?;
         let rows = value["desktop"]["connections"]
             .as_array_mut()
             .ok_or("Invalid connections")?;
@@ -228,7 +234,7 @@ impl Runtime {
         let mut desktop = current["desktop"].clone();
         desktop.as_object_mut().unwrap().extend(incoming);
         value["desktop"] = desktop;
-        for key in ["autostart", "startServerOnLaunch", "smoothScroll"] {
+        for key in ["autostart", "startServerOnLaunch", "smoothScroll", "liveActivities"] {
             if !value["desktop"][key].is_boolean() {
                 return Err(format!("Invalid {key} preference"));
             }
@@ -236,6 +242,15 @@ impl Runtime {
         if !value["desktop"]["keybindings"].is_object() {
             return Err("Invalid keybindings".into());
         }
+        let language = match value["desktop"].get("language") {
+            Some(Value::String(language)) => language.clone(),
+            None => "system".to_owned(),
+            _ => return Err("Invalid language preference".into()),
+        };
+        if !["en", "cs", "sk", "pl", "de", "fr", "system"].contains(&language.as_str()) {
+            return Err("Invalid language preference".into());
+        }
+        value["desktop"]["language"] = json!(language);
         disk_json(&self.home.join("config.json"), &value)?;
         *current = value;
         drop(current);
@@ -260,7 +275,11 @@ impl Runtime {
         json!({"running":self.running.load(Ordering::SeqCst),"ready":self.running.load(Ordering::SeqCst),"owner":"desktop","baseURL":url})
     }
     pub fn summary(&self) -> Value {
-        json!({"running":self.running.load(Ordering::SeqCst),"active":self.active.load(Ordering::SeqCst),"requests":self.requests.load(Ordering::Relaxed),"successes":self.successes.load(Ordering::Relaxed),"failures":self.requests.load(Ordering::Relaxed).saturating_sub(self.successes.load(Ordering::Relaxed)),"baseURL":self.status()["baseURL"],"uptime":self.started.lock().unwrap().elapsed().as_secs()})
+        let config = self.config.lock().unwrap();
+        let live_activities = config["desktop"]["liveActivities"].as_bool().unwrap_or(true);
+        let language = config["desktop"]["language"].as_str().unwrap_or("system").to_owned();
+        drop(config);
+        json!({"running":self.running.load(Ordering::SeqCst),"active":self.active.load(Ordering::SeqCst),"requests":self.requests.load(Ordering::Relaxed),"successes":self.successes.load(Ordering::Relaxed),"failures":self.requests.load(Ordering::Relaxed).saturating_sub(self.successes.load(Ordering::Relaxed)),"baseURL":self.status()["baseURL"],"uptime":self.started.lock().unwrap().elapsed().as_secs(),"liveActivities":live_activities,"language":language})
     }
     fn changed(&self) {
         (self.observer)(self.summary());
@@ -475,6 +494,8 @@ impl Runtime {
         }
         let _active = Active(self.clone());
         let started = Instant::now();
+        let started_at = now();
+        let mut stages = Vec::new();
         let request_id = id();
         let cfg = self.config();
         let timeout = value
@@ -507,13 +528,17 @@ impl Runtime {
         if min_tier > 3 || max_tier < 1 || min_tier > max_tier {
             return Err("The Android runtime supports HTTP tier 1 and WebView tier 3".into());
         }
+        let resolver = dns::Resolver::new(cfg["env"]["DNS_RESOLVER"].as_str().unwrap_or("system"), cfg["env"]["DNS_SERVERS"].as_str().unwrap_or(""))?;
         let mut cancelled = self.cancelled.subscribe();
         let work = async {
             let force = value["skipHttp"] == true || value["render"] == true || min_tier > 1;
             let mut timings = vec![];
             if !force {
                 let before = Instant::now();
-                let client = reqwest::Client::builder()
+                let mut measured = MeasuredStage::new("tier", Some(1), &mut stages);
+                let mut client = reqwest::Client::builder().no_proxy();
+                if let Some(resolver) = &resolver { client = client.dns_resolver(resolver.clone()); }
+                let client = client
                     .redirect(reqwest::redirect::Policy::limited(10))
                     .timeout(Duration::from_millis(timeout))
                     .build()
@@ -572,7 +597,13 @@ impl Runtime {
                     || ["cf-chl-", "Just a moment...", "enable JavaScript"]
                         .iter()
                         .any(|s| html.contains(s));
-                timings.push(json!({"tier":1,"status":if blocked{"needs-js"}else{"success"},"durationMs":before.elapsed().as_millis() as u64}));
+                let duration = before.elapsed().as_millis() as u64;
+                let mut attempt = json!({"tier":1,"status":if blocked{"needs-js"}else{"success"},"durationMs":duration});
+                if blocked { attempt["reason"] = json!("android-render-required"); }
+                timings.push(attempt.clone());
+                measured.status = if blocked { "needs-js" } else { "success" };
+                measured.reason = if blocked { Some("android-render-required") } else { None };
+                drop(measured);
                 if !blocked || self.browser.is_none() || max_tier < 3 {
                     return Ok(
                         json!({"requestId":request_id,"url":final_url,"html":html,"cookies":[],"userAgent":"TRAWL-Android/0.1","statusCode":status,"tier":1,"sessionCached":false,"timings":timings,"totalMs":started.elapsed().as_millis() as u64,"responseHeaders":headers,"contentType":headers.get("content-type").cloned().unwrap_or(json!("text/html"))}),
@@ -592,21 +623,34 @@ impl Runtime {
                 .browser
                 .as_ref()
                 .ok_or("Browser rendering is unavailable")?;
+            let mut acquisition = MeasuredStage::new("browser-acquire", None, &mut stages);
             let _browser = self
                 .browser_slot
                 .acquire()
                 .await
                 .map_err(|_| "Browser renderer unavailable")?;
+            acquisition.status = "success";
+            drop(acquisition);
             let before = Instant::now();
+            let mut measured = MeasuredStage::new("tier", Some(3), &mut stages);
             let mut input = value.clone();
             input["requestId"] = json!(request_id);
             input["url"] = json!(url.as_str());
             input["maxTimeout"] = json!(timeout);
+            let proxy = if let Some(resolver) = &resolver { Some(dns::Proxy::start(resolver.clone()).await?) } else { None };
+            if let Some(proxy) = &proxy {
+                input["proxyPort"] = json!(proxy.port);
+                input["proxyToken"] = json!(proxy.token);
+            }
             let mut result = browser(input).await?;
+            drop(proxy);
             if result["html"].as_str().is_none_or(|s| s.len() > LIMIT) {
                 return Err("Browser response exceeds 4 MiB".into());
             }
-            timings.push(json!({"tier":3,"status":"success","durationMs":before.elapsed().as_millis() as u64}));
+            let duration = before.elapsed().as_millis() as u64;
+            timings.push(json!({"tier":3,"status":"success","durationMs":duration}));
+            measured.status = "success";
+            drop(measured);
             result["requestId"] = json!(request_id);
             result["tier"] = json!(3);
             result["sessionCached"] = json!(false);
@@ -626,7 +670,8 @@ impl Runtime {
         }
         self.total_ms.fetch_add(elapsed, Ordering::Relaxed);
         self.maximum_ms.fetch_max(elapsed, Ordering::Relaxed);
-        let row = json!({"id":request_id,"at":now(),"domain":url.host_str().unwrap_or(""),"source":"native","method":method,"durationMs":elapsed,"success":result.as_ref().is_ok_and(|v|v["statusCode"].as_u64().is_some_and(|s|(200..400).contains(&s))),"statusCode":result.as_ref().ok().and_then(|v|v["statusCode"].as_u64()),"tier":result.as_ref().ok().and_then(|v|v["tier"].as_u64()),"category":null,"severity":null,"tierStatus":null});
+        let diagnostics = mobile_diagnostics(&started_at, &stages, &result, &method);
+        let row = json!({"diagnostics":diagnostics,"id":request_id,"at":now(),"domain":url.host_str().unwrap_or(""),"source":"native","method":method,"durationMs":elapsed,"success":result.as_ref().is_ok_and(|v|v["statusCode"].as_u64().is_some_and(|s|(200..400).contains(&s))),"statusCode":result.as_ref().ok().and_then(|v|v["statusCode"].as_u64()),"tier":result.as_ref().ok().and_then(|v|v["tier"].as_u64()),"category":null,"severity":null,"tierStatus":null});
         {
             let mut rows = self.history.lock().unwrap();
             rows.push_back(row);
@@ -639,6 +684,60 @@ impl Runtime {
         result
     }
 }
+struct MeasuredStage<'a> {
+    stages: &'a mut Vec<Value>,
+    kind: &'static str,
+    tier: Option<u64>,
+    at: String,
+    started: Instant,
+    status: &'static str,
+    reason: Option<&'static str>,
+}
+impl<'a> MeasuredStage<'a> {
+    fn new(kind: &'static str, tier: Option<u64>, stages: &'a mut Vec<Value>) -> Self {
+        Self { stages, kind, tier, at: now(), started: Instant::now(), status: "error", reason: None }
+    }
+}
+impl Drop for MeasuredStage<'_> {
+    fn drop(&mut self) {
+        let mut stage = json!({"kind":self.kind,"startedAt":self.at,"durationMs":self.started.elapsed().as_millis() as u64,"status":self.status});
+        if let Some(tier) = self.tier { stage["tier"] = json!(tier); }
+        if let Some(reason) = self.reason { stage["reason"] = json!(reason); }
+        if self.stages.len() < 32 { self.stages.push(stage); }
+    }
+}
+
+fn mobile_diagnostics(started_at: &str, stages: &[Value], result: &Result<Value, String>, method: &str) -> Value {
+    let output = result.as_ref().ok();
+    let status = output.and_then(|v| v["statusCode"].as_u64());
+    let timings = output.and_then(|v| v["timings"].as_array()).cloned().unwrap_or_else(|| stages.iter().filter(|stage| stage["kind"] == "tier").map(|stage| {
+        let mut timing = json!({"tier":stage["tier"],"status":stage["status"],"durationMs":stage["durationMs"]});
+        if stage["reason"].is_string() { timing["reason"] = stage["reason"].clone(); }
+        timing
+    }).collect());
+    let mut value = json!({
+        "startedAt":started_at,"operation":"scrape","stages":stages,"timings":timings,"challenges":[],
+        "verification":[
+            {"check":"http-status","status":match status {Some(200..=399)=>"passed",Some(_)=>"failed",None=>"skipped"}},
+            {"check":"engine-outcome","status":if output.is_none(){"failed"}else if timings.last().is_some_and(|v|v["status"]=="success"){"passed"}else{"failed"}},
+            {"check":"response-content","status":if output.is_none() || method=="HEAD" || matches!(status,Some(204|304)){"skipped"}else if output.is_some_and(|v|v["html"].as_str().is_some_and(|s|!s.is_empty())){"passed"}else{"failed"}}
+        ]
+    });
+    if let Some(output) = output {
+        value["responseBytes"] = json!(output["html"].as_str().map(str::len).unwrap_or(0));
+    }
+    if result.is_err() || status.is_some_and(|s|s>=400) {
+        let error = result.as_ref().err().map(|s|s.to_lowercase()).unwrap_or_default();
+        value["cause"] = json!(if error.contains("timed out") || error.contains("timeout") {"timeout"}
+            else if matches!(status,Some(403|429)){"suspected-security-block"}
+            else if status.is_some_and(|s|s>=400){"http"}
+            else if error.contains("browser"){"browser"}
+            else if error.contains("http") || error.contains("target response") || error.contains("target request failed"){"network"}
+            else {"internal"});
+    }
+    value
+}
+
 fn target_url(raw: &str) -> Result<reqwest::Url, String> {
     if raw.len() > 8192 {
         return Err("Target URL exceeds its limit".into());
@@ -863,6 +962,60 @@ impl SystemTimeMs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn live_activity_preference_defaults_migrates_and_persists() {
+        let home = std::env::temp_dir().join(format!("trawl-mobile-activity-{}", id()));
+        let core = Runtime::new(home.clone(), None, Arc::new(|_| {})).unwrap();
+        assert_eq!(core.summary()["liveActivities"], true);
+        let mut config = core.config();
+        config["desktop"]["liveActivities"] = json!(false);
+        core.save(config).unwrap();
+        assert_eq!(core.summary()["liveActivities"], false);
+        drop(core);
+        let core = Runtime::new(home.clone(), None, Arc::new(|_| {})).unwrap();
+        assert_eq!(core.summary()["liveActivities"], false);
+        let mut invalid = core.config();
+        invalid["desktop"]["liveActivities"] = json!("false");
+        assert!(core.save(invalid).is_err());
+        let mut legacy = core.config();
+        legacy["desktop"].as_object_mut().unwrap().remove("liveActivities");
+        drop(core);
+        disk_json(&home.join("config.json"), &legacy).unwrap();
+        let core = Runtime::new(home.clone(), None, Arc::new(|_| {})).unwrap();
+        assert_eq!(core.summary()["liveActivities"], true);
+        drop(core);
+        std::fs::remove_dir_all(home).unwrap();
+    }
+    #[test]
+    fn language_preference_migrates_and_preserves_the_server_configuration() {
+        let home = std::env::temp_dir().join(format!("trawl-mobile-language-{}", id()));
+        let core = Runtime::new(home.clone(), None, Arc::new(|_| {})).unwrap();
+        assert_eq!(core.summary()["language"], "system");
+        assert!(core.config()["desktop"].get("localName").is_none());
+        for language in ["cs", "sk", "pl", "de", "fr", "system", "en"] {
+            let mut config = core.config();
+            let api_key = config["env"]["API_KEY"].clone();
+            config["desktop"]["language"] = json!(language);
+            core.save(config).unwrap();
+            assert_eq!(core.summary()["language"], language);
+            assert_eq!(core.config()["env"]["API_KEY"], api_key);
+        }
+        let mut config = core.config();
+        config["desktop"]["language"] = json!("unknown");
+        assert!(core.save(config.clone()).is_err());
+        drop(core);
+        disk_json(&home.join("config.json"), &config).unwrap();
+        let core = Runtime::new(home.clone(), None, Arc::new(|_| {})).unwrap();
+        assert_eq!(core.summary()["language"], "en");
+        let mut config = core.config();
+        config["desktop"].as_object_mut().unwrap().remove("language");
+        drop(core);
+        disk_json(&home.join("config.json"), &config).unwrap();
+        let core = Runtime::new(home.clone(), None, Arc::new(|_| {})).unwrap();
+        assert_eq!(core.summary()["language"], "system");
+        drop(core);
+        std::fs::remove_dir_all(home).unwrap();
+    }
     async fn fixture() -> (String, tokio::task::JoinHandle<()>) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -881,6 +1034,18 @@ mod tests {
     async fn public_api_auth_scrape_read_extract_v1_history_and_restart() {
         let home = std::env::temp_dir().join(format!("trawl-mobile-{}", id()));
         let core = Runtime::new(home.clone(), None, Arc::new(|_| {})).unwrap();
+        let catalog = core.catalog();
+        let dns_setting = catalog
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|setting| setting["name"] == "DNS_RESOLVER")
+            .expect("Android settings must expose instance DNS");
+        assert_eq!(
+            dns_setting["choices"],
+            json!(["system", "cloudflare", "google", "quad9", "quad9-unfiltered", "adguard", "adguard-unfiltered", "custom"])
+        );
+        assert_eq!(core.config()["env"]["DNS_RESOLVER"], "system");
         let status = core
             .start(Some("127.0.0.1:0".parse().unwrap()))
             .await
@@ -1050,4 +1215,38 @@ mod tests {
         assert_eq!(core.active.load(Ordering::SeqCst), 0);
         std::fs::remove_dir_all(home).unwrap();
     }
+}
+
+#[cfg(test)]
+mod request_diagnostics_tests {
+    use super::*;
+    #[test]
+    fn diagnostics_use_recorded_evidence_and_never_copy_raw_errors() {
+        let stages = vec![json!({"kind":"tier","tier":1,"startedAt":"2026-01-01T00:00:00Z","durationMs":12,"status":"success"})];
+        let response = Ok(json!({"statusCode":403,"html":"blocked","timings":[{"tier":1,"status":"needs-js","durationMs":12}]}));
+        let value = mobile_diagnostics("2026-01-01T00:00:00Z", &stages, &response, "GET");
+        assert_eq!(value["cause"], "suspected-security-block");
+        assert_eq!(value["verification"][0]["status"], "failed");
+        assert_eq!(value["stages"][0]["durationMs"], 12);
+        let failed = mobile_diagnostics("2026-01-01T00:00:00Z", &[], &Err("Request timed out https://private.test/secret".into()), "GET");
+        assert_eq!(failed["cause"], "timeout");
+        assert!(!failed.to_string().contains("private.test"));
+        assert_eq!(failed["verification"][0]["status"], "skipped");
+    }
+    #[test]
+    fn interrupted_attempts_keep_measured_failure_spans() {
+        let mut stages = Vec::new();
+        {
+            let mut first = MeasuredStage::new("tier", Some(1), &mut stages);
+            first.status = "needs-js";
+            first.reason = Some("android-render-required");
+        }
+        { let _failed = MeasuredStage::new("tier", Some(3), &mut stages); }
+        let value = mobile_diagnostics("2026-01-01T00:00:00Z", &stages, &Err("Target request failed: DNS error".into()), "GET");
+        assert_eq!(value["timings"].as_array().unwrap().len(), 2);
+        assert_eq!(value["timings"][0]["reason"], "android-render-required");
+        assert_eq!(value["timings"][1]["status"], "error");
+        assert_eq!(value["cause"], "network");
+    }
+
 }

@@ -54,6 +54,10 @@ pub(crate) fn validate_read_path(path: &str) -> Result<(), String> {
         return Err("API path exceeds its budget".into());
     }
     let detail = route.strip_prefix("/requests/").is_some_and(valid_id);
+    let markdown = route
+        .strip_prefix("/requests/")
+        .and_then(|value| value.strip_suffix("/markdown"))
+        .is_some_and(valid_id);
     if ![
         "/",
         "/health",
@@ -64,10 +68,12 @@ pub(crate) fn validate_read_path(path: &str) -> Result<(), String> {
         "/requests",
         "/logs",
         "/sessions",
+        "/session-activity",
         "/browser/pages",
     ]
     .contains(&route)
         && !detail
+        && !markdown
         && !capture_path(route, false)
     {
         return Err("API route is not available to the desktop".into());
@@ -91,13 +97,30 @@ pub(crate) fn validate_read_path(path: &str) -> Result<(), String> {
             ("/dashboard/metrics", "minutes") => {
                 ["15", "60", "1440", "10080", "43200"].contains(&value.as_ref())
             }
-            ("/requests", "limit") => value
+            ("/requests" | "/session-activity", "limit") => value
                 .parse::<u16>()
                 .is_ok_and(|number| (1..=100).contains(&number)),
+            ("/session-activity", "requestId") => {
+                !value.is_empty()
+                    && value.len() <= 80
+                    && value
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+            }
+            ("/session-activity", "sessionId") => {
+                !value.is_empty()
+                    && value.len() <= 128
+                    && value
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+            }
             ("/logs", "limit") => value
                 .parse::<u16>()
                 .is_ok_and(|number| (1..=500).contains(&number)),
             ("/requests", "before") => valid_id(&value),
+            ("/session-activity", "page") => value
+                .parse::<u32>()
+                .is_ok_and(|page| (1..=5000).contains(&page)),
             ("/requests", "page") => value
                 .parse::<u32>()
                 .is_ok_and(|page| (1..=50000).contains(&page)),
@@ -157,7 +180,7 @@ pub(crate) fn capture_path(path: &str, binary: bool) -> bool {
     let length = if binary { 5 } else { 4 };
     parts.len() == length
         && parts[0].is_empty()
-        && parts[1] == "requests"
+        && ["requests", "session-activity"].contains(&parts[1])
         && valid_id(parts[2])
         && parts[3] == "captures"
         && (!binary || ["html", "screenshot", "request"].contains(&parts[4]))
@@ -421,7 +444,12 @@ mod tests {
             "/requests?limit=50&before=request-id",
             "/requests?limit=20&page=3&search=owned.test&source=proxy&result=success&sort=slowest&tier=3",
             "/requests/test-id",
+            "/requests/test-id/markdown",
             "/requests/test-id/captures",
+            "/session-activity?limit=50&sessionId=retained-session",
+            "/session-activity?sessionId=retained-session&requestId=request-a",
+            "/session-activity?limit=20&page=2",
+            "/session-activity/eval-id/captures",
             "/logs?limit=100",
             "/dashboard/metrics?minutes=60",
         ] {
@@ -429,11 +457,16 @@ mod tests {
         }
         for path in [
             "/scrape",
+            "/requests/test-id/markdown?token=secret",
+            "/requests/bad!id/markdown",
             "/logs/events",
             "/requests/events",
             "/settings?token=secret",
             "/requests/../settings",
             "/requests?limit=101",
+            "/session-activity?limit=101",
+            "/session-activity?page=5001",
+            "/session-activity?sessionId=../secret",
             "/requests?page=0",
             "/requests?search=%00",
             "/requests?source=unknown",

@@ -1,29 +1,107 @@
 use serde_json::{json, Value};
 use std::{
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex, OnceLock,
     },
     time::Duration,
 };
 use tauri::{
-    plugin::{Builder as PluginBuilder, PluginHandle, TauriPlugin},
+    plugin::{Builder as PluginBuilder, TauriPlugin},
     Manager,
 };
 use tauri_plugin_notification::NotificationExt;
 use trawl_mobile_runtime::Runtime;
+#[path = "mobile_bridge.rs"]
+pub(crate) mod bridge;
 
 pub struct AppState {
     pub home: std::path::PathBuf,
     pub http: reqwest::Client,
     pub operations: crate::operations::Operations,
     pub streams: crate::streams::Streams,
-    pub core: Arc<Runtime>,
-    pub plugin: PluginHandle<tauri::Wry>,
     pub client_jobs: AtomicUsize,
     selected: Mutex<String>,
 }
 static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
+static QUITTING: AtomicBool = AtomicBool::new(false);
+static CORE: Mutex<Option<Arc<Runtime>>> = Mutex::new(None);
+static SERVICE_JOBS: AtomicUsize = AtomicUsize::new(0);
+static SYNC_STARTED: AtomicBool = AtomicBool::new(false);
+fn core_for(home: std::path::PathBuf) -> Result<Arc<Runtime>, String> {
+    let mut saved = CORE.lock().unwrap();
+    if let Some(core) = saved.as_ref() {
+        return Ok(core.clone());
+    }
+    let browser: trawl_mobile_runtime::Browser = Arc::new(move |value| {
+        Box::pin(async move {
+            struct Cancel(Option<String>);
+            impl Drop for Cancel {
+                fn drop(&mut self) {
+                    if let Some(id) = self.0.take() {
+                        tauri::async_runtime::spawn(async move {
+                            let _ = bridge::call("cancelBrowser", json!({"requestId":id})).await;
+                        });
+                    }
+                }
+            }
+            let mut cancel = Cancel(value["requestId"].as_str().map(str::to_owned));
+            let result = bridge::call("browser", value)
+                .await
+                .map_err(|e| format!("Android browser failed: {e}"));
+            cancel.0 = None;
+            result
+        })
+    });
+    let core = Runtime::new(home, Some(browser), Arc::new(|_| {}))?;
+    *saved = Some(core.clone());
+    Ok(core)
+}
+fn start_sync(core: Arc<Runtime>) {
+    if SYNC_STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    tauri::async_runtime::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(1));
+        loop {
+            interval.tick().await;
+            let mut value = core.summary();
+            value["active"] = json!(
+                value["active"].as_u64().unwrap_or(0) + SERVICE_JOBS.load(Ordering::SeqCst) as u64
+            );
+            let _ = bridge::call("setState", value).await;
+        }
+    });
+}
+#[no_mangle]
+#[allow(non_snake_case)]
+pub extern "system" fn Java_com_germondai_trawl_mobile_RuntimeService_nativeRestore(
+    mut env: jni::JNIEnv,
+    _: jni::objects::JObject,
+    home: jni::objects::JString,
+    wanted: jni::sys::jboolean,
+) {
+    let Ok(home) = env.get_string(&home) else {
+        return;
+    };
+    let home: String = home.into();
+    let core = core_for(home.into());
+    tauri::async_runtime::spawn(async move {
+        match core {
+            Ok(core) => {
+                if wanted != 0 {
+                    if let Err(error) = core.start(None).await {
+                        let _ = bridge::call("runtimeFailure", json!({"message":error})).await;
+                    }
+                }
+                start_sync(core);
+            }
+            Err(error) => {
+                let _ = bridge::call("runtimeFailure", json!({"message":error})).await;
+            }
+        }
+    });
+}
 fn plugin() -> TauriPlugin<tauri::Wry> {
     PluginBuilder::new("trawl-runtime")
         .setup(|app, api| {
@@ -34,12 +112,8 @@ fn plugin() -> TauriPlugin<tauri::Wry> {
         })
         .build()
 }
-async fn call(app: &tauri::AppHandle, method: &str, args: Value) -> Result<Value, String> {
-    app.state::<Arc<AppState>>()
-        .plugin
-        .run_mobile_plugin_async(method, args)
-        .await
-        .map_err(|e| format!("Android operation failed: {e}"))
+async fn call(_app: &tauri::AppHandle, method: &str, args: Value) -> Result<Value, String> {
+    bridge::call(method, args).await
 }
 pub async fn ensure_service(app: &tauri::AppHandle) -> Result<(), String> {
     static PERMISSION: tokio::sync::Mutex<bool> = tokio::sync::Mutex::const_new(false);
@@ -66,49 +140,128 @@ pub fn notify(app: &tauri::AppHandle, title: &str, body: &str) {
 #[tauri::command]
 async fn server_start(app: tauri::AppHandle) -> Result<Value, String> {
     ensure_service(&app).await?;
-    let result = app.state::<Arc<AppState>>().core.start(None).await;
-    sync_state(&app).await;
-    result
+    service_request(json!({"action":"start"})).await
 }
 pub(crate) async fn sync_state(app: &tauri::AppHandle) {
-    let state = app.state::<Arc<AppState>>();
-    let mut value = state.core.summary();
-    value["active"] = json!(
-        value["active"].as_u64().unwrap_or(0) + state.client_jobs.load(Ordering::SeqCst) as u64
-    );
-    let _ = call(app, "setState", value).await;
+    static SYNC: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _sync = SYNC.lock().await;
+    let active = app
+        .state::<Arc<AppState>>()
+        .client_jobs
+        .load(Ordering::SeqCst);
+    let _ = service_request(json!({"action":"clientJobs","active":active})).await;
+}
+pub(crate) async fn service_request(request: Value) -> Result<Value, String> {
+    let mut response = bridge::call("runtime", request).await?;
+    Ok(response["value"].take())
 }
 #[tauri::command]
-async fn instance_status(state: tauri::State<'_, Arc<AppState>>) -> Result<Value, String> {
-    Ok(state.core.status())
+async fn instance_status() -> Result<Value, String> {
+    service_request(json!({"action":"status"})).await
 }
 #[tauri::command]
-async fn management(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, Arc<AppState>>,
-    request: Value,
-) -> Result<Value, String> {
-    let action = request["action"].as_str().ok_or("Missing action")?;
-    match action{
-        "bootstrap"=>{let config=state.core.public_config();let mut effective=config["env"].clone();effective["API_KEY"]=json!("[redacted]");Ok(json!({"config":config,"effective":effective,"inherited":{},"sources":{},"catalog":state.core.catalog(),"status":state.core.status(),"browser":browser()}))},
-        "config"=>Ok(json!({"config":state.core.public_config()})),
-        "saveConfig"=>state.core.save(request["config"].clone()),
-        "status"=>Ok(state.core.status()),
-        "start"=>server_start(app).await,
-        "stop"|"stopOwned"=>{let result=state.core.stop().await;sync_state(&app).await;result},
-        "browserStatus"=>Ok(browser()),
-        "clearStorage"=>state.core.clear(request["storage"].as_str().unwrap_or("")),
-        "logs"=>Ok(json!(state.core.log_text())),
-        "installBrowser"|"repairBrowser"|"activateBrowser"|"uninstallBrowser"|"discardBrowserDownload"=>Err("Android uses the System WebView managed by Android; desktop Camoufox installations are unavailable".into()),
-        _=>Err("This management operation is unavailable on Android".into())
+async fn management(app: tauri::AppHandle, request: Value) -> Result<Value, String> {
+    if !matches!(
+        request["action"].as_str(),
+        Some(
+            "bootstrap"
+                | "config"
+                | "saveConfig"
+                | "status"
+                | "start"
+                | "stop"
+                | "stopOwned"
+                | "browserStatus"
+                | "clearStorage"
+                | "logs"
+                | "installBrowser"
+                | "repairBrowser"
+                | "activateBrowser"
+                | "uninstallBrowser"
+                | "discardBrowserDownload"
+        )
+    ) {
+        return Err("This management operation is unavailable on Android".into());
     }
+    if request["action"] == "start" {
+        ensure_service(&app).await?;
+    }
+    service_request(request).await
+}
+async fn service_management(core: &Arc<Runtime>, request: Value) -> Result<Value, String> {
+    let action = request["action"].as_str().ok_or("Missing action")?;
+    let result = match action {
+        "bootstrap" => {
+            let config=core.public_config(); let mut effective=config["env"].clone(); effective["API_KEY"]=json!("[redacted]");
+            Ok(json!({"config":config,"effective":effective,"inherited":{},"sources":{},"catalog":core.catalog(),"status":core.status(),"browser":browser()}))
+        },
+        "config" => Ok(json!({"config":core.public_config()})),
+        "saveConfig" => core.save(request["config"].clone()),
+        "status" => Ok(core.status()),
+        "start" => core.start(None).await,
+        "stop"|"stopOwned" => core.stop().await,
+        "browserStatus" => Ok(browser()),
+        "clearStorage" => core.clear(request["storage"].as_str().unwrap_or("")),
+        "logs" => Ok(json!(core.log_text())),
+        "resources" => bridge::call("resources",json!({})).await,
+        "connection" => Ok(json!({"config":core.config(),"status":core.status()})),
+        "clientJobs" => { SERVICE_JOBS.store(request["active"].as_u64().unwrap_or(0).min(64) as usize,Ordering::SeqCst); Ok(Value::Null) },
+        "installBrowser"|"repairBrowser"|"activateBrowser"|"uninstallBrowser"|"discardBrowserDownload" => Err("Android uses the System WebView managed by Android; desktop Camoufox installations are unavailable".into()),
+        _ => Err("This management operation is unavailable on Android".into())
+    };
+    if result.is_ok() && matches!(action, "start" | "stop" | "stopOwned") {
+        bridge::call("serverIntent", json!({"running":action=="start"})).await?;
+    }
+    let mut summary = core.summary();
+    summary["active"] =
+        json!(summary["active"].as_u64().unwrap_or(0) + SERVICE_JOBS.load(Ordering::SeqCst) as u64);
+    let _ = bridge::call("setState", summary).await;
+    result
+}
+#[no_mangle]
+#[allow(non_snake_case)]
+pub extern "system" fn Java_com_germondai_trawl_mobile_RuntimeService_nativeManagement(
+    mut env: jni::JNIEnv,
+    _: jni::objects::JObject,
+    id: i32,
+    request: jni::objects::JString,
+) {
+    let Ok(request) = env.get_string(&request) else {
+        return;
+    };
+    let request: String = request.into();
+    tauri::async_runtime::spawn(async move {
+        let result = match serde_json::from_str::<Value>(&request) {
+            Ok(request) => {
+                let core = CORE.lock().unwrap().clone();
+                match core {
+                    Some(core) => service_management(&core, request).await,
+                    None => Err("Background runtime is not ready".into()),
+                }
+            }
+            Err(_) => Err("Invalid runtime request".into()),
+        };
+        let payload = match result {
+            Ok(value) => json!({"id":id,"ok":true,"value":value}),
+            Err(error) => json!({"id":id,"ok":false,"message":error}),
+        };
+        let _ = bridge::call("runtimeReply", payload).await;
+    });
 }
 fn browser() -> Value {
     json!({"installed":true,"system":true,"state":"ready","version":"Android System WebView","choices":[]})
 }
 #[tauri::command]
-async fn resource_usage(app: tauri::AppHandle) -> Result<Value, String> {
-    call(&app, "resources", json!({})).await
+async fn resource_usage() -> Result<Value, String> {
+    service_request(json!({"action":"resources"})).await
+}
+#[tauri::command]
+async fn live_activity_status(app: tauri::AppHandle) -> Result<Value, String> {
+    call(&app, "liveActivityStatus", json!({})).await
+}
+pub async fn app_locale(app: &tauri::AppHandle) -> Result<String, String> {
+    let value = call(app, "appLocale", json!({})).await?;
+    Ok(value["locale"].as_str().unwrap_or("en").to_owned())
 }
 #[tauri::command]
 async fn reveal_storage(app: tauri::AppHandle, _name: Option<String>) -> Result<(), String> {
@@ -146,8 +299,9 @@ fn take_instance_request() -> Option<String> {
 #[tauri::command]
 async fn close_window(app: tauri::AppHandle, behavior: String) -> Result<(), String> {
     if behavior == "quit" {
-        app.state::<Arc<AppState>>().core.stop().await?;
+        service_request(json!({"action":"stop"})).await?;
         call(&app, "shutdown", json!({})).await?;
+        QUITTING.store(true, Ordering::SeqCst);
         app.exit(0);
     } else {
         call(&app, "minimize", json!({})).await?;
@@ -173,7 +327,7 @@ pub extern "system" fn Java_com_germondai_trawl_mobile_RuntimeService_nativeActi
     _this: jni::objects::JObject,
     action: jni::objects::JString,
 ) -> jni::sys::jboolean {
-    let Some(app) = APP.get().cloned() else {
+    let Some(core) = CORE.lock().unwrap().clone() else {
         return 0;
     };
     let Ok(action) = env.get_string(&action) else {
@@ -181,20 +335,47 @@ pub extern "system" fn Java_com_germondai_trawl_mobile_RuntimeService_nativeActi
     };
     let action: String = action.into();
     tauri::async_runtime::spawn(async move {
-        let state = app.state::<Arc<AppState>>();
-        match action.as_str() {
-            "stop" => {
-                let _ = state.core.stop().await;
-            }
-            "restart" => {
-                let _ = state.core.stop().await;
-                let _ = state.core.start(None).await;
-            }
-            _ => {}
+        let result = match action.as_str() {
+            "stop" => core.stop().await,
+            "restart" => match core.stop().await {
+                Ok(_) => core.start(None).await,
+                Err(error) => Err(error),
+            },
+            _ => Err("Unknown server action".into()),
+        };
+        if result.is_ok() {
+            let _ = bridge::call("serverIntent", json!({"running":action != "stop"})).await;
         }
-        sync_state(&app).await;
+        let _ = bridge::call("setState", core.summary()).await;
+        let _ = bridge::call(
+            "actionFeedback",
+            json!({"action":action,"success":result.is_ok()}),
+        )
+        .await;
     });
     1
+}
+#[no_mangle]
+#[allow(non_snake_case)]
+pub extern "system" fn Java_com_germondai_trawl_desktop_MainActivity_nativeResume(
+    _env: jni::JNIEnv,
+    _this: jni::objects::JObject,
+) {
+    let Some(app) = APP.get().cloned() else {
+        return;
+    };
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if !QUITTING.load(Ordering::SeqCst) && handle.get_webview_window("main").is_none() {
+            if let Some(config) = handle.config().app.windows.first() {
+                if let Err(error) = tauri::WebviewWindowBuilder::from_config(&handle, config)
+                    .and_then(|builder| builder.build())
+                {
+                    eprintln!("Could not restore Android window: {error}");
+                }
+            }
+        }
+    });
 }
 pub fn run() {
     tauri::Builder::default()
@@ -204,45 +385,6 @@ pub fn run() {
             let handle = app.handle().clone();
             let _ = APP.set(handle.clone());
             let home = app.path().app_data_dir()?;
-            let bridge = app.state::<PluginHandle<tauri::Wry>>().inner().clone();
-            let browser_bridge = bridge.clone();
-            let browser: trawl_mobile_runtime::Browser = Arc::new(move |value| {
-                let bridge = browser_bridge.clone();
-                Box::pin(async move {
-                    struct Cancel {
-                        bridge: PluginHandle<tauri::Wry>,
-                        id: Option<String>,
-                    }
-                    impl Drop for Cancel {
-                        fn drop(&mut self) {
-                            if let Some(id) = self.id.take() {
-                                let bridge = self.bridge.clone();
-                                tauri::async_runtime::spawn(async move {
-                                    let _ = bridge
-                                        .run_mobile_plugin_async::<Value>(
-                                            "cancelBrowser",
-                                            json!({"requestId":id}),
-                                        )
-                                        .await;
-                                });
-                            }
-                        }
-                    }
-                    let mut cancel = Cancel {
-                        bridge: bridge.clone(),
-                        id: value["requestId"].as_str().map(str::to_owned),
-                    };
-                    let result = bridge
-                        .run_mobile_plugin_async::<Value>("browser", value)
-                        .await
-                        .map_err(|e| format!("Android browser failed: {e}"));
-                    cancel.id = None;
-                    result
-                })
-            });
-            let core = Runtime::new(home.clone(), Some(browser), Arc::new(|_| {}))
-                .map_err(std::io::Error::other)?;
-            let start = core.config()["desktop"]["startServerOnLaunch"] == true;
             app.manage(Arc::new(AppState {
                 home,
                 http: reqwest::Client::builder()
@@ -250,28 +392,28 @@ pub fn run() {
                     .build()?,
                 operations: crate::operations::Operations::default(),
                 streams: crate::streams::Streams::default(),
-                core,
-                plugin: bridge,
                 client_jobs: AtomicUsize::new(0),
                 selected: Mutex::new("local".into()),
             }));
             tauri::async_runtime::spawn(async move {
-                let mut interval = tokio::time::interval(Duration::from_secs(1));
-                if start {
-                    let _ = server_start(handle.clone()).await;
-                }
-                loop {
-                    interval.tick().await;
-                    sync_state(&handle).await;
+                if let Ok(config) = service_request(json!({"action":"config"})).await {
+                    if config["config"]["desktop"]["startServerOnLaunch"] == true {
+                        let _ = server_start(handle).await;
+                    }
                 }
             });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            crate::app_locale,
+            crate::updates::check_app_update,
+            crate::updates::install_app_update,
+            crate::updates::app_update_download_status,
             management,
             server_start,
             instance_status,
             resource_usage,
+            live_activity_status,
             reveal_storage,
             open_connection_url,
             tray_instance,
@@ -291,13 +433,13 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("Could not build TRAWL Android")
         .run(|app, event| {
-            if let tauri::RunEvent::ExitRequested {
-                code: None, api, ..
-            } = event
-            {
-                let state = app.state::<Arc<AppState>>();
-                if state.core.status()["running"] == true
-                    || state.client_jobs.load(Ordering::SeqCst) > 0
+            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+                if !QUITTING.load(Ordering::SeqCst)
+                    && app
+                        .state::<Arc<AppState>>()
+                        .client_jobs
+                        .load(Ordering::SeqCst)
+                        > 0
                 {
                     api.prevent_exit();
                 }

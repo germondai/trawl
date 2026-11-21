@@ -264,6 +264,8 @@ pub fn setup(window: &WebviewWindow) -> tauri::Result<()> {
     if !session.initialized.swap(true, Ordering::SeqCst) {
         #[cfg(target_os = "macos")]
         crate::window_state::setup(window)?;
+        #[cfg(target_os = "macos")]
+        crate::history_gesture::setup(window)?;
         update(window)?;
         loaded(window);
     }
@@ -299,7 +301,8 @@ pub fn loaded(window: &WebviewWindow) {
             if !app.state::<WindowChrome>().accepts(&session, document) || session.ready.load(Ordering::SeqCst) || session.shown.load(Ordering::SeqCst) { return; }
             if let Some(window) = app.get_webview_window("main") {
                 eprintln!("TRAWL window readiness timed out; showing recovery window");
-                let _ = window.eval("if (!document.getElementById('native-recovery')) { const p=document.createElement('div'); p.id='native-recovery'; p.style.cssText='position:fixed;inset:0;z-index:99999;background:#1c1c1e;color:#eee;padding:64px;font:16px system-ui'; p.textContent='TRAWL could not prepare this window. '; const b=document.createElement('button'); b.textContent='Reload'; b.onclick=()=>location.reload(); p.append(b); document.body.append(p); }");
+                let labels = serde_json::json!({"message": crate::i18n::text("native.windowRecovery"), "reload": crate::i18n::text("native.reload")});
+                let _ = window.eval(format!("(() => {{ const labels = {}; ", labels) + "if (!document.getElementById('native-recovery')) { const p=document.createElement('div'); p.id='native-recovery'; p.style.cssText='visibility:visible;position:fixed;inset:0;z-index:99999;background:#1c1c1e;color:#eee;padding:64px;font:16px system-ui'; p.textContent=labels.message+' '; const b=document.createElement('button'); b.textContent=labels.reload; b.onclick=()=>location.reload(); p.append(b); document.body.append(p); } })()");
                 session.shown.store(true, Ordering::SeqCst);
                 #[cfg(target_os = "macos")]
                 crate::runtime::window_dock_visibility(&app, true);
@@ -333,6 +336,8 @@ pub fn destroyed(app: &tauri::AppHandle) {
     *app.state::<WindowChrome>().current.lock().unwrap() = None;
     #[cfg(target_os = "macos")]
     crate::window_state::shutdown();
+    #[cfg(target_os = "macos")]
+    crate::history_gesture::shutdown();
     #[cfg(target_os = "macos")]
     DRAG_EVENT.with(|saved| saved.borrow_mut().take());
     #[cfg(target_os = "macos")]

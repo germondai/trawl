@@ -43,6 +43,9 @@ impl Parent {
 pub struct Keybindings {
     pub recording: AtomicBool,
     items: Mutex<Vec<(String, Item)>>,
+    labels: Mutex<BTreeMap<String, String>>,
+    localized_submenus: Mutex<Vec<(Submenu<tauri::Wry>, String)>>,
+    localized_predefined: Mutex<Vec<(PredefinedMenuItem<tauri::Wry>, String)>>,
     applied: Mutex<Value>,
     parents: Mutex<Vec<Parent>>,
     update: Mutex<()>,
@@ -90,13 +93,75 @@ pub fn item(app: &tauri::AppHandle, action: &str, label: &str) -> tauri::Result<
     let id = format!("shortcut.{action}.{}", items.len());
     let item = MenuItem::with_id(
         app,
-        id,
-        label,
+        id.clone(),
+        crate::i18n::text(label),
         true,
         definitions()[action]["default"].as_str(),
     )?;
+    state.labels.lock().unwrap().insert(id, label.to_owned());
     items.push((action.to_string(), item.clone()));
     Ok(item)
+}
+fn on_menu_thread(
+    app: &tauri::AppHandle,
+    work: impl FnOnce(&tauri::AppHandle) -> Result<(), String> + Send + 'static,
+) -> Result<(), String> {
+    let handle = app.clone();
+    let (send, receive) = std::sync::mpsc::sync_channel(1);
+    // Acquire menu locks only after reaching the UI thread; menu setters also dispatch there.
+    app.run_on_main_thread(move || {
+        let _ = send.send(work(&handle));
+    })
+    .map_err(|error| error.to_string())?;
+    receive
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .map_err(|error| error.to_string())?
+}
+pub fn localize(app: &tauri::AppHandle) -> Result<(), String> {
+    on_menu_thread(app, localize_on_main)
+}
+fn localize_on_main(app: &tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<Keybindings>();
+    let _update = state.update.lock().unwrap();
+    let labels = state.labels.lock().unwrap().clone();
+    for (_, item) in state.items.lock().unwrap().iter() {
+        if let Some(key) = labels.get(item.id().as_ref()) {
+            item.set_text(crate::i18n::text(key))
+                .map_err(|error| error.to_string())?;
+        }
+    }
+    for (submenu, key) in state.localized_submenus.lock().unwrap().iter() {
+        submenu
+            .set_text(crate::i18n::text(key))
+            .map_err(|error| error.to_string())?;
+    }
+    for (item, key) in state.localized_predefined.lock().unwrap().iter() {
+        item.set_text(crate::i18n::text(key))
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+pub fn set_label(app: &tauri::AppHandle, action: &str, key: &str) {
+    let action = action.to_owned();
+    let key = key.to_owned();
+    let _ = on_menu_thread(app, move |app| {
+        set_label_on_main(app, &action, &key);
+        Ok(())
+    });
+}
+fn set_label_on_main(app: &tauri::AppHandle, action: &str, key: &str) {
+    let state = app.state::<Keybindings>();
+    let _update = state.update.lock().unwrap();
+    for (name, item) in state.items.lock().unwrap().iter() {
+        if name == action {
+            state
+                .labels
+                .lock()
+                .unwrap()
+                .insert(item.id().as_ref().to_owned(), key.to_owned());
+            let _ = item.set_text(crate::i18n::text(key));
+        }
+    }
 }
 pub fn action(app: &tauri::AppHandle, id: &str) -> Option<String> {
     app.state::<Keybindings>()
@@ -108,6 +173,10 @@ pub fn action(app: &tauri::AppHandle, id: &str) -> Option<String> {
         .map(|(action, _)| action.clone())
 }
 pub fn apply(app: &tauri::AppHandle, input: &Value) -> Result<(), String> {
+    let input = input.clone();
+    on_menu_thread(app, move |app| apply_on_main(app, &input))
+}
+fn apply_on_main(app: &tauri::AppHandle, input: &Value) -> Result<(), String> {
     let state = app.state::<Keybindings>();
     // Startup config and frontend bootstrap can update menus concurrently.
     let _update = state.update.lock().unwrap();
@@ -167,19 +236,34 @@ pub fn menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let quit_label = PredefinedMenuItem::quit(app, None)?.text()?;
     for parent in menu.items()? {
         if let Some(submenu) = parent.as_submenu() {
+            if let Some(key) = default_menu_key(&submenu.text()?) {
+                app.state::<Keybindings>()
+                    .localized_submenus
+                    .lock()
+                    .unwrap()
+                    .push((submenu.clone(), key.into()));
+                submenu.set_text(crate::i18n::text(key))?;
+            }
             for (index, child) in submenu.items()?.iter().enumerate() {
                 if let Some(child) = child.as_predefined_menuitem() {
                     let label = child.text()?;
                     let replacement = if label == quit_label {
-                        Some(("quit", "Quit TRAWL"))
+                        Some(("quit", "native.quitTrawl"))
                     } else if label == close_label {
-                        Some(("close", "Close window"))
+                        Some(("close", "native.closeWindow"))
                     } else {
                         None
                     };
                     if let Some((action, label)) = replacement {
                         submenu.remove_at(index)?;
                         submenu.insert(&item(app, action, label)?, index)?;
+                    } else if let Some(key) = default_menu_key(&label) {
+                        app.state::<Keybindings>()
+                            .localized_predefined
+                            .lock()
+                            .unwrap()
+                            .push((child.clone(), key.into()));
+                        child.set_text(crate::i18n::text(key))?;
                     }
                 }
             }
@@ -194,10 +278,15 @@ pub fn menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         #[cfg(target_os = "macos")]
         parent.set_text("TRAWL")?;
         let index = if cfg!(target_os = "macos") { 2 } else { 0 };
-        parent.insert(&item(app, "connections", "App settings…")?, index)?;
-        parent.insert(&item(app, "settings", "Server settings…")?, index + 1)?;
+        parent.insert(&item(app, "connections", "ui.appSettings")?, index)?;
+        parent.insert(&item(app, "settings", "ui.serverSettings")?, index + 1)?;
     }
-    let go = Submenu::new(app, "Go", true)?;
+    let go = Submenu::new(app, crate::i18n::text("native.go"), true)?;
+    app.state::<Keybindings>()
+        .localized_submenus
+        .lock()
+        .unwrap()
+        .push((go.clone(), "native.go".into()));
     for action in [
         "overview",
         "history",
@@ -212,17 +301,40 @@ pub fn menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         "restart",
         "search",
     ] {
-        go.append(&item(
-            app,
-            action,
-            definitions()[action]["label"].as_str().unwrap(),
-        )?)?;
+        go.append(&item(app, action, &format!("shortcuts.{action}.label"))?)?;
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    go.append(&item(app, "quit", "Quit TRAWL")?)?;
+    go.append(&item(app, "quit", "native.quitTrawl")?)?;
     menu.append(&go)?;
     track_menu(app, &menu)?;
     Ok(menu)
+}
+fn default_menu_key(label: &str) -> Option<&'static str> {
+    let label = label.replace('&', "");
+    Some(match label.as_str() {
+        "File" => "menu.file",
+        "Edit" => "menu.edit",
+        "View" => "menu.view",
+        "Window" => "menu.window",
+        "Help" => "menu.help",
+        "Undo" => "menu.undo",
+        "Redo" => "menu.redo",
+        "Cut" => "menu.cut",
+        "Copy" => "menu.copy",
+        "Paste" => "menu.paste",
+        "Select All" => "menu.selectAll",
+        "Minimize" => "menu.minimize",
+        "Maximize" | "Zoom" => "menu.zoom",
+        "Toggle Fullscreen" | "Toggle Full Screen" | "Enter Full Screen" | "Full Screen" => {
+            "menu.fullscreen"
+        }
+        "Services" => "menu.services",
+        "Hide Others" => "menu.hideOthers",
+        "Show All" | "Show Everything" => "menu.showAll",
+        value if value == "About" || value.starts_with("About ") => "menu.about",
+        value if value == "Hide" || value.starts_with("Hide ") => "menu.hideApp",
+        _ => return None,
+    })
 }
 pub fn track_menu(app: &tauri::AppHandle, menu: &Menu<tauri::Wry>) -> tauri::Result<()> {
     fn submenus(parent: &Submenu<tauri::Wry>, output: &mut Vec<Parent>) -> tauri::Result<()> {

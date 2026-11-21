@@ -31,6 +31,11 @@
       "devCsp": "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src ipc: http://ipc.localhost ws://127.0.0.1:1421 http://127.0.0.1:1421; font-src 'self' data:; object-src 'none'; frame-src blob:; base-uri 'self'"
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM3RThDODM3NkQ4NzZBQjcKUldTM2FvZHROOGpvTitqaFcxZ1gzRFI0SSs5N29DVjNmd0N1UUxPZjRlY2ZPb2kxMmNmOHpCa0EK"
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",

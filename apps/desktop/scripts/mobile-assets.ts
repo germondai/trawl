@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
-import { emptyConfig, settings } from "@trawl/config/catalog"
+import { dnsProviders, emptyConfig, settings } from "@trawl/config/catalog"
 
 const folder = new URL("../../../native/mobile-runtime/assets/", import.meta.url)
 await mkdir(folder, { recursive: true })
@@ -11,7 +11,10 @@ config.env = {
   SCRAPE_MAX_TIMEOUT_MS: "60000",
   SCRAPE_MIN_TIER: "1",
   SCRAPE_MAX_TIER: "3",
+  DNS_RESOLVER: "system",
+  DNS_SERVERS: "",
 }
+await writeFile(new URL("dns-providers.json", folder), `${JSON.stringify(dnsProviders, null, 2)}\n`)
 const supported = new Set([...Object.keys(config.env), "API_KEY"])
 await writeFile(new URL("config.json", folder), `${JSON.stringify(config, null, 2)}\n`)
 const catalog = settings
@@ -54,7 +57,7 @@ const formatted = Bun.spawnSync(
     "biome",
     "format",
     "--write",
-    ...["config.json", "catalog.json"].map((name) => fileURLToPath(new URL(name, folder))),
+    ...["config.json", "catalog.json", "dns-providers.json"].map((name) => fileURLToPath(new URL(name, folder))),
   ],
   { stdout: "inherit", stderr: "inherit" },
 )
