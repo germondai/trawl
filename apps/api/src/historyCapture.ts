@@ -95,11 +95,20 @@ export function createHistoryCapture(
     requestCapture = {}
     snapshot = undefined
   }
-  const takeInput = () => {
+  const takeInput = (result?: ScrapeResult) => {
     const input = requestCapture
     releaseInput?.()
     releaseInput = undefined
     requestCapture = {}
+    if (result && input.request) {
+      const original = JSON.parse(input.request) as CapturedRequest
+      const enriched = captureRequestInput(store, {
+        ...original,
+        response: { headers: result.responseHeaders, cookies: result.cookies },
+      })
+      // Keep replayable input when response metadata would exceed the capture budget.
+      if (enriched.request) return enriched
+    }
     return input
   }
   const observe: Observe | undefined =
@@ -203,7 +212,7 @@ export function createHistoryCapture(
         screenshot: selected?.image,
         capturedAt: selected?.at,
         screenshotReason: selected?.reason ?? "no-browser-screenshot",
-        ...takeInput(),
+        ...takeInput(result),
       })
       snapshot = undefined
     },

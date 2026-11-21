@@ -73,10 +73,15 @@ function captureDirect(
       if ((input.body?.byteLength ?? 0) > captures.policy.artifactBytes)
         savedInput = { requestReason: "artifact-byte-limit" }
       else {
-        savedInput = captureRequestInput(captures, {
+        const context = {
           source: "proxy",
           ...proxyRequestContext(input),
-        })
+        }
+        savedInput = captureRequestInput(captures, context)
+        if (response && savedInput.request) {
+          const enriched = captureRequestInput(captures, { ...context, response: { headers: response.headers } })
+          if (enriched.request) savedInput = enriched
+        }
       }
     }
     captures.capture({

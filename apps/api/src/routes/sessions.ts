@@ -2,7 +2,10 @@ import { PoolExhaustedError } from "@trawl/browser"
 import { normalizeProxy, RequestBudget, RequestValidationError, validateSessionId } from "@trawl/tiers"
 import type { CreateBrowserSession, SessionEvalRequest } from "@trawl/types"
 import { Elysia } from "elysia"
+import { captures } from "../captures"
 import { getDeps, getPool } from "../deps"
+import { metrics } from "../metrics"
+import { recordSessionEval } from "../sessionActivity"
 
 export function sessionsRoute(deps = getDeps, poolReady: () => unknown = getPool) {
   const sessions = () => {
@@ -58,7 +61,21 @@ export function sessionsRoute(deps = getDeps, poolReady: () => unknown = getPool
         throw new RequestValidationError("maxTimeout must be a positive number", 400)
       const budget = new RequestBudget(input.maxTimeout ?? deps().defaultMaxTimeout ?? 60_000)
       try {
-        return { value: await sessions().evaluate(params.id, input.expression, budget) }
+        validateSessionId(params.id)
+        let pageRequestId: string | undefined
+        return {
+          value: await recordSessionEval(
+            metrics,
+            captures,
+            params.id,
+            input.expression,
+            () =>
+              sessions().evaluate(params.id, input.expression, budget, (id) => {
+                pageRequestId = id
+              }),
+            () => pageRequestId,
+          ),
+        }
       } finally {
         budget.dispose()
       }

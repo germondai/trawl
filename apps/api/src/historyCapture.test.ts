@@ -105,6 +105,38 @@ test("HTML and HTTP-only history do not ask a browser to take a screenshot", asy
   }
 })
 
+test("opt-in input capture retains response headers and cookies within its existing byte limit", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trawl-response-metadata-"))
+  const store = new CaptureStore(directory, { ...defaultCapturePolicy, request: true, artifactBytes: 1024 })
+  try {
+    await store.ready
+    const request = { url: "https://owned.fixture", headers: { "x-input": "fixture" } }
+    const response = {
+      ...result(1),
+      responseHeaders: { "x-output": "fixture" },
+      cookies: [
+        { name: "demo", value: "yes", domain: "owned.fixture", path: "/", expires: -1, httpOnly: false, secure: false },
+      ],
+    }
+    createHistoryCapture(store, request, limits).commit("metadata", at, response)
+    createHistoryCapture(store, request, limits).commit("oversized", at, {
+      ...response,
+      responseHeaders: { large: "x".repeat(2000) },
+    })
+    await store.flush()
+    const saved = async (id: string) => JSON.parse(new TextDecoder().decode(await store.read(id, at, "request")))
+    expect(await saved("metadata")).toMatchObject({
+      parameters: request,
+      response: { headers: response.responseHeaders, cookies: response.cookies },
+    })
+    expect(await saved("oversized")).toMatchObject({ parameters: request })
+    expect((await saved("oversized")).response).toBeUndefined()
+  } finally {
+    await store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test("capture uses its actual page without resizing or changing the returned scrape result", async () => {
   const directory = mkdtempSync(join(tmpdir(), "trawl-history-"))
   const store = new CaptureStore(directory, { ...defaultCapturePolicy, mode: "both" })

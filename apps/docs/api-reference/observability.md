@@ -37,6 +37,9 @@ authentication behavior is unchanged. Use HTTPS outside a trusted local network.
 | Endpoint | Response |
 | --- | --- |
 | `GET /capabilities` | Public feature flags, schema version and the authentication scheme for observability. Contains no settings or request data. |
+| `GET /session-activity?sessionId=<id>&limit=50` | Retained eval metadata, newest first; optional session filter, limit 1–100. |
+| `GET /session-activity/:id/captures` | Saved script-input metadata for a retained activity. |
+| `GET /session-activity/:id/captures/request` | Protected optional eval input, with the existing artifact transfer limits. |
 | `GET /settings` | Effective engine settings with descriptions, groups and sources. Secret values are `null` with a `configured` flag. |
 | `GET /requests?limit=50&before=<id>` | Completed history, active requests, the next page cursor and the current request-stream cursor. |
 | `GET /requests/:id` | Retained metadata for one request. |
@@ -277,3 +280,25 @@ Desktop-owned native instances with authenticated observability apply small capt
 With the local server stopped, desktop Managed storage can clear captures and their index independently of metrics/request history. Metrics and Metrics journal use a combined cleanup that removes the database, its SQLite journals and saved captures together. Configuration and custom data paths are preserved.
 
 Optional remote usage sharing is separate from observability and defaults off. `TELEMETRY_ENABLED=true` additionally requires a configured HTTPS `TELEMETRY_ENDPOINT`; restart after either change. It sends only target hostname, a recognized challenge category (or unknown), outcome, duration rounded to 10 ms and TRAWL version. No raw logs, request/response content, URL path/query, credentials or persistent client IDs are included. Hostnames may identify a site and the receiver sees the transport IP. The separate collector and its deployment/retention controls are documented in `apps/telemetry/README.md`; no public endpoint is configured or deployed by default.
+
+## Measured execution and session eval activity
+
+New capabilities optionally advertise `mcp: { enabled: boolean }` (the running server setting) and `sessionActivity`. Older servers can omit them. Request `diagnostics` optionally adds `startedAt`, `operation`, `sessionId`, `cause`, up to 32 measured `stages` and three recorded `verification` checks. A stage has a kind, optional tier, ISO start timestamp, monotonic duration, status and optional safe reason code. Tier attempts retain only allowlisted reason codes; raw errors, URLs and script text are not copied into diagnostic metadata. Existing tier duration fields and old rows remain compatible.
+
+Spans can be nested or parallel (including WAF identification) and are not additive. Instrumentation failures never alter scraping results. The checks describe HTTP status 200–399, final engine outcome and nonempty response content; HEAD/204/304 content checks are skipped. They are evidence, not a guarantee of semantically correct page content. Generic HTTP 403/429 is suspected blocking rather than confirmed challenge detection.
+
+Session eval produces separate bounded activity rows without changing scraper metrics or assigning a fabricated parent request. Each includes `id`, `at`, `sessionId`, `operation: "eval"`, `durationMs`, `success`, optional fixed `cause`, `scriptBytes` and `scriptHash` (SHA-256). No expression, return value or raw exception text is included. At most 5,000 rows are retained for 30 days; reads exclude expired entries. Only the authenticated observability resources expose this metadata, not anonymous dashboard snapshots.
+
+When request capture is enabled, eval input may be saved as a request artifact with `operation: "eval"` and parameters `{ sessionId, expression }`. It uses the existing input reservations, byte/storage/record/TTL limits, protected filesystem and hash verification. Capture failure never changes eval success or its original exception. The separate activity capture route requires a matching retained activity ID and timestamp; a file alone is insufficient authorization. Eval results are never captured by this feature. Script source may contain credentials; the same capture policy and storage protection as saved requests apply.
+
+Session activity can be filtered with `GET /session-activity?sessionId=<id>&requestId=<id>&limit=50`. The optional `requestId` identifies the request owning the retained browser page when an eval acquired its session lease. Older records without that field remain available in session history but do not appear in request-scoped results. Eval durations remain separate from completed request timing.
+
+### Saved response metadata and Markdown
+
+With `HISTORY_CAPTURE_REQUESTS=true`, new request artifacts can include optional `response.headers` and `response.cookies` alongside the captured input. Cookies are the engine snapshot, including session state, rather than a list limited to `Set-Cookie` headers. The same authenticated artifact routes, retention and byte limits apply. If added response metadata exceeds the byte budget, the original replayable request input is preserved. Existing records are not backfilled.
+
+Instances advertising `captureMarkdown` expose bearer-protected `GET /requests/:id/markdown`. It derives `{ text, truncated }` from that retained request’s HTML using the existing readable-content converter, with at most 100,000 characters. It makes no target request and returns 404 when the parent or saved HTML is unavailable.
+
+### Session activity pages
+
+Instances advertising `sessionActivityPagination` accept `GET /session-activity?limit=20&page=2`, optionally filtered by `sessionId` and `requestId`. Responses contain `{ entries, total, page }`; page numbers are limited to 1–5000 and clamped to the last available page after retention pruning. Limits remain 1–100. Omitting `page` preserves the existing `{ entries }` response. Counts and results share the same session/request filters and 30-day retention window. The SDK exposes `sessions.activityPage(sessionId?, options)`.

@@ -6,11 +6,12 @@ import { browserObservations } from "../browserInspectorState"
 import { BrowserObservationError, type BrowserObservations } from "../browserObservation"
 import type { CaptureStore } from "../captureStore"
 import { captures } from "../captures"
-import { HEADFUL_POOL_SIZE, METRICS_DASHBOARD_TOKEN, OBSERVABILITY_ENABLED } from "../config"
+import { HEADFUL_POOL_SIZE, MCP_ENABLED, METRICS_DASHBOARD_TOKEN, OBSERVABILITY_ENABLED } from "../config"
 import type { EventJournal } from "../eventJournal"
 import { parseHistoryQuery } from "../historyQuery"
 import { readInstanceSettings } from "../instanceSettings"
 import { type MetricsStore, metrics } from "../metrics"
+import { savedMarkdown } from "../pageContent"
 
 export function observabilityRoute({
   enabled = OBSERVABILITY_ENABLED,
@@ -19,12 +20,14 @@ export function observabilityRoute({
   logs = applicationLogs,
   captureStore = captures,
   observations = browserObservations,
+  mcpEnabled = MCP_ENABLED,
 }: {
   enabled?: boolean
   secret?: string
   store?: MetricsStore
   logs?: EventJournal<ApplicationLog>
   captureStore?: CaptureStore
+  mcpEnabled?: boolean
   observations?: BrowserObservations
 } = {}) {
   const available = Boolean(enabled && secret && secret.length >= 32)
@@ -41,9 +44,14 @@ export function observabilityRoute({
       logs: available,
       logEvents: available,
       captures: available && Boolean(captureStore?.available),
+      captureMarkdown: available && Boolean(captureStore?.available),
       browserInspection: available && Boolean(observations),
       clientRequestIds: available && store.clientRequestIds,
       requestOptions: { binaryBodies: true, targetAuth: true },
+      mcp: { enabled: mcpEnabled },
+      sessionActivity: available && store.clientRequestIds,
+      sessionActivityRequestIds: available && store.clientRequestIds,
+      sessionActivityPagination: available && store.clientRequestIds,
     } satisfies InstanceCapabilities
   })
   if (!available) return app
@@ -108,6 +116,26 @@ export function observabilityRoute({
             if (!handedOff) artifactTransfers--
           }
         })
+        .get("/session-activity", ({ request, set }) => {
+          const query = new URL(request.url).searchParams
+          const sessionId = query.get("sessionId") ?? undefined
+          const requestId = query.get("requestId") ?? undefined
+          const limit = query.get("limit") ?? "50"
+          const page = query.get("page")
+          if (
+            (sessionId !== undefined && !/^[A-Za-z0-9_-]{1,128}$/.test(sessionId)) ||
+            (requestId !== undefined && !/^[A-Za-z0-9_-]{1,80}$/.test(requestId)) ||
+            !/^(?:[1-9][0-9]?|100)$/.test(limit) ||
+            (page !== null && (!/^[1-9][0-9]{0,3}$/.test(page) || Number(page) > 5000)) ||
+            [...query.keys()].some((key) => !["sessionId", "requestId", "limit", "page"].includes(key))
+          ) {
+            set.status = 400
+            return { error: "Invalid session activity query" }
+          }
+          return page === null
+            ? { entries: store.activities(sessionId, Number(limit), requestId) }
+            : store.activityPage(sessionId, Number(limit), requestId, Number(page))
+        })
         .get("/requests", ({ request, set }) => {
           const query = new URL(request.url).searchParams
           const limit = query.get("limit") ?? "50"
@@ -134,12 +162,17 @@ export function observabilityRoute({
           server?.timeout(request, 30)
           return store.events.stream(request)
         })
-        .get("/requests/:id/captures", ({ params, set }) => {
+        .get("/:collection/:id/captures", ({ params, set }) => {
           if (!/^[a-zA-Z0-9_-]{1,80}$/.test(params.id)) {
             set.status = 400
             return { error: "Invalid request ID" }
           }
-          const entry = store.request(params.id)
+          const entry =
+            params.collection === "requests"
+              ? store.request(params.id)
+              : params.collection === "session-activity"
+                ? store.activity(params.id)
+                : undefined
           if (!entry) {
             set.status = 404
             return { error: "Request is not retained" }
@@ -150,12 +183,17 @@ export function observabilityRoute({
           }
           return captureStore.manifest(entry.id, entry.at)
         })
-        .get("/requests/:id/captures/:kind", async ({ params, set, request, server }) => {
+        .get("/:collection/:id/captures/:kind", async ({ params, set, request, server }) => {
           if (!/^[a-zA-Z0-9_-]{1,80}$/.test(params.id) || !["html", "screenshot", "request"].includes(params.kind)) {
             set.status = 400
             return { error: "Invalid artifact resource" }
           }
-          const entry = store.request(params.id)
+          const entry =
+            params.collection === "requests"
+              ? store.request(params.id)
+              : params.collection === "session-activity"
+                ? store.activity(params.id)
+                : undefined
           if (!entry) {
             set.status = 404
             return { error: "Request is not retained" }
@@ -188,6 +226,54 @@ export function observabilityRoute({
             )
             handedOff = true
             return response
+          } finally {
+            if (!handedOff) artifactTransfers--
+          }
+        })
+        .get("/requests/:id/markdown", async ({ params, set, request, server }) => {
+          if (!/^[a-zA-Z0-9_-]{1,80}$/.test(params.id)) {
+            set.status = 400
+            return { error: "Invalid request ID" }
+          }
+          const entry = store.request(params.id)
+          if (!entry) {
+            set.status = 404
+            return { error: "Request is not retained" }
+          }
+          if (!captureStore?.available) {
+            set.status = 503
+            return { error: "Capture storage is unavailable" }
+          }
+          const html = captureStore.manifest(entry.id, entry.at).artifacts.find((item) => item.kind === "html")
+          if (html?.state !== "ready" || !/^text\/html(?:;|$)/i.test(html.contentType ?? "")) {
+            set.status = 404
+            return { error: "Saved HTML is unavailable" }
+          }
+          if (artifactTransfers >= 4) {
+            set.status = 429
+            set.headers["Retry-After"] = "1"
+            return { error: "Too many artifact transfers" }
+          }
+          artifactTransfers++
+          let handedOff = false
+          try {
+            const bytes = await captureStore.read(entry.id, entry.at, "html")
+            if (bytes) {
+              const output = new TextEncoder().encode(JSON.stringify(savedMarkdown(new TextDecoder().decode(bytes))))
+              server?.timeout(request, 20)
+              const response = artifactResponse(
+                output,
+                request.signal,
+                () => {
+                  artifactTransfers--
+                },
+                "request",
+              )
+              handedOff = true
+              return response
+            }
+            set.status = 404
+            return { error: "Saved content is unavailable or expired" }
           } finally {
             if (!handedOff) artifactTransfers--
           }

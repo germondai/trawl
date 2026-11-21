@@ -1,6 +1,13 @@
 import { PoolExhaustedError } from "@trawl/browser"
-import { type OrchestratorDeps, RequestValidationError, ScrapeError, scrape } from "@trawl/tiers"
-import type { CapturedRequest, ScrapeRequest, ScrapeResult, TierResult, WafDetection } from "@trawl/types"
+import { type OrchestratorDeps, RequestValidationError, ScrapeError, scrape, traceStage } from "@trawl/tiers"
+import type {
+  CapturedRequest,
+  ExecutionStage,
+  ScrapeRequest,
+  ScrapeResult,
+  TierResult,
+  WafDetection,
+} from "@trawl/types"
 import { browserObservations } from "./browserInspectorState"
 import type { CaptureStore } from "./captureStore"
 import { captures, historyScreenshotLimits } from "./captures"
@@ -35,9 +42,19 @@ export async function runLoggedScrape(
   observation?: () => void,
   captureStore: CaptureStore | undefined = captures,
   retainCapture?: (result?: ScrapeResult) => boolean,
-  requestContext?: Pick<CapturedRequest, "operation" | "parameters" | "bodyEncoding"> & { requestReason?: string },
+  requestContext?: Pick<CapturedRequest, "parameters" | "bodyEncoding"> & {
+    operation: "scrape" | "read" | "extract"
+  } & { requestReason?: string },
 ): Promise<ScrapeResult> {
   const started = Date.now()
+  const stages: ExecutionStage[] = []
+  const context = { startedAt: new Date(started).toISOString(), stages, operation: requestContext?.operation }
+  const observeStage = (stage: ExecutionStage) => {
+    if (stages.length < 32) stages.push(stage)
+    try {
+      deps.onStage?.(stage)
+    } catch {}
+  }
   const profiledReq = applyDomainProfile(req)
   const captured = captureStore?.enabled
     ? createHistoryCapture(captureStore, req, historyScreenshotLimits, {
@@ -60,10 +77,21 @@ export async function runLoggedScrape(
     proxy: Boolean(req.proxy),
   })
 
+  const detectWaf = deps.detectWaf
   const originalAttempt = deps.onTierAttempt
   const observations = browserObservations
   const tracedDeps: OrchestratorDeps = {
     ...deps,
+    requestId: id,
+    onStage: observeStage,
+    acquireBrowser: (...args) => traceStage("browser-acquire", () => deps.acquireBrowser(...args), observeStage),
+    loadSession: (...args) => traceStage("session-cache", () => deps.loadSession(...args), observeStage),
+    ...(detectWaf
+      ? {
+          detectWaf: (...args: Parameters<NonNullable<OrchestratorDeps["detectWaf"]>>) =>
+            traceStage("waf-detection", () => detectWaf(...args), observeStage),
+        }
+      : {}),
     ...(observations
       ? {
           observePage: (page, tier, browser, remaining) => {
@@ -135,7 +163,7 @@ export async function runLoggedScrape(
       statusCode: result.statusCode,
       waf,
       challenge: result.captchasSolved?.[0],
-      diagnostics: requestDiagnostics(req, result),
+      diagnostics: requestDiagnostics(req, result, [], undefined, context),
     })
     if (captured) {
       try {
@@ -176,6 +204,7 @@ export async function runLoggedScrape(
         undefined,
         error instanceof ScrapeError ? error.timings : [],
         error instanceof ScrapeError ? error.blockedEvidence?.reason : undefined,
+        { ...context, error },
       ),
       waf,
       challenge:

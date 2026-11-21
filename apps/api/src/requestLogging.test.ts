@@ -384,3 +384,46 @@ describe("request logging", () => {
     expect(applyDomainProfile(req).skipHttp).toBeUndefined()
   })
 })
+
+test("real HTTP scraping records measured tier spans and verification", async () => {
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: () => new Response("Measured response", { headers: { "content-type": "text/plain" } }),
+  })
+  const store = new MetricsStore(true, ":memory:", true)
+  try {
+    const result = await runLoggedScrape(
+      "native",
+      { url: `http://127.0.0.1:${server.port}/`, maxTier: 1, detectWaf: false },
+      {
+        acquireBrowser: async () => {
+          throw Error("HTTP request must not acquire a browser")
+        },
+        releaseBrowser: () => {},
+        loadSession: async () => undefined,
+        saveSession: async () => {},
+        invalidateSession: async () => {},
+      },
+      undefined,
+      "measured-request",
+      store,
+      undefined,
+      undefined,
+      undefined,
+    )
+    expect(result.statusCode).toBe(200)
+    const entry = store.request("measured-request")
+    if (!entry) throw Error("Request was not retained")
+    expect(
+      entry.diagnostics?.stages?.some(
+        (stage) => stage.kind === "tier" && stage.tier === 1 && stage.status === "success",
+      ),
+    ).toBe(true)
+    expect(entry.diagnostics?.verification?.every((check) => check.status === "passed")).toBe(true)
+    expect(store.snapshot(60).requests).toBe(1)
+  } finally {
+    store.close()
+    server.stop(true)
+  }
+})

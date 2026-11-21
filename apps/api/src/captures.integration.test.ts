@@ -32,11 +32,13 @@ test("proxy escalation retains original binary input as base64, and request capt
         `
         import assert from "node:assert/strict"
         import { PassThrough } from "node:stream"
+        import { once } from "node:events"
+        import net from "node:net"
         const { captures } = await import("./captures.ts")
         const { metrics } = await import("./metrics.ts")
-        const { serveViaScrape } = await import("./proxy/server.ts")
+        const { serveViaScrape, startMitmProxy, shutdownMitmProxy } = await import("./proxy/server.ts")
         await captures.ready
-        const target = Bun.serve({hostname:"127.0.0.1",port:0,fetch:() => new Response("<html><p>"+"Owned content. ".repeat(30)+"</p></html>",{headers:{"content-type":"text/html"}})})
+        const target = Bun.serve({hostname:"127.0.0.1",port:0,fetch:() => new Response("<html><p>"+"Owned content. ".repeat(30)+"</p></html>",{headers:{"content-type":"text/html","x-capture-fixture":"owned"}})})
         const stream = new PassThrough()
         stream.resume()
         try {
@@ -53,6 +55,22 @@ test("proxy escalation retains original binary input as base64, and request capt
           assert.equal(input.source,"proxy")
           assert.equal(input.bodyEncoding,"base64")
           assert.equal(input.parameters.body,body.toString("base64"))
+          const proxy = startMitmProxy({host:"127.0.0.1",port:0,caDir:process.env.METRICS_DB_PATH+".ca",maxTier:1,maxTimeout:3000,
+            deps:{ acquireBrowser:async()=>{throw new Error("Unexpected browser")},releaseBrowser:()=>{},loadSession:async()=>undefined,saveSession:async()=>{},invalidateSession:async()=>{} }})
+          try {
+            await once(proxy.server,"listening")
+            const socket = net.connect(proxy.server.address().port,"127.0.0.1")
+            socket.resume()
+            await once(socket,"connect")
+            const ended = once(socket,"end")
+            socket.write("GET "+target.url.href+" HTTP/1.1\\r\\nHost: "+target.url.host+"\\r\\nConnection: close\\r\\n\\r\\n")
+            await ended
+            await captures.flush()
+            const direct = metrics.snapshot().recentEvents.find(row=>row.tier===0)
+            assert.ok(direct)
+            const saved = JSON.parse(new TextDecoder().decode(await captures.read(direct.id,direct.at,"request")))
+            assert.equal(saved.response.headers["x-capture-fixture"],"owned")
+          } finally { await shutdownMitmProxy(proxy, 50) }
         } finally { target.stop(true); stream.destroy(); await captures.close(); metrics.close() }
       `,
       ],

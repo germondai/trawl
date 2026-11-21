@@ -11,6 +11,7 @@ import type {
   RequestHistoryQuery,
   RequestHistoryResponse,
   RequestLifecycle,
+  SessionActivity,
   TierResult,
   WafDetection,
 } from "@trawl/types"
@@ -202,6 +203,11 @@ export class MetricsStore {
     )
     this.db.run("CREATE INDEX IF NOT EXISTS events_domain_summary ON events(domain, at, success)")
     this.db.run("CREATE INDEX IF NOT EXISTS attempts_at ON tier_attempts(at)")
+    this.db.run(
+      "CREATE TABLE IF NOT EXISTS session_activity (id TEXT PRIMARY KEY, at INTEGER NOT NULL, session_id TEXT NOT NULL, data TEXT NOT NULL)",
+    )
+    this.db.run("CREATE INDEX IF NOT EXISTS session_activity_at ON session_activity(at)")
+    this.db.run("CREATE INDEX IF NOT EXISTS session_activity_session ON session_activity(session_id, at)")
     this.prune()
   }
 
@@ -358,11 +364,61 @@ export class MetricsStore {
     const db = this.db
     if (!db) return
     const cutoff = Date.now() - RETENTION_MS
+    this.pruneActivities(cutoff)
     db.query("DELETE FROM events WHERE at < ?").run(cutoff)
     db.query("DELETE FROM events WHERE id NOT IN (SELECT id FROM events ORDER BY id DESC LIMIT ?)").run(MAX_EVENTS)
     db.query(
       "DELETE FROM tier_attempts WHERE at < ? OR (event_id IS NULL AND id NOT IN (SELECT id FROM tier_attempts WHERE event_id IS NULL ORDER BY id DESC LIMIT ?))",
     ).run(cutoff, MAX_EVENTS)
+  }
+
+  private pruneActivities(cutoff = Date.now() - RETENTION_MS): void {
+    this.db
+      ?.query(
+        "DELETE FROM session_activity WHERE at < ? OR id NOT IN (SELECT id FROM session_activity ORDER BY at DESC, id DESC LIMIT 5000)",
+      )
+      .run(cutoff)
+  }
+
+  recordActivity(activity: SessionActivity): boolean {
+    if (!this.live || !this.db) return false
+    try {
+      this.db
+        .query("INSERT INTO session_activity VALUES (?, ?, ?, ?)")
+        .run(activity.id, Date.parse(activity.at), activity.sessionId, JSON.stringify(activity))
+      this.pruneActivities()
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  activity(id: string): SessionActivity | undefined {
+    const row = this.db
+      ?.query("SELECT data FROM session_activity WHERE id = ? AND at >= ?")
+      .get(id, Date.now() - RETENTION_MS) as { data: string } | undefined
+    return row ? (JSON.parse(row.data) as SessionActivity) : undefined
+  }
+
+  activities(sessionId?: string, limit = 50, requestId?: string): SessionActivity[] {
+    return this.activityPage(sessionId, limit, requestId).entries
+  }
+
+  activityPage(sessionId?: string, limit = 20, requestId?: string, page = 1) {
+    const count = Math.max(1, Math.min(100, Math.floor(limit)))
+    const where = `at >= ? ${sessionId ? "AND session_id = ?" : ""} ${requestId ? "AND json_extract(data, '$.requestId') = ?" : ""}`
+    const parameters = [Date.now() - RETENTION_MS, ...(sessionId ? [sessionId] : []), ...(requestId ? [requestId] : [])]
+    const total =
+      (
+        this.db?.query(`SELECT COUNT(*) AS total FROM session_activity WHERE ${where}`).get(...parameters) as
+          | { total: number }
+          | undefined
+      )?.total ?? 0
+    const current = Math.max(1, Math.min(Math.floor(page), Math.ceil(total / count)))
+    const rows = this.db
+      ?.query(`SELECT data FROM session_activity WHERE ${where} ORDER BY at DESC, id DESC LIMIT ? OFFSET ?`)
+      .all(...parameters, count, (current - 1) * count) as { data: string }[] | undefined
+    return { entries: (rows ?? []).map((row) => JSON.parse(row.data) as SessionActivity), total, page: current }
   }
 
   recordTierZeroAttempt(): void {

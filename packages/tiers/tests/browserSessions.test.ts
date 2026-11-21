@@ -644,3 +644,37 @@ describe("kept pages", () => {
     await expect(f.sessions.evaluate("short", "1", budget())).rejects.toMatchObject({ statusCode: 404 })
   })
 })
+
+test("eval records the request owning the retained page under its session lease", async () => {
+  const { sessions: manager } = fixture()
+  await manager.create({ id: "page-owner", keepPage: true })
+  const owners: (string | undefined)[] = []
+  await manager.use("page-owner", "example.test", budget(), async () => {}, false, "request-a")
+  await manager.evaluate("page-owner", "window.answer", budget(), (id) => owners.push(id))
+  await manager.cookies("page-owner", budget())
+  await manager.evaluate("page-owner", "window.answer", budget(), (id) => owners.push(id))
+  await manager.use("page-owner", "example.test", budget(), async () => {}, false, "request-b")
+  await manager.evaluate("page-owner", "window.answer", budget(), (id) => owners.push(id))
+  expect(owners).toEqual(["request-a", "request-a", "request-b"])
+})
+
+test("failed session navigation does not relabel the retained page as the failed request", async () => {
+  const { sessions } = fixture()
+  await sessions.create({ id: "uncertain", keepPage: true })
+  await sessions.use("uncertain", "example.test", budget(), async () => {}, false, "request-a")
+  await expect(
+    sessions.use(
+      "uncertain",
+      "example.test",
+      budget(),
+      async () => {
+        throw Error("setup failed")
+      },
+      false,
+      "request-b",
+    ),
+  ).rejects.toThrow("setup failed")
+  const owners: (string | undefined)[] = []
+  await sessions.evaluate("uncertain", "window.answer", budget(), (id) => owners.push(id))
+  expect(owners).toEqual([undefined])
+})

@@ -50,6 +50,11 @@ function extractReadable(html: string, url: string, format: "markdown" | "text")
   }
 }
 
+export function savedMarkdown(html: string) {
+  const { text } = extractReadable(html, "", "markdown")
+  return { text: text.slice(0, READ_MAX_CHARACTERS), truncated: text.length > READ_MAX_CHARACTERS }
+}
+
 export function readPage(
   result: ScrapeResult,
   { format = "markdown", maxCharacters = READ_DEFAULT_MAX_CHARACTERS }: ReadOptions,

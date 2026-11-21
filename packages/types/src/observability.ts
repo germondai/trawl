@@ -13,6 +13,48 @@ export interface InstanceCapabilities {
   browserInspection: boolean
   clientRequestIds?: boolean
   requestOptions?: { binaryBodies: boolean; targetAuth: boolean }
+  mcp?: { enabled: boolean }
+  sessionActivity?: boolean
+  sessionActivityRequestIds?: boolean
+  sessionActivityPagination?: boolean
+  captureMarkdown?: boolean
+}
+
+export interface SessionActivityPage {
+  entries: SessionActivity[]
+  total: number
+  page: number
+}
+
+export interface ExecutionStage {
+  kind: "tier" | "browser-acquire" | "session-cache" | "waf-detection" | "capture"
+  tier?: number
+  startedAt: string
+  durationMs: number
+  status: string
+  reason?: string
+}
+export type FailureCause =
+  | "browser"
+  | "timeout"
+  | "network"
+  | "http"
+  | "security-block"
+  | "suspected-security-block"
+  | "capacity"
+  | "internal"
+export interface SessionActivity {
+  id: string
+  at: string
+  sessionId: string
+  /** Request that produced the page this script ran against; absent on older records. */
+  requestId?: string
+  operation: "eval"
+  durationMs: number
+  success: boolean
+  cause?: FailureCause
+  scriptBytes: number
+  scriptHash: string
 }
 
 export interface RequestDiagnostics {
@@ -21,7 +63,16 @@ export interface RequestDiagnostics {
   contentType?: string
   responseKind?: "html" | "json" | "text" | "file" | "stream" | "binary"
   challenges: string[]
-  timings: { tier: number; status: string; durationMs: number }[]
+  timings: { tier: number; status: string; durationMs: number; reason?: string }[]
+  startedAt?: string
+  sessionId?: string
+  operation?: "scrape" | "read" | "extract"
+  stages?: ExecutionStage[]
+  cause?: FailureCause
+  verification?: {
+    check: "http-status" | "engine-outcome" | "response-content"
+    status: "passed" | "failed" | "skipped"
+  }[]
 }
 
 export interface RequestHistoryEntry extends DashboardEvent {

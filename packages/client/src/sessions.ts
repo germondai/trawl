@@ -8,6 +8,9 @@ import type {
   SessionEvalResponse,
   SessionListResponse,
 } from "../../types/src/api"
+import type { RequestCaptures } from "../../types/src/artifacts"
+import type { SessionActivity, SessionActivityPage } from "../../types/src/observability"
+import { isCaptures, isSessionActivity } from "./observability"
 import { prepareScrapeRequest } from "./request"
 import { isCookie, isRecord, isScrapeResponse, isSession } from "./responses"
 import type { Transport } from "./transport"
@@ -18,11 +21,67 @@ function sessionPath(id: string): string {
   return `/sessions/${encodeURIComponent(id)}`
 }
 
+function activityPath(id: string | undefined, requestId: string | undefined, limit: number, page?: number) {
+  if (id !== undefined) sessionPath(id)
+  if (requestId !== undefined && !/^[A-Za-z0-9_-]{1,80}$/.test(requestId)) throw new TypeError("Invalid request ID")
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new TypeError("Invalid activity limit")
+  if (page !== undefined && (!Number.isInteger(page) || page < 1 || page > 5000))
+    throw new TypeError("Invalid activity page")
+  return `/session-activity?limit=${limit}${id ? `&sessionId=${encodeURIComponent(id)}` : ""}${requestId ? `&requestId=${encodeURIComponent(requestId)}` : ""}${page === undefined ? "" : `&page=${page}`}`
+}
+
 export class Sessions {
   #transport: Transport
 
   constructor(transport: Transport) {
     this.#transport = transport
+  }
+
+  async activity(id?: string, options: RequestOptions & { requestId?: string } = {}): Promise<SessionActivity[]> {
+    const { requestId, ...request } = options
+    const response = await this.#transport.request(
+      activityPath(id, requestId, 50),
+      request,
+      (value): value is { entries: SessionActivity[] } =>
+        isRecord(value) &&
+        Array.isArray(value.entries) &&
+        value.entries.length <= 100 &&
+        value.entries.every(isSessionActivity),
+    )
+    return response.entries
+  }
+  activityPage(
+    id?: string,
+    options: RequestOptions & { requestId?: string; page?: number; limit?: number } = {},
+  ): Promise<SessionActivityPage> {
+    const { requestId, page = 1, limit = 20, ...request } = options
+    return this.#transport.request(
+      activityPath(id, requestId, limit, page),
+      request,
+      (value): value is SessionActivityPage =>
+        isRecord(value) &&
+        Number.isInteger(value.total) &&
+        Number(value.total) >= 0 &&
+        Number(value.total) <= 5000 &&
+        Number.isInteger(value.page) &&
+        Number(value.page) >= 1 &&
+        Number(value.page) <= 5000 &&
+        Array.isArray(value.entries) &&
+        value.entries.length <= limit &&
+        value.entries.every(isSessionActivity),
+    )
+  }
+  activityCaptures(id: string, options: RequestOptions = {}): Promise<RequestCaptures> {
+    if (!/^[A-Za-z0-9_-]{1,80}$/.test(id)) throw new TypeError("Invalid activity ID")
+    return this.#transport.request(
+      `/session-activity/${id}/captures`,
+      options,
+      (value): value is RequestCaptures => isCaptures(value) && value.requestId === id,
+    )
+  }
+  activityScript(id: string, options: RequestOptions = {}): Promise<Uint8Array> {
+    if (!/^[A-Za-z0-9_-]{1,80}$/.test(id)) throw new TypeError("Invalid activity ID")
+    return this.#transport.bytes(`/session-activity/${id}/captures/request`, options)
   }
 
   async create(options: CreateBrowserSession = {}, request: RequestOptions = {}): Promise<TrawlSession> {

@@ -8,6 +8,7 @@ import type {
   RequestHistoryQuery,
   RequestHistoryResponse,
   RequestLifecycle,
+  SessionActivity,
 } from "../../types/src/observability"
 import { isRecord, isWafDetection } from "./responses"
 import type { StreamEvent, StreamOptions } from "./stream"
@@ -15,11 +16,12 @@ import { validStreamCursor } from "./stream"
 import type { Transport } from "./transport"
 import type { RequestOptions } from "./types"
 
-const number = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0
-const boundedString = (value: unknown, maximum: number) => typeof value === "string" && value.length <= maximum
-const size = (value: unknown) => number(value) && Number.isSafeInteger(value)
+const number = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0
+const boundedString = (value: unknown, maximum: number): value is string =>
+  typeof value === "string" && value.length <= maximum
+const size = (value: unknown): value is number => number(value) && Number.isSafeInteger(value)
 const date = (value: unknown) => typeof value === "string" && value.length <= 64 && Number.isFinite(Date.parse(value))
-const isCaptures = (value: unknown): value is RequestCaptures =>
+export const isCaptures = (value: unknown): value is RequestCaptures =>
   isRecord(value) &&
   boundedString(value.requestId, 80) &&
   date(value.requestAt) &&
@@ -63,6 +65,11 @@ export const isCapabilities = (value: unknown): value is InstanceCapabilities =>
   value.authentication === "bearer" &&
   (value.clientRequestIds === undefined || typeof value.clientRequestIds === "boolean") &&
   (value.requestQuery === undefined || typeof value.requestQuery === "boolean") &&
+  (value.sessionActivity === undefined || typeof value.sessionActivity === "boolean") &&
+  (value.sessionActivityRequestIds === undefined || typeof value.sessionActivityRequestIds === "boolean") &&
+  (value.sessionActivityPagination === undefined || typeof value.sessionActivityPagination === "boolean") &&
+  (value.captureMarkdown === undefined || typeof value.captureMarkdown === "boolean") &&
+  (value.mcp === undefined || (isRecord(value.mcp) && typeof value.mcp.enabled === "boolean")) &&
   (value.requestOptions === undefined ||
     (isRecord(value.requestOptions) &&
       typeof value.requestOptions.binaryBodies === "boolean" &&
@@ -98,14 +105,77 @@ export const isHistoryEntry = (value: unknown): value is RequestHistoryEntry =>
       (value.diagnostics.contentType === undefined || boundedString(value.diagnostics.contentType, 128)) &&
       (value.diagnostics.responseKind === undefined ||
         ["html", "json", "text", "file", "stream", "binary"].includes(String(value.diagnostics.responseKind))) &&
+      (value.diagnostics.startedAt === undefined ||
+        (boundedString(value.diagnostics.startedAt, 64) && Number.isFinite(Date.parse(value.diagnostics.startedAt)))) &&
+      (value.diagnostics.sessionId === undefined ||
+        (boundedString(value.diagnostics.sessionId, 128) &&
+          /^[A-Za-z0-9_-]{1,128}$/.test(value.diagnostics.sessionId))) &&
+      (value.diagnostics.operation === undefined ||
+        ["scrape", "read", "extract"].includes(String(value.diagnostics.operation))) &&
+      (value.diagnostics.cause === undefined || causes.includes(String(value.diagnostics.cause))) &&
+      (value.diagnostics.stages === undefined ||
+        (Array.isArray(value.diagnostics.stages) &&
+          value.diagnostics.stages.length <= 32 &&
+          value.diagnostics.stages.every(
+            (stage) =>
+              isRecord(stage) &&
+              ["tier", "browser-acquire", "session-cache", "waf-detection", "capture"].includes(String(stage.kind)) &&
+              boundedString(stage.startedAt, 64) &&
+              Number.isFinite(Date.parse(stage.startedAt)) &&
+              size(stage.durationMs) &&
+              boundedString(stage.status, 40) &&
+              (stage.tier === undefined || (size(stage.tier) && stage.tier <= 4)) &&
+              (stage.reason === undefined || boundedString(stage.reason, 64)),
+          ))) &&
+      (value.diagnostics.verification === undefined ||
+        (Array.isArray(value.diagnostics.verification) &&
+          value.diagnostics.verification.length <= 3 &&
+          value.diagnostics.verification.every(
+            (check) =>
+              isRecord(check) &&
+              ["http-status", "engine-outcome", "response-content"].includes(String(check.check)) &&
+              ["passed", "failed", "skipped"].includes(String(check.status)),
+          ))) &&
       Array.isArray(value.diagnostics.challenges) &&
       value.diagnostics.challenges.length <= 8 &&
       value.diagnostics.challenges.every((value) => boundedString(value, 40)) &&
       Array.isArray(value.diagnostics.timings) &&
       value.diagnostics.timings.length <= 8 &&
       value.diagnostics.timings.every(
-        (value) => isRecord(value) && number(value.tier) && boundedString(value.status, 40) && number(value.durationMs),
+        (value) =>
+          isRecord(value) &&
+          number(value.tier) &&
+          boundedString(value.status, 40) &&
+          number(value.durationMs) &&
+          (value.reason === undefined || boundedString(value.reason, 64)),
       )))
+const causes = [
+  "browser",
+  "timeout",
+  "network",
+  "http",
+  "security-block",
+  "suspected-security-block",
+  "capacity",
+  "internal",
+]
+export const isSessionActivity = (value: unknown): value is SessionActivity =>
+  isRecord(value) &&
+  boundedString(value.id, 80) &&
+  /^[A-Za-z0-9_-]{1,80}$/.test(value.id) &&
+  boundedString(value.at, 64) &&
+  Number.isFinite(Date.parse(value.at)) &&
+  boundedString(value.sessionId, 128) &&
+  /^[A-Za-z0-9_-]{1,128}$/.test(value.sessionId) &&
+  (value.requestId === undefined ||
+    (boundedString(value.requestId, 80) && /^[A-Za-z0-9_-]{1,80}$/.test(value.requestId))) &&
+  value.operation === "eval" &&
+  size(value.durationMs) &&
+  typeof value.success === "boolean" &&
+  (value.cause === undefined || causes.includes(String(value.cause))) &&
+  size(value.scriptBytes) &&
+  typeof value.scriptHash === "string" &&
+  /^[a-f0-9]{64}$/.test(value.scriptHash)
 const isActive = (value: unknown): value is ActiveRequest =>
   isRecord(value) &&
   [value.id, value.startedAt, value.domain, value.source, value.method].every((value) => typeof value === "string")
@@ -207,6 +277,15 @@ export class Requests {
   events(options: StreamOptions = {}): AsyncGenerator<StreamEvent<RequestLifecycle>> {
     return this.transport.events("/requests/events", options, isRequestLifecycle)
   }
+  markdown(id: string, options: RequestOptions = {}): Promise<CapturedMarkdown> {
+    validateId(id)
+    return this.transport.request(
+      `/requests/${id}/markdown`,
+      options,
+      (value): value is CapturedMarkdown =>
+        isRecord(value) && boundedString(value.text, 100000) && typeof value.truncated === "boolean",
+    )
+  }
 }
 
 export class Logs {
@@ -224,4 +303,4 @@ function validateId(value: string): void {
   if (!/^[a-zA-Z0-9_-]{1,80}$/.test(value)) throw new TypeError("Invalid request ID")
 }
 
-import type { ArtifactKind, RequestCaptures } from "../../types/src/artifacts"
+import type { ArtifactKind, CapturedMarkdown, RequestCaptures } from "../../types/src/artifacts"

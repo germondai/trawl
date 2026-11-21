@@ -15,6 +15,7 @@ interface Entry {
   browser?: BrowserHandle["browser"]
   browserId?: number
   busy: boolean
+  requestId?: string
   releaseRetention?: () => void
   stopObservation?: () => void
   requestReplacement?: (reason: string) => void
@@ -189,11 +190,17 @@ export class BrowserSessions {
     return this.require(id).options.publicOnly ? this.deps.networkProxy : undefined
   }
 
-  async evaluate(id: string, expression: string, budget: RequestBudget): Promise<unknown> {
+  async evaluate(
+    id: string,
+    expression: string,
+    budget: RequestBudget,
+    onPage?: (requestId?: string) => void,
+  ): Promise<unknown> {
     if (!this.require(id).options.keepPage)
       throw new RequestValidationError("Session does not retain a page; create it with keepPage", 400)
     const result = await this.use(id, "", budget, async (_handle, _context, _storage, page) => {
       if (!page) throw new RequestValidationError("Session page is unavailable", 410)
+      onPage?.(this.require(id).requestId)
       // Camoufox isolates ordinary evaluations from the site's globals and functions.
       return page.evaluate(expression.startsWith("mw:") ? expression : `mw:${expression}`)
     })
@@ -216,6 +223,7 @@ export class BrowserSessions {
       page?: Page,
     ) => Promise<T>,
     requirePublicOnly = false,
+    requestId?: string,
   ): Promise<T> {
     const entry = this.require(id)
     if (requirePublicOnly && !entry.options.publicOnly)
@@ -279,6 +287,7 @@ export class BrowserSessions {
         stopObservation(entry)
         const page: Page = await budget.run(() => context.newPage())
         entry.page = page
+        entry.requestId = undefined
         try {
           entry.stopObservation = this.deps.observeSessionPage?.(
             page,
@@ -288,7 +297,11 @@ export class BrowserSessions {
           )
         } catch {}
       }
-      return await budget.run(() => operation(acquired, context, entry.sessionStorage, entry.page))
+      // A failed navigation/setup leaves uncertain page provenance unassigned.
+      if (domain) entry.requestId = undefined
+      const result = await budget.run(() => operation(acquired, context, entry.sessionStorage, entry.page))
+      if (domain) entry.requestId = requestId
+      return result
     } catch (error) {
       // A timed out operation can still be mutating storage. Retire its context
       // before releasing the lease; never reuse an uncertain session.

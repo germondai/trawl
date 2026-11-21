@@ -61,4 +61,5 @@ export {
 } from "./utils/sanitize"
 export { prepareTargetRequest } from "./utils/targetRequest"
 export { TIER1_TRANSPORT, verifyTier1Transport } from "./utils/tier1Transport"
+export { traceStage } from "./utils/trace"
 export { sanitizeWafDetails, WafDetector } from "./utils/waf"

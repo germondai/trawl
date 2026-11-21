@@ -6,6 +6,41 @@ const entry = { at: "2026-11-16T12:00:00Z", scope: "api", level: "info" as const
 const frame = `id: ${cursor}\nevent: entry\ndata: ${JSON.stringify(entry)}\n\n`
 const encode = (value: string) => new TextEncoder().encode(value)
 
+test("activity pages validate pagination before transport and retain filtered totals", async () => {
+  const client = new Trawl({
+    fetch: async (url) => {
+      const query = new URL(String(url)).searchParams
+      expect(query.get("page")).toBe("2")
+      expect(query.get("limit")).toBe("20")
+      expect(query.get("sessionId")).toBe("session")
+      expect(query.get("requestId")).toBe("request-a")
+      return Response.json({ entries: [], page: 2, total: 40 })
+    },
+  })
+  expect(await client.sessions.activityPage("session", { page: 2, requestId: "request-a" })).toEqual({
+    entries: [],
+    page: 2,
+    total: 40,
+  })
+  expect(() => client.sessions.activityPage(undefined, { page: 0 })).toThrow()
+  expect(() => client.sessions.activityPage(undefined, { limit: 101 })).toThrow()
+  const invalid = new Trawl({ fetch: async () => Response.json({ entries: [], page: 0, total: 0 }) })
+  await expect(invalid.sessions.activityPage()).rejects.toThrow()
+})
+
+test("saved Markdown validates the resource ID and bounded response", async () => {
+  const client = new Trawl({
+    fetch: async (url) => {
+      expect(String(url)).toContain("/requests/saved/markdown")
+      return Response.json({ text: "# Saved", truncated: false })
+    },
+  })
+  expect(await client.requests.markdown("saved")).toEqual({ text: "# Saved", truncated: false })
+  expect(() => client.requests.markdown("../private")).toThrow()
+  const invalid = new Trawl({ fetch: async () => Response.json({ text: "x".repeat(100001), truncated: false }) })
+  await expect(invalid.requests.markdown("saved")).rejects.toThrow()
+})
+
 test("failed native requests retain the server's validated correlation ID", async () => {
   const client = new Trawl({
     fetch: async () =>
@@ -219,4 +254,18 @@ test.each([
       ),
   })
   await expect(client.logs.events().next()).rejects.toMatchObject({ kind: "protocol" })
+})
+
+test("session activity sends request ownership as a validated query filter", async () => {
+  const paths: string[] = []
+  const client = new Trawl({
+    fetch: async (input) => {
+      paths.push(String(input))
+      return Response.json({ entries: [] })
+    },
+  })
+  expect(await client.sessions.activity("shared", { requestId: "request-a" })).toEqual([])
+  expect(new URL(paths[0] ?? "about:blank").searchParams.get("requestId")).toBe("request-a")
+  await expect(client.sessions.activity("shared", { requestId: "../other" })).rejects.toThrow("Invalid request ID")
+  expect(paths).toHaveLength(1)
 })

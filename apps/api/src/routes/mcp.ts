@@ -35,7 +35,7 @@ type McpScrapeInput = Pick<
   | "detectWaf"
   | "redirectChain"
 >
-type RequestContext = Pick<CapturedRequest, "operation" | "parameters">
+type RequestContext = Pick<CapturedRequest, "parameters"> & { operation: Exclude<CapturedRequest["operation"], "eval"> }
 type RunScrape = (input: McpScrapeInput, context?: RequestContext) => Promise<ScrapeResult>
 
 interface McpRouteOptions {

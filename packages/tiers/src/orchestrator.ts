@@ -3,6 +3,7 @@ import { FINGERPRINT, FINGERPRINT_POOL, PoolExhaustedError } from "@trawl/browse
 import type {
   BlockedEvidence,
   Cookie,
+  ExecutionStage,
   ScrapeRequest,
   ScrapeResult,
   SessionData,
@@ -35,6 +36,7 @@ import {
 } from "./utils/sanitize"
 import { prepareTargetRequest } from "./utils/targetRequest"
 import { tier1UserAgent } from "./utils/tier1Transport"
+import { traceStage } from "./utils/trace"
 import { snapshotWafEvidence, type WafEvidence, wafUnavailable } from "./utils/waf"
 
 // Bounds how many distinct proxies a single request will try per tier before giving up -
@@ -81,6 +83,7 @@ export interface OrchestratorDeps {
   observePage?: CaptureOptions["observePage"]
   captureHistory?: CaptureOptions["historySnapshot"]
   sessions?: BrowserSessions
+  requestId?: string
   acquireBrowser(domain: string, budgetMs?: number, options?: AcquireOptions): Promise<BrowserHandle>
   releaseBrowser(handle: BrowserHandle): void
   loadSession(domain: string): Promise<SessionData | undefined>
@@ -95,6 +98,7 @@ export interface OrchestratorDeps {
   defaultMaxTimeout?: number
   externalCaptcha?: ExternalCaptchaOptions
   onTierAttempt?: (result: TierResult) => void
+  onStage?: (stage: ExecutionStage) => void
   validateOutboundUrl?: (url: string) => Promise<void>
   networkProxy?: (upstream?: string) => Promise<string>
   directNetworkProxy?: (upstream?: string) => Promise<string>
@@ -147,6 +151,23 @@ export async function scrape(
   runners: OrchestratorRunners = {},
 ): Promise<ScrapeResult> {
   const started = Date.now()
+  if (deps.onStage) {
+    const observed =
+      <Args extends unknown[], Result>(tier: number, run: (...args: Args) => Promise<Result>) =>
+      (...args: Args) =>
+        traceStage("tier", () => run(...args), deps.onStage, tier)
+    runners = {
+      ...runners,
+      tier1: observed(1, runners.tier1 ?? runTier1),
+      tier2: observed(2, runners.tier2 ?? runTier2),
+      tier3: observed(3, runners.tier3 ?? runTier3),
+      tier4: observed(
+        4,
+        runners.tier4 ??
+          (async (...args: Parameters<typeof runTier4>) => (await import("./tiers/4")).runTier4(...args)),
+      ),
+    }
+  }
   req = { ...req, detectWaf: deps.wafDetectionEnabled !== false && (req.detectWaf ?? Boolean(deps.detectWaf)) }
   const budget = new RequestBudget(req.maxTimeout ?? deps.defaultMaxTimeout ?? 60_000)
   const attempts: TierResult[] = []
@@ -482,6 +503,7 @@ async function scrapeWithinBudget(
         }
       },
       Boolean(deps.networkProxy),
+      deps.requestId,
     )
   }
 
