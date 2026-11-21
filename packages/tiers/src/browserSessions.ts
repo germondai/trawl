@@ -38,6 +38,7 @@ interface Options {
   requireProxy?: boolean
   trustedProxyCa?: (proxy: string) => Promise<string | undefined>
   networkProxy?: (upstream?: string) => Promise<string>
+  directNetworkProxy?: (upstream?: string) => Promise<string>
 }
 
 export function validateSessionId(id: unknown): asserts id is string {
@@ -252,7 +253,11 @@ export class BrowserSessions {
         const proxy = entry.options.proxy
         const trustedCa = proxy ? await budget.run(async () => this.deps.trustedProxyCa?.(proxy)) : undefined
         const pendingContext = newFreshContext(handle.browser, {
-          proxy: entry.options.publicOnly ? await budget.run(async () => this.deps.networkProxy?.(proxy)) : proxy,
+          proxy: entry.options.publicOnly
+            ? await budget.run(async () => this.deps.networkProxy?.(proxy))
+            : this.deps.directNetworkProxy
+              ? await budget.run(() => this.deps.directNetworkProxy!(proxy))
+              : proxy,
           ignoreHttpsErrors: entry.options.ignoreCertificateErrors || Boolean(trustedCa),
           requestReplacement: handle.requestBrowserReplacement,
         })

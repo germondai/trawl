@@ -38,7 +38,7 @@ function isPrivateIp(address: string): boolean {
   return family === 0 || privateAddresses.check(normalized, family === 4 ? "ipv4" : "ipv6")
 }
 
-export function parsePublicHttpUrl(rawUrl: string): { url: URL; hostname: string } {
+export function parsePublicHttpUrl(rawUrl: string, publicOnly = true): { url: URL; hostname: string } {
   let url: URL
   try {
     url = new URL(rawUrl)
@@ -56,10 +56,11 @@ export function parsePublicHttpUrl(rawUrl: string): { url: URL; hostname: string
     .replace(/\.$/, "")
     .replace(/^\[|\]$/g, "")
   if (
-    hostname === "localhost" ||
-    hostname.endsWith(".localhost") ||
-    hostname.endsWith(".local") ||
-    (isIP(hostname) && isPrivateIp(hostname))
+    publicOnly &&
+    (hostname === "localhost" ||
+      hostname.endsWith(".localhost") ||
+      hostname.endsWith(".local") ||
+      (isIP(hostname) && isPrivateIp(hostname)))
   ) {
     throw new RequestValidationError("url must not target a private or local network", 400)
   }

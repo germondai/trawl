@@ -1,6 +1,11 @@
 import { isIP } from "node:net"
 import { telemetryEndpoint } from "@trawl/telemetry"
 import { type ExternalCaptchaOptions, ProxyPool, type ProxySelection, parseCaptchaProfiles } from "@trawl/tiers"
+import { dnsProvider, dnsServers } from "./dns"
+
+export const DNS_RESOLVER = dnsProvider(process.env.DNS_RESOLVER)
+export const DNS_SERVERS = process.env.DNS_SERVERS?.trim() || ""
+if (DNS_RESOLVER === "custom") dnsServers(DNS_SERVERS)
 
 export const REDIS_URL = process.env.REDIS_URL?.trim() || undefined
 export const TELEMETRY_ENABLED = /^(1|true|yes)$/i.test(process.env.TELEMETRY_ENABLED?.trim() ?? "")

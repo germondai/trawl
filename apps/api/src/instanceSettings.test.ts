@@ -10,6 +10,8 @@ describe("effective instance settings", () => {
     expect(snapshot.settings.filter(({ secret }) => secret).every(({ value }) => value === null)).toBe(true)
     expect(snapshot.settings.find(({ name }) => name === "USER_PREFS")?.secret).toBe(true)
     expect(snapshot.settings.find(({ name }) => name === "STT_URL")?.secret).toBe(true)
+    expect(snapshot.settings.find(({ name }) => name === "DNS_RESOLVER")?.value).toBe("system")
+    expect(snapshot.settings.find(({ name }) => name === "DNS_SERVERS")?.value).toBe("")
   })
 
   test("reports normalized values actually used by the engine and never returns configured credentials", () => {
@@ -27,6 +29,7 @@ describe("effective instance settings", () => {
         BROWSER_BLOCK_ADS: "no",
         SCREENSHOT_JPEG_QUALITY: "101",
         LOG_LEVEL: " DEBUG ",
+        DNS_RESOLVER: "cloudflare",
         MITM_HOST: "127.0.0.1",
         SCREENSHOT_MAX_BYTES: "10",
         METRICS_DASHBOARD_TOKEN: "private-test-token-abcdefghijklmnopqrstuvwxyz",
@@ -47,6 +50,7 @@ describe("effective instance settings", () => {
     expect(setting("SCREENSHOT_MAX_BYTES").value).toBe("10")
     expect(setting("MITM_HOST").value).toBe("127.0.0.1")
     expect(setting("LOG_LEVEL").value).toBe("debug")
+    expect(setting("DNS_RESOLVER")).toMatchObject({ value: "cloudflare", source: "environment" })
     expect(setting("METRICS_DASHBOARD_TOKEN")).toMatchObject({ value: null, configured: true })
   })
 

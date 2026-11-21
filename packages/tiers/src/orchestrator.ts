@@ -97,6 +97,7 @@ export interface OrchestratorDeps {
   onTierAttempt?: (result: TierResult) => void
   validateOutboundUrl?: (url: string) => Promise<void>
   networkProxy?: (upstream?: string) => Promise<string>
+  directNetworkProxy?: (upstream?: string) => Promise<string>
   // Resolves the host a plain HTTP fetch of a URL ends on, for the crossed-landing guard.
   // Only consulted for requests that set `ignoreCertificateErrors`; defaults to a real
   // fetch through the same egress the scrape used.
@@ -251,7 +252,9 @@ async function scrapeWithinBudget(
     req = { ...req, proxy: namedSession.proxy, ignoreCertificateErrors: namedSession.ignoreCertificateErrors }
   }
   const networkProxy =
-    deps.networkProxy ?? (req.sessionId ? deps.sessions?.publicNetworkProxy(req.sessionId) : undefined)
+    deps.networkProxy ??
+    (req.sessionId ? deps.sessions?.publicNetworkProxy(req.sessionId) : undefined) ??
+    deps.directNetworkProxy
   const maxTimeout = req.maxTimeout ?? deps.defaultMaxTimeout ?? 60_000
   const maxTier = req.maxTier ?? 4
   if (req.cookies !== undefined) normalizeInputCookies(req.cookies, req.url)
@@ -548,7 +551,7 @@ async function scrapeWithinBudget(
         ? Math.min(10_000, httpTimeout)
         : undefined,
       observeResponse ? (evidence) => observeResponse({ ...evidence, tier: 1 }) : undefined,
-      deps.networkProxy ? await budget.run(async () => deps.networkProxy?.(tier1Proxy)) : undefined,
+      networkProxy ? await budget.run(async () => networkProxy(tier1Proxy)) : undefined,
       target.credential?.name,
     )
     if (

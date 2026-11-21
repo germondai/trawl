@@ -7,9 +7,9 @@ import { Elysia } from "elysia"
 import * as z from "zod/v4"
 import pkg from "../../package.json"
 import { MCP_ALLOWED_ORIGINS } from "../config"
-import { getDeps, getPool, publicEgress } from "../deps"
+import { getDeps, getPool, publicEgress, validatePublicUrl } from "../deps"
 import { type MetricsStore, metrics } from "../metrics"
-import { assertPublicHttpUrl, parsePublicHttpUrl } from "../outbound-policy"
+import { parsePublicHttpUrl } from "../outbound-policy"
 import { extractPage, pageMetadata as metadata, READ_MAX_CHARACTERS, readPage } from "../pageContent"
 import { extractionOptionsShape, prepareExtractionRequest, readOptionsShape } from "../pageContent/options"
 import { runLoggedScrape } from "../requestLogging"
@@ -140,11 +140,11 @@ function createServer(poolReady: () => boolean, runScrape: RunScrape, metricsSto
     const started = Date.now()
     let scraperStarted = false
     try {
-      await assertPublicHttpUrl(input.url)
+      await validatePublicUrl(input.url)
       if (!poolReady()) throw new Error("Browser pool initializing, retry in a few seconds")
       scraperStarted = true
       const result = await runScrape(input, context)
-      await assertPublicHttpUrl(result.url)
+      await validatePublicUrl(result.url)
       return result
     } catch (error) {
       if (!scraperStarted) {

@@ -10,6 +10,8 @@ const MAX_ROUTES = 512
 
 interface Options {
   lookup?: HostLookup
+  /** Only the authenticated instance's direct DNS adapter may allow local destinations. */
+  publicOnly?: boolean
   connect?: typeof connectTunnel
   validateUpstream?: (proxy: string) => Promise<void>
 }
@@ -136,7 +138,10 @@ export class PublicEgressProxy {
     if (this.pending >= MAX_CONNECTIONS) throw new RequestValidationError("Public proxy is busy", 503)
     this.pending++
     try {
-      const addresses = await resolvePublicHostname(hostname, this.options.lookup)
+      const addresses =
+        this.options.publicOnly === false && this.options.lookup
+          ? await this.options.lookup(hostname)
+          : await resolvePublicHostname(hostname, this.options.lookup)
       signal.throwIfAborted()
       if (upstream) await this.options.validateUpstream?.(upstream)
       signal.throwIfAborted()
@@ -166,7 +171,7 @@ export class PublicEgressProxy {
   private async tunnel(req: IncomingMessage, client: Socket, head: Buffer): Promise<void> {
     const { upstream } = this.route(req)
     if (!req.url || /[/?#@]/.test(req.url)) throw new RequestValidationError("Invalid CONNECT target", 400)
-    const { url, hostname } = parsePublicHttpUrl(`https://${req.url}`)
+    const { url, hostname } = parsePublicHttpUrl(`https://${req.url}`, this.options.publicOnly !== false)
     client.setTimeout(0)
     const abort = new AbortController()
     client.once("close", () => abort.abort())
@@ -186,7 +191,7 @@ export class PublicEgressProxy {
       res.setHeader("proxy-authenticate", 'Basic realm="TRAWL"')
       throw error
     }
-    const { url, hostname } = parsePublicHttpUrl(req.url ?? "")
+    const { url, hostname } = parsePublicHttpUrl(req.url ?? "", this.options.publicOnly !== false)
     if (url.protocol !== "http:") throw new RequestValidationError("HTTPS requires CONNECT", 400)
     req.socket.setTimeout(0)
     const abort = new AbortController()
@@ -226,7 +231,10 @@ export class PublicEgressProxy {
 
   private async upgrade(req: IncomingMessage, client: Socket, head: Buffer): Promise<void> {
     const { upstream } = this.route(req)
-    const { url, hostname } = parsePublicHttpUrl((req.url ?? "").replace(/^ws:/i, "http:"))
+    const { url, hostname } = parsePublicHttpUrl(
+      (req.url ?? "").replace(/^ws:/i, "http:"),
+      this.options.publicOnly !== false,
+    )
     if (url.protocol !== "http:") throw new RequestValidationError("Invalid WebSocket target", 400)
     client.setTimeout(0)
     const abort = new AbortController()

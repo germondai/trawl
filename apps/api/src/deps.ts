@@ -19,6 +19,8 @@ import {
   BROWSER_SESSION_MAX_ENTRIES,
   BROWSER_SESSION_TTL_SECONDS,
   CLOSE_TIMEOUT_MS,
+  DNS_RESOLVER,
+  DNS_SERVERS,
   EXTERNAL_CAPTCHA,
   HEADFUL_POOL_SIZE,
   LAUNCH_TIMEOUT_MS,
@@ -40,7 +42,9 @@ import {
   USER_PREFS,
   WAF_DETECTION_ENABLED,
 } from "./config"
+import { createInstanceLookup } from "./dns"
 import { log, safeMessage } from "./logger"
+import { createPublicUrlValidator } from "./outbound-policy"
 import { isLocalMitmProxy, localProxyCa } from "./proxy/localTrust"
 import { PublicEgressProxy } from "./public-egress"
 import { readRuntimeMemory } from "./runtimeMemory"
@@ -53,7 +57,13 @@ const state: {
 
 const handleOwners = new WeakMap<object, BrowserPool>()
 const wafDetector = new WafDetector()
+const instanceLookup =
+  DNS_RESOLVER === "system" ? undefined : createInstanceLookup(DNS_RESOLVER, undefined, DNS_SERVERS)
+export const validatePublicUrl = createPublicUrlValidator(instanceLookup)
+const dnsEgress = instanceLookup ? new PublicEgressProxy({ lookup: instanceLookup, publicOnly: false }) : undefined
+const directNetworkProxy = dnsEgress ? async (upstream?: string) => upstream || dnsEgress.proxyFor() : undefined
 export const publicEgress = new PublicEgressProxy({
+  lookup: instanceLookup,
   validateUpstream: async (upstream) => {
     if (await isLocalMitmProxy(upstream))
       throw new RequestValidationError(
@@ -197,6 +207,7 @@ export const shutdownPools = async (drainTimeoutMs?: number): Promise<void> => {
     state.headfulPool?.shutdown(drainTimeoutMs),
   ])
   await publicEgress.close()
+  await dnsEgress?.close()
 }
 
 export const initPool = async ({
@@ -264,6 +275,7 @@ export const initPool = async ({
     trustedProxyCa: localProxyCa,
     ttlMs: BROWSER_SESSION_TTL_SECONDS * 1_000,
     networkProxy: (upstream) => publicEgress.proxyFor(upstream),
+    directNetworkProxy,
   })
 
   try {
@@ -288,6 +300,7 @@ export const getDeps = (): OrchestratorDeps => {
   const p = state.pool
   return {
     sessions: state.sessions,
+    directNetworkProxy,
     acquireBrowser: async (d: string, budgetMs?: number, options?: AcquireOptions) => {
       if (options?.headful) {
         const headful = state.headfulPool
