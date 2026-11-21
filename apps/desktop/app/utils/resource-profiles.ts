@@ -5,6 +5,7 @@ import {
   resourcePresets,
   resourceProfileKeys,
 } from "@trawl/config/catalog"
+import { t } from "./localization"
 
 export function resourceOverrides(environment: Environment): ResourceProfileValues {
   return Object.fromEntries(
@@ -33,7 +34,7 @@ export function resourceProfileName(
             : (environment[key] ?? inherited[key] ?? defaults[key])) === values[key],
       )
     )
-      return name === "balanced" ? "Standard" : "Economy"
+      return name === "balanced" ? t("ui.standard") : t("ui.economy")
   }
-  return "Modified"
+  return t("profile.custom")
 }

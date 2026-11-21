@@ -1,3 +1,4 @@
+import { LocalizedError } from "./localization"
 import type { RequestField } from "./request-fields"
 
 export interface RequestFile {
@@ -16,13 +17,13 @@ export function base64Bytes(value: string): Uint8Array<ArrayBuffer> {
     value.length > Math.ceil(requestFileLimit / 3) * 4 ||
     !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)
   )
-    throw new Error("Invalid or oversized binary body (128 KiB maximum)")
+    throw new LocalizedError("ui.invalidOrOversizedBinaryBody128KibMaximum")
   const bytes = Uint8Array.from(atob(value), (c) => c.charCodeAt(0))
-  if (bytes.length > requestFileLimit || bytesBase64(bytes) !== value) throw new Error("Invalid binary body")
+  if (bytes.length > requestFileLimit || bytesBase64(bytes) !== value) throw new LocalizedError("ui.invalidBinaryBody")
   return bytes
 }
 export async function readRequestFile(file: File): Promise<RequestFile> {
-  if (file.size > requestFileLimit) throw new Error("Choose a file of at most 128 KiB")
+  if (file.size > requestFileLimit) throw new LocalizedError("ui.chooseAFileOfAtMost128Kib")
   return {
     name: file.name,
     type: file.type || "application/octet-stream",
@@ -36,7 +37,7 @@ export function multipartBody(text: string, fields: RequestField[]) {
   const name = (value: string) =>
     value.replace(/[\r\n"\\]/g, (c) => `%${c.charCodeAt(0).toString(16).padStart(2, "0")}`)
   for (const [key, value] of new URLSearchParams(text.split("\n").filter(Boolean).join("&"))) {
-    if (/[\r\n\0]/.test(key)) throw new Error("Form names must be single-line values")
+    if (/[\r\n\0]/.test(key)) throw new LocalizedError("ui.formNamesMustBeSingleLineValues")
     chunks.push(
       encode.encode(`--${boundary}\r\nContent-Disposition: form-data; name="${name(key)}"\r\n\r\n${value}\r\n`),
     )
@@ -47,10 +48,10 @@ export function multipartBody(text: string, fields: RequestField[]) {
     const file = row.file
     if (!file) continue
     if (!row.key || !file.name || !/^[\w.+-]+\/[\w.+-]+$/.test(file.type))
-      throw new Error("Choose a file, field name and valid file content type")
+      throw new LocalizedError("ui.chooseAFileFieldNameAndValidFile")
     const bytes = base64Bytes(file.data)
     fileBytes += bytes.length
-    if (fileBytes > requestFileLimit) throw new Error("Files in one request must total at most 128 KiB")
+    if (fileBytes > requestFileLimit) throw new LocalizedError("ui.filesInOneRequestMustTotalAtMost")
     chunks.push(
       encode.encode(
         `--${boundary}\r\nContent-Disposition: form-data; name="${name(row.key)}"; filename="${name(file.name)}"\r\nContent-Type: ${file.type}\r\n\r\n`,
@@ -61,7 +62,7 @@ export function multipartBody(text: string, fields: RequestField[]) {
   }
   chunks.push(encode.encode(`--${boundary}--\r\n`))
   const length = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
-  if (length > 256 * 1024) throw new Error("Multipart body exceeds 256 KiB")
+  if (length > 256 * 1024) throw new LocalizedError("ui.multipartBodyExceeds256Kib")
   const data = new Uint8Array(length)
   let offset = 0
   for (const chunk of chunks) {

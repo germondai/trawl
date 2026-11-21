@@ -1,13 +1,77 @@
+import { t } from "./localization"
 export const pages = [
-  { id: "overview", label: "Overview", icon: "i-lucide-activity", group: "Workspace" },
-  { id: "workbench", label: "New request", icon: "i-lucide-plus", group: "Workspace" },
-  { id: "history", label: "Requests", icon: "i-lucide-network", group: "Workspace" },
-  { id: "sessions", label: "Sessions", icon: "i-lucide-layers", group: "Workspace" },
-  { id: "browser", label: "Browser", icon: "i-lucide-globe", group: "Runtime" },
-  { id: "resources", label: "Resources", icon: "i-lucide-gauge", group: "Runtime" },
-  { id: "logs", label: "Logs", icon: "i-lucide-terminal", group: "Runtime" },
-  { id: "settings", label: "Server settings", icon: "i-lucide-settings-2", group: "Manage" },
-  { id: "connections", label: "App settings", icon: "i-lucide-settings", group: "Manage" },
+  {
+    id: "overview",
+    get label() {
+      return t("ui.overview")
+    },
+    icon: "i-lucide-activity",
+    group: "Workspace",
+  },
+  {
+    id: "workbench",
+    get label() {
+      return t("ui.newRequest")
+    },
+    icon: "i-lucide-plus",
+    group: "Workspace",
+  },
+  {
+    id: "history",
+    get label() {
+      return t("ui.requests")
+    },
+    icon: "i-lucide-network",
+    group: "Workspace",
+  },
+  {
+    id: "sessions",
+    get label() {
+      return t("ui.sessions")
+    },
+    icon: "i-lucide-layers",
+    group: "Workspace",
+  },
+  {
+    id: "browser",
+    get label() {
+      return t("ui.browser")
+    },
+    icon: "i-lucide-globe",
+    group: "Runtime",
+  },
+  {
+    id: "resources",
+    get label() {
+      return t("ui.resources")
+    },
+    icon: "i-lucide-gauge",
+    group: "Runtime",
+  },
+  {
+    id: "logs",
+    get label() {
+      return t("ui.logs")
+    },
+    icon: "i-lucide-terminal",
+    group: "Runtime",
+  },
+  {
+    id: "settings",
+    get label() {
+      return t("ui.serverSettings")
+    },
+    icon: "i-lucide-settings-2",
+    group: "Manage",
+  },
+  {
+    id: "connections",
+    get label() {
+      return t("ui.appSettings")
+    },
+    icon: "i-lucide-settings",
+    group: "Manage",
+  },
 ] as const
 export type Page = (typeof pages)[number]["id"]
 export function cyclePage(page: Page, direction: -1 | 1): Page {

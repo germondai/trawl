@@ -105,7 +105,10 @@ export function createBrowserDownloads(
       await discardQueued?.(entry.job)
       update(version, { state: "cancelled" })
     } catch (error) {
-      update(version, { state: "error", error: `Could not clean cancelled download: ${String(error)}` })
+      update(version, {
+        state: "error",
+        error: `Could not clean cancelled download: ${error instanceof Error ? error.message : String(error)}`,
+      })
     } finally {
       cleaning.delete(version)
       try {

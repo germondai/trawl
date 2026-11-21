@@ -1,3 +1,5 @@
+import { t } from "./localization"
+
 const allowed = new Set(
   "a abbr address article aside b blockquote br caption cite code col colgroup dd details div dl dt em figcaption figure footer h1 h2 h3 h4 h5 h6 header hr i kbd li main mark nav ol p pre q s samp section small span strong sub summary sup table tbody td tfoot th thead time tr u ul var".split(
     " ",
@@ -121,7 +123,8 @@ function pageStyle(source: string): string {
     return ""
   }
 }
-const prefix = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'"><title>Saved response</title><style>
+const prefix =
+  () => `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'"><title>${escapeHtml(t("ui.savedResponse"))}</title><style>
 html{color-scheme:dark}body{margin:0 auto;max-width:72ch;padding:32px 24px;background:#171719;color:#e9e9ec;font:15px/1.6 system-ui,sans-serif;overflow-wrap:anywhere}*{box-sizing:border-box;max-width:100%}h1,h2,h3,h4{line-height:1.3}a{color:#48ce8a}pre,code,kbd,samp{font-family:ui-monospace,monospace}pre{white-space:pre-wrap}table{border-collapse:collapse}td,th{border:1px solid #444;padding:8px}blockquote{border-left:2px solid #666;margin-left:0;padding-left:16px}img{display:none}
 </style>`
 
@@ -129,7 +132,7 @@ html{color-scheme:dark}body{margin:0 auto;max-width:72ch;padding:32px 24px;backg
 export function capturedDocument(source: string): { html: string; limited: boolean } {
   if (source.length > 512 * 1024)
     return {
-      html: `${prefix}</head><body><p>This document exceeds the readable preview limit. Use the source preview or saved screenshot.</p></body></html>`,
+      html: `${prefix()}</head><body><p>${escapeHtml(t("preview.tooLarge"))}</p></body></html>`,
       limited: true,
     }
   // Template content is inert: no active document, resource loading or custom-element upgrades.
@@ -178,7 +181,9 @@ export function capturedDocument(source: string): { html: string; limited: boole
     const tag = element.localName
     if (element.namespaceURI !== "http://www.w3.org/1999/xhtml" || dropped.has(tag)) return
     if (tag === "img") {
-      append(`<span role="img">[${escapeHtml((element.getAttribute("alt") || "Image").slice(0, 256))}]</span>`)
+      append(
+        `<span role="img">[${escapeHtml((element.getAttribute("alt") || t("preview.image")).slice(0, 256))}]</span>`,
+      )
       return
     }
     const keep = allowed.has(tag)
@@ -229,5 +234,5 @@ export function capturedDocument(source: string): { html: string; limited: boole
     }
     walk(node, 0)
   }
-  return { html: `${prefix}${pageStyles}</head><body>${chunks.join("")}</body></html>`, limited }
+  return { html: `${prefix()}${pageStyles}</head><body>${chunks.join("")}</body></html>`, limited }
 }

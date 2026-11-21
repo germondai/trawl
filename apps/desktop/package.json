@@ -11,6 +11,7 @@
     "native:dev": "CARGO_BUILD_JOBS=2 tauri dev",
     "native:build": "CARGO_BUILD_JOBS=2 tauri build --no-bundle",
     "native:package": "CARGO_BUILD_JOBS=2 tauri build",
+    "native:update:package": "CARGO_BUILD_JOBS=2 tauri build --config src-tauri/tauri.updater.conf.json",
     "mobile:assets": "bun scripts/mobile-assets.ts",
     "android:build": "CARGO_BUILD_JOBS=2 tauri android build --apk --target aarch64 armv7 --split-per-abi --ci"
   },
@@ -26,7 +27,8 @@
     "lenis": "1.3.27",
     "nuxt": "4.6.4",
     "pinia": "^4.1.0",
-    "tailwindcss": "4.3.5"
+    "tailwindcss": "4.3.5",
+    "vue": "3.5.45"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.12.4",

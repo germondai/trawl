@@ -1,3 +1,4 @@
+import { LocalizedError } from "./localization"
 import type { RequestFile } from "./request-body"
 export interface RequestField {
   enabled: boolean
@@ -19,10 +20,10 @@ export function parseRequestFields(text: string, format: FieldFormat): RequestFi
       Array.isArray(value) ||
       Object.values(value).some((v) => typeof v !== "string")
     )
-      throw new Error("Headers must be a JSON object with string values")
+      throw new LocalizedError("ui.headersMustBeAJsonObjectWithString")
     pairs = Object.entries(value)
   } else pairs = [...new URLSearchParams(text.split("\n").filter(Boolean).join("&"))]
-  if (pairs.length > 100) throw new Error("Use at most 100 field rows")
+  if (pairs.length > 100) throw new LocalizedError("ui.useAtMost100FieldRows")
   return pairs.map(([key, value]) => ({ enabled: true, key, value, description: "" }))
 }
 
@@ -33,8 +34,8 @@ export function serializeRequestFields(rows: RequestField[], format: FieldFormat
     for (const row of active) {
       const name = row.key.toLowerCase()
       if (!/^[!#$%&'*+.^_`|~0-9a-z-]+$/i.test(row.key) || /[\r\n\0]/.test(row.value))
-        throw new Error("Use a valid header name and a single-line value")
-      if (names.has(name)) throw new Error("Header names must be unique (case-insensitive)")
+        throw new LocalizedError("ui.useAValidHeaderNameAndASingle")
+      if (names.has(name)) throw new LocalizedError("ui.headerNamesMustBeUniqueCaseInsensitive")
       names.add(name)
     }
     return JSON.stringify(Object.fromEntries(active.map((row) => [row.key, row.value])), null, 2)

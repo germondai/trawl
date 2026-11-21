@@ -9,17 +9,43 @@ import type {
   Trawl,
 } from "@trawl/client"
 import { jsonPreview } from "./json-preview"
+import { LocalizedError, t } from "./localization"
 import { base64Bytes, multipartBody } from "./request-body"
 import { emptyRequestField, type RequestField } from "./request-fields"
 
 export const targetMethods = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "QUERY"] as const
 export const workbenchOutputs = [
   { label: "HTML", value: "html" },
-  { label: "Markdown", value: "markdown" },
-  { label: "Plain text", value: "text" },
-  { label: "Extract JSON", value: "extract" },
-  { label: "Screenshot", value: "screenshot" },
-  { label: "Browser diagnostics", value: "inspect" },
+  {
+    get label() {
+      return t("ui.markdown")
+    },
+    value: "markdown",
+  },
+  {
+    get label() {
+      return t("ui.plainText")
+    },
+    value: "text",
+  },
+  {
+    get label() {
+      return t("ui.extractJson")
+    },
+    value: "extract",
+  },
+  {
+    get label() {
+      return t("ui.screenshot")
+    },
+    value: "screenshot",
+  },
+  {
+    get label() {
+      return t("ui.browserDiagnostics")
+    },
+    value: "inspect",
+  },
 ] as const
 export interface WorkbenchDraft {
   url: string
@@ -93,18 +119,18 @@ export function requireWorkbenchCapabilities(draft: WorkbenchDraft, capabilities
   const binary = hasBinaryBody(draft)
   const auth = draft.auth.type !== "none"
   if (!binary && !auth) return
-  if (!capabilities) throw new Error("Connect to a running instance to verify binary body and target Auth support")
+  if (!capabilities) throw new LocalizedError("ui.connectToARunningInstanceToVerifyBinary")
   if ((binary && !capabilities.requestOptions?.binaryBodies) || (auth && !capabilities.requestOptions?.targetAuth))
-    throw new Error("Update this TRAWL instance to use binary/file bodies or target Auth")
+    throw new LocalizedError("ui.updateThisTrawlInstanceToUseBinaryFile")
 }
 export function capturedWorkbenchDraft(input: unknown): WorkbenchDraft {
-  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Invalid captured request")
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new LocalizedError("ui.invalidCapturedRequest")
   const record = input as Record<string, unknown>
   if (record.version !== 1 || !["scrape", "read", "extract"].includes(String(record.operation)))
-    throw new Error("Unsupported captured request version")
+    throw new LocalizedError("ui.unsupportedCapturedRequestVersion")
   const request = record.parameters as Record<string, unknown> | undefined
   if (!request || typeof request !== "object" || Array.isArray(request) || typeof request.url !== "string")
-    throw new Error("Captured request has no target URL")
+    throw new LocalizedError("ui.capturedRequestHasNoTargetUrl")
   const draft = newWorkbenchDraft()
   draft.url = request.url
   draft.method = (request.method ?? "GET") as WorkbenchDraft["method"]
@@ -139,9 +165,7 @@ export function capturedWorkbenchDraft(input: unknown): WorkbenchDraft {
       ].includes(name.trim().toLowerCase()),
     )
     if (unsupported.length)
-      throw new Error(
-        `The native API cannot replay these proxy headers: ${unsupported.join(", ")}. Inspect the saved request instead.`,
-      )
+      throw new LocalizedError("ui.theNativeApiCannotReplayTheseProxyHeaders", { p0: unsupported.join(", ") })
   }
   if (request.body !== undefined) {
     draft.bodyMode =
@@ -153,15 +177,15 @@ export function capturedWorkbenchDraft(input: unknown): WorkbenchDraft {
     draft.body = typeof request.body === "string" ? request.body : JSON.stringify(request.body, null, 2)
     if (draft.bodyMode === "binary") {
       base64Bytes(draft.body)
-      draft.binaryName = "Captured payload"
+      draft.binaryName = t("ui.capturedPayload")
     }
   }
   if (request.targetAuth) {
     const auth = request.targetAuth as TargetAuth
     if (!auth || typeof auth !== "object" || !["basic", "bearer", "api-key"].includes(auth.type))
-      throw new Error("Invalid captured target authentication")
+      throw new LocalizedError("ui.invalidCapturedTargetAuthentication")
     for (const value of Object.values(auth))
-      if (typeof value !== "string") throw new Error("Invalid captured target authentication")
+      if (typeof value !== "string") throw new LocalizedError("ui.invalidCapturedTargetAuthentication")
     draft.auth = { ...draft.auth, ...auth }
   }
   draft.options = JSON.stringify(
@@ -184,14 +208,23 @@ export function capturedWorkbenchDraft(input: unknown): WorkbenchDraft {
   return draft
 }
 
-function objectJSON(text: string, label: string): Record<string, unknown> {
+function objectJSON(text: string, labelKey: string): Record<string, unknown> {
   let value: unknown
   try {
     value = JSON.parse(text)
   } catch {
-    throw new Error(`${label} must be valid JSON`)
+    throw new LocalizedError("validation.jsonSyntax", {
+      get label() {
+        return t(labelKey)
+      },
+    })
   }
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be a JSON object`)
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new LocalizedError("validation.jsonObject", {
+      get label() {
+        return t(labelKey)
+      },
+    })
   return value as Record<string, unknown>
 }
 
@@ -223,29 +256,29 @@ const advancedKeys = new Set([
 ])
 
 export function workbenchRequest(draft: WorkbenchDraft): ScrapeRequest & { maxCharacters?: number } {
-  if (JSON.stringify(draft).length > 256 * 1024) throw new Error("Draft exceeds the 256 KiB character limit")
+  if (JSON.stringify(draft).length > 256 * 1024) throw new LocalizedError("ui.draftExceedsThe256KibCharacterLimit")
   let url: URL
   try {
     url = new URL(draft.url.trim())
   } catch {
-    throw new Error("Enter a complete HTTP(S) target URL")
+    throw new LocalizedError("ui.enterACompleteHttpSTargetUrl")
   }
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password)
-    throw new Error("Use an HTTP(S) target URL without embedded credentials")
-  if (!targetMethods.includes(draft.method)) throw new Error("Unsupported target method")
+    throw new LocalizedError("ui.useAnHttpSTargetUrlWithoutEmbedded")
+  if (!targetMethods.includes(draft.method)) throw new LocalizedError("ui.unsupportedTargetMethod")
   if (!Number.isInteger(draft.timeout) || draft.timeout < 1 || draft.timeout > 180)
-    throw new Error("Timeout must be from 1 to 180 seconds")
-  if (![1, 2, 3, 4].includes(draft.maxTier)) throw new Error("Invalid tier limit")
-  if (draft.sessionId && !/^[A-Za-z0-9_-]{1,128}$/.test(draft.sessionId)) throw new Error("Invalid session ID")
-  const headers = objectJSON(draft.headers, "Headers")
+    throw new LocalizedError("ui.timeoutMustBeFrom1To180Seconds")
+  if (![1, 2, 3, 4].includes(draft.maxTier)) throw new LocalizedError("ui.invalidTierLimit")
+  if (draft.sessionId && !/^[A-Za-z0-9_-]{1,128}$/.test(draft.sessionId))
+    throw new LocalizedError("ui.invalidSessionId")
+  const headers = objectJSON(draft.headers, "ui.headers")
   if (Object.values(headers).some((value) => typeof value !== "string"))
-    throw new Error("Header values must be strings")
+    throw new LocalizedError("ui.headerValuesMustBeStrings")
   if (Object.keys(headers).some((name) => name.toLowerCase() === "authorization"))
-    throw new Error("Use the Auth tab for target Authorization")
-  const options = objectJSON(draft.options, "Advanced options")
+    throw new LocalizedError("ui.useTheAuthTabForTargetAuthorization")
+  const options = objectJSON(draft.options, "ui.advancedOptions")
   for (const name of Object.keys(options))
-    if (!advancedKeys.has(name))
-      throw new Error(`Use the dedicated field for ${name}, or remove this unsupported option`)
+    if (!advancedKeys.has(name)) throw new LocalizedError("ui.useTheDedicatedFieldForOrRemoveThis", { p0: name })
   if (
     options.maxCharacters !== undefined &&
     (!["text", "markdown"].includes(draft.output) ||
@@ -253,18 +286,18 @@ export function workbenchRequest(draft: WorkbenchDraft): ScrapeRequest & { maxCh
       Number(options.maxCharacters) < 1 ||
       Number(options.maxCharacters) > 100000)
   )
-    throw new Error("maxCharacters requires text/markdown output and an integer from 1 to 100000")
+    throw new LocalizedError("validation.maxCharacters")
   let body: string | object | undefined
   let bodyEncoding: "base64" | undefined
   if (draft.bodyMode === "json") {
     try {
       body = JSON.parse(draft.body) as unknown as object
     } catch {
-      throw new Error("Body must be valid JSON")
+      throw new LocalizedError("ui.bodyMustBeValidJson")
     }
-    if (!body || typeof body !== "object") throw new Error("JSON body must be an object or array")
+    if (!body || typeof body !== "object") throw new LocalizedError("ui.jsonBodyMustBeAnObjectOrArray")
   } else if (draft.bodyMode === "graphql") {
-    body = { query: draft.body, variables: objectJSON(draft.graphqlVariables, "GraphQL variables") }
+    body = { query: draft.body, variables: objectJSON(draft.graphqlVariables, "ui.graphqlVariables") }
   } else if (draft.bodyMode === "form") {
     const multipart = multipartBody(draft.body, draft.fields.body)
     body = multipart.body
@@ -272,7 +305,7 @@ export function workbenchRequest(draft: WorkbenchDraft): ScrapeRequest & { maxCh
     for (const key of Object.keys(headers)) if (key.toLowerCase() === "content-type") delete headers[key]
     headers["Content-Type"] = multipart.contentType
   } else if (draft.bodyMode === "binary") {
-    if (!draft.binaryName) throw new Error("Choose a binary body file")
+    if (!draft.binaryName) throw new LocalizedError("ui.chooseABinaryBodyFile")
     base64Bytes(draft.body)
     body = draft.body
     bodyEncoding = "base64"
@@ -288,9 +321,9 @@ export function workbenchRequest(draft: WorkbenchDraft): ScrapeRequest & { maxCh
         draft.bodyMode === "urlencoded" ? "application/x-www-form-urlencoded" : draft.bodyContentType
   }
   if ((draft.method === "GET" || draft.method === "HEAD") && body !== undefined)
-    throw new Error("Choose a body-capable target method before sending a body")
+    throw new LocalizedError("ui.chooseABodyCapableTargetMethodBeforeSending")
   if ((draft.output === "screenshot" || draft.output === "inspect") && draft.maxTier === 1)
-    throw new Error("Screenshot and browser diagnostics require a browser-capable tier limit")
+    throw new LocalizedError("ui.screenshotAndBrowserDiagnosticsRequireABrowserCapable")
   let targetAuth: TargetAuth | undefined
   if (
     httpOnlyWorkbench(draft) &&
@@ -301,9 +334,7 @@ export function workbenchRequest(draft: WorkbenchDraft): ScrapeRequest & { maxCh
       draft.output === "screenshot" ||
       draft.output === "inspect")
   )
-    throw new Error(
-      "Target Auth and non-POST binary bodies use HTTP only; remove browser session/cookies and choose a text output",
-    )
+    throw new LocalizedError("ui.targetAuthAndNonPostBinaryBodiesUse")
   if (draft.auth.type !== "none") {
     if (draft.auth.type === "basic")
       targetAuth = { type: "basic", username: draft.auth.username, password: draft.auth.password }
@@ -337,12 +368,12 @@ export async function sendWorkbench(
     case "text":
       return api.read({ ...request, format: draft.output }, wait)
     case "extract": {
-      const extraction = objectJSON(draft.extraction, "Extraction options")
+      const extraction = objectJSON(draft.extraction, "ui.extractionOptions")
       if (Object.keys(extraction).some((name) => !["itemSelector", "fields", "maxItems", "render"].includes(name)))
-        throw new Error("Unsupported extraction option")
+        throw new LocalizedError("ui.unsupportedExtractionOption")
       const fields = extraction.fields
       if (!fields || typeof fields !== "object" || Array.isArray(fields) || !Object.keys(fields).length)
-        throw new Error("Extraction needs at least one field")
+        throw new LocalizedError("ui.extractionNeedsAtLeastOneField")
       return api.extract({ ...request, ...extraction } as ExtractRequest, wait)
     }
     case "screenshot":

@@ -6,7 +6,7 @@ test("resource profiles preserve unrelated edits and restore inherited overrides
   const original = { HOST: "0.0.0.0", BROWSER_IDLE_TIMEOUT_MS: "60000", STT_MODEL: "owned" }
   const previous = resourceOverrides(original)
   expect(previous).toEqual({ BROWSER_IDLE_TIMEOUT_MS: "60000" })
-  expect(resourceProfileName(original, {})).toBe("Modified")
+  expect(resourceProfileName(original, {})).toBe("Custom")
   const economy = applyResourceProfile(original, resourcePresets.economy)
   expect(resourceProfileName(economy, {})).toBe("Economy")
   const restored = applyResourceProfile({ ...economy, STT_MODEL: "edited later" }, previous)
@@ -17,7 +17,7 @@ test("resource profiles preserve unrelated edits and restore inherited overrides
 test("profile identity honors environment overrides ahead of the draft", () => {
   expect(
     resourceProfileName(resourcePresets.balanced, { BROWSER_COLD_BOOT: "true" }, { BROWSER_COLD_BOOT: "environment" }),
-  ).toBe("Modified")
+  ).toBe("Custom")
 })
 
 test("resource profiles keep manually configured browser pool sizes", () => {

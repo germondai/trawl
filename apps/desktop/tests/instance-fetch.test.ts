@@ -64,3 +64,37 @@ test("native fetch keeps credentials outside the renderer and bounds streaming I
   })
   expect(result.exitCode, result.stderr.toString()).toBe(0)
 })
+
+test("session script artifacts use the bounded binary native transport", () => {
+  const result = Bun.spawnSync({
+    cmd: [
+      process.execPath,
+      "--no-env-file",
+      "-e",
+      `
+      import assert from "node:assert/strict"
+      globalThis.window = { crypto: globalThis.crypto }
+      const { mockIPC, clearMocks } = await import("@tauri-apps/api/mocks")
+      const { createInstanceFetch } = await import("./app/utils/instance-fetch.ts")
+      let called = false
+      mockIPC(async (command, args) => {
+        assert.equal(command, "api_operation")
+        assert.equal(args.path, "/session-activity/eval-id/captures/request")
+        assert.equal(args.method, "GET")
+        args.onEvent.onmessage({type:"open",status:200,contentType:"application/json"})
+        called = true
+        return new TextEncoder().encode('{"expression":"document.title"}').buffer
+      })
+      const fetch = createInstanceFetch("saved", "https://fixture.test")
+      const response = await fetch("https://fixture.test/session-activity/eval-id/captures/request")
+      assert.deepEqual(await response.json(), {expression:"document.title"})
+      assert.equal(called, true)
+      clearMocks()
+    `,
+    ],
+    cwd: `${import.meta.dir}/..`,
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  expect(result.exitCode).toBe(0)
+})

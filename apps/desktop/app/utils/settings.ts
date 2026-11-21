@@ -1,124 +1,274 @@
 import type { Setting } from "@trawl/config/catalog"
+import { messages } from "@trawl/config/i18n"
+import { formatLocale, t } from "./localization"
 
 export const settingSections = [
   {
     id: "general",
-    label: "API & requests",
-    description: "Where TRAWL listens, request deadlines and scraping behavior.",
+    get label() {
+      return t("ui.apiRequests")
+    },
+    get description() {
+      return t("ui.whereTrawlListensRequestDeadlinesAndScrapingBehavior")
+    },
     groups: ["api", "port", "scrape", "tier1", "flaresolverr"],
   },
   {
     id: "browser",
-    label: "Browser & resources",
-    description: "Browser capacity, startup, idle behavior and recovery limits.",
+    get label() {
+      return t("ui.browserResources")
+    },
+    get description() {
+      return t("ui.browserCapacityStartupIdleBehaviorAndRecoveryLimits")
+    },
     groups: ["browser", "user"],
   },
   {
     id: "sessions",
-    label: "Sessions & cache",
-    description: "Reuse verified clearance and control how long cached sessions stay available.",
+    get label() {
+      return t("ui.sessionsCache")
+    },
+    get description() {
+      return t("ui.reuseVerifiedClearanceAndControlHowLongCached")
+    },
     groups: ["session", "redis", "memory"],
   },
   {
     id: "proxies",
-    label: "Upstream proxies",
-    description: "Route browser requests through your datacenter or residential proxies.",
-    groups: ["proxy", "residential"],
+    get label() {
+      return t("ui.networkProxies")
+    },
+    get description() {
+      return t("ui.chooseThisInstanceSDnsAndConfigureUpstream")
+    },
+    groups: ["dns", "proxy", "residential"],
   },
   {
     id: "proxy",
-    label: "Challenge-aware proxy",
-    description: "Run a local HTTP/HTTPS proxy that escalates detected challenge pages.",
+    get label() {
+      return t("ui.challengeAwareProxy")
+    },
+    get description() {
+      return t("ui.runALocalHttpHttpsProxyThatEscalates")
+    },
     groups: ["mitm"],
   },
   {
     id: "challenges",
-    label: "Challenges & CAPTCHA",
-    description: "WAF diagnostics, audio transcription and optional paid solver fallback.",
+    get label() {
+      return t("ui.challengesCaptcha")
+    },
+    get description() {
+      return t("ui.wafDiagnosticsAudioTranscriptionAndOptionalPaidSolver")
+    },
     groups: ["waf", "stt", "ffmpeg", "captcha", "twocaptcha"],
   },
   {
     id: "outputs",
-    label: "Page outputs",
-    description:
-      "Limits for screenshots, captured responses, archives and favicons. These features stay opt-in per request.",
+    get label() {
+      return t("ui.pageOutputs")
+    },
+    get description() {
+      return t("ui.limitsForScreenshotsCapturedResponsesArchivesAndFavicons")
+    },
     groups: ["screenshot", "blocked", "diagnostics", "redirect", "capture", "mhtml", "favicon"],
   },
   {
     id: "metrics",
-    label: "Metrics & logs",
-    description: "Dashboard access, request history storage and log verbosity.",
+    get label() {
+      return t("ui.metricsLogs")
+    },
+    get description() {
+      return t("ui.dashboardAccessRequestHistoryStorageAndLogVerbosity")
+    },
     groups: ["metrics", "log", "history"],
   },
   {
     id: "telemetry",
-    label: "Usage sharing",
-    description:
-      "Optional, explicitly enabled sharing with your configured statistics collector. No raw logs or request content.",
+    get label() {
+      return t("ui.usageSharing")
+    },
+    get description() {
+      return t("ui.optionalExplicitlyEnabledSharingWithYourConfiguredStatistics")
+    },
     groups: ["telemetry"],
   },
   {
     id: "mcp",
-    label: "MCP tools",
-    description: "Expose native scraping tools to compatible AI clients.",
+    get label() {
+      return t("ui.mcpTools")
+    },
+    get description() {
+      return t("ui.exposeNativeScrapingToolsToCompatibleAiClients")
+    },
     groups: ["mcp"],
   },
 ] as const
 
 const labels: Record<string, string> = {
-  HOST: "Listen address",
-  PORT: "API port",
-  SCRAPE_MAX_TIMEOUT_MS: "Request timeout",
-  SCRAPE_MIN_TIER: "Minimum execution tier",
-  TIER1_TRANSPORT: "HTTP transport",
-  FLARESOLVERR_COOKIE_FALLBACK: "FlareSolverr cookie fallback",
-  BROWSER_POOL_SIZE: "Browser pool size",
-  BROWSER_HEADFUL_POOL_SIZE: "Extra headful browsers",
-  BROWSER_GEOIP_IP: "Public egress IP",
-  BROWSER_COLD_BOOT: "Start browsers on demand",
-  BROWSER_IDLE_TIMEOUT_MS: "Close idle browsers after",
-  BROWSER_MAX_CONTENT_PROCESSES: "Content processes per browser",
-  BROWSER_ACQUIRE_TIMEOUT_MS: "Browser queue timeout",
-  BROWSER_RECYCLE_AFTER_CONTEXTS: "Recycle after temporary contexts",
-  BROWSER_HARDWARE_CONCURRENCY: "Reported CPU count",
-  BROWSER_BLOCK_ADS: "Block ads and trackers",
-  BROWSER_SHUTDOWN_DRAIN_MS: "Request drain on shutdown",
-  USER_PREFS: "Advanced Firefox preferences",
-  SESSION_CACHE_DRIVER: "Cache storage",
-  REDIS_URL: "Redis connection URL",
-  REDIS_SESSION_TTL_SECONDS: "Clearance cache lifetime",
-  MEMORY_SESSION_CACHE_MAX_ENTRIES: "In-memory cache capacity",
-  BROWSER_SESSION_MAX_ENTRIES: "Named sessions per browser",
-  BROWSER_SESSION_TTL_SECONDS: "Named session idle lifetime",
-  SCRAPE_PROXY_SELECTION: "Proxy selection strategy",
-  PROXY_URL: "Datacenter proxy URLs",
-  PROXY_LIST_FILE: "Datacenter proxy list file",
-  RESIDENTIAL_PROXY_URL: "Residential proxy URLs",
-  RESIDENTIAL_PROXY_LIST_FILE: "Residential proxy list file",
-  MITM_ENABLED: "Enable challenge-aware proxy",
-  MITM_HOST: "Proxy listen address",
-  MITM_PORT: "Proxy listen port",
-  MITM_CA_DIR: "Proxy certificate directory",
-  MITM_MAX_TIER: "Maximum escalation tier",
-  MITM_ALWAYS_SCRAPE: "Always use the scraper",
-  MITM_ESCALATE_429: "Escalate HTTP 429 responses",
-  MITM_DEBUG: "Log proxy requests",
-  STT_URL: "Speech-to-text endpoint",
-  STT_API_KEY: "Speech-to-text API key",
-  STT_MODEL: "Speech-to-text model",
-  FFMPEG_PATH: "Custom FFmpeg path",
-  CAPTCHA_SOLVER: "Paid solver provider",
-  TWOCAPTCHA_API_KEY: "2Captcha API key",
-  CAPTCHA_SOLVER_PROFILES: "Hostname solver profiles",
-  WAF_DETECTION_ENABLED: "Detect WAF providers",
-  METRICS_DASHBOARD_ENABLED: "Enable dashboard metrics",
-  METRICS_DASHBOARD_TOKEN: "Dashboard access token",
-  METRICS_DB_PATH: "History database path",
-  LOG_LEVEL: "Log verbosity",
-  MCP_ENABLED: "Enable MCP tools",
-  MCP_ALLOWED_ORIGINS: "Allowed browser origins",
+  get DNS_RESOLVER() {
+    return t("ui.instanceDns")
+  },
+  get DNS_SERVERS() {
+    return t("ui.customDnsServers")
+  },
+  get HOST() {
+    return t("ui.listenAddress")
+  },
+  get PORT() {
+    return t("ui.apiPort")
+  },
+  get SCRAPE_MAX_TIMEOUT_MS() {
+    return t("ui.requestTimeout")
+  },
+  get SCRAPE_MIN_TIER() {
+    return t("ui.minimumExecutionTier")
+  },
+  get TIER1_TRANSPORT() {
+    return t("ui.httpTransport")
+  },
+  get FLARESOLVERR_COOKIE_FALLBACK() {
+    return t("ui.flaresolverrCookieFallback")
+  },
+  get BROWSER_POOL_SIZE() {
+    return t("ui.browserPoolSize")
+  },
+  get BROWSER_HEADFUL_POOL_SIZE() {
+    return t("ui.extraHeadfulBrowsers")
+  },
+  get BROWSER_GEOIP_IP() {
+    return t("ui.publicEgressIp")
+  },
+  get BROWSER_COLD_BOOT() {
+    return t("ui.startBrowsersOnDemand")
+  },
+  get BROWSER_IDLE_TIMEOUT_MS() {
+    return t("ui.closeIdleBrowsersAfter")
+  },
+  get BROWSER_MAX_CONTENT_PROCESSES() {
+    return t("ui.contentProcessesPerBrowser")
+  },
+  get BROWSER_ACQUIRE_TIMEOUT_MS() {
+    return t("ui.browserQueueTimeout")
+  },
+  get BROWSER_RECYCLE_AFTER_CONTEXTS() {
+    return t("ui.recycleAfterTemporaryContexts")
+  },
+  get BROWSER_HARDWARE_CONCURRENCY() {
+    return t("ui.reportedCpuCount")
+  },
+  get BROWSER_BLOCK_ADS() {
+    return t("ui.blockAdsAndTrackers")
+  },
+  get BROWSER_SHUTDOWN_DRAIN_MS() {
+    return t("ui.requestDrainOnShutdown")
+  },
+  get USER_PREFS() {
+    return t("ui.advancedFirefoxPreferences")
+  },
+  get SESSION_CACHE_DRIVER() {
+    return t("ui.cacheStorage")
+  },
+  get REDIS_URL() {
+    return t("ui.redisConnectionUrl")
+  },
+  get REDIS_SESSION_TTL_SECONDS() {
+    return t("ui.clearanceCacheLifetime")
+  },
+  get MEMORY_SESSION_CACHE_MAX_ENTRIES() {
+    return t("ui.inMemoryCacheCapacity")
+  },
+  get BROWSER_SESSION_MAX_ENTRIES() {
+    return t("ui.namedSessionsPerBrowser")
+  },
+  get BROWSER_SESSION_TTL_SECONDS() {
+    return t("ui.namedSessionIdleLifetime")
+  },
+  get SCRAPE_PROXY_SELECTION() {
+    return t("ui.proxySelectionStrategy")
+  },
+  get PROXY_URL() {
+    return t("ui.datacenterProxyUrls")
+  },
+  get PROXY_LIST_FILE() {
+    return t("ui.datacenterProxyListFile")
+  },
+  get RESIDENTIAL_PROXY_URL() {
+    return t("ui.residentialProxyUrls")
+  },
+  get RESIDENTIAL_PROXY_LIST_FILE() {
+    return t("ui.residentialProxyListFile")
+  },
+  get MITM_ENABLED() {
+    return t("ui.enableChallengeAwareProxy")
+  },
+  get MITM_HOST() {
+    return t("ui.proxyListenAddress")
+  },
+  get MITM_PORT() {
+    return t("ui.proxyListenPort")
+  },
+  get MITM_CA_DIR() {
+    return t("ui.proxyCertificateDirectory")
+  },
+  get MITM_MAX_TIER() {
+    return t("ui.maximumEscalationTier")
+  },
+  get MITM_ALWAYS_SCRAPE() {
+    return t("ui.alwaysUseTheScraper")
+  },
+  get MITM_ESCALATE_429() {
+    return t("ui.escalateHttp429Responses")
+  },
+  get MITM_DEBUG() {
+    return t("ui.logProxyRequests")
+  },
+  get STT_URL() {
+    return t("ui.speechToTextEndpoint")
+  },
+  get STT_API_KEY() {
+    return t("ui.speechToTextApiKey")
+  },
+  get STT_MODEL() {
+    return t("ui.speechToTextModel")
+  },
+  get FFMPEG_PATH() {
+    return t("ui.customFfmpegPath")
+  },
+  get CAPTCHA_SOLVER() {
+    return t("ui.paidSolverProvider")
+  },
+  get TWOCAPTCHA_API_KEY() {
+    return t("ui.2captchaApiKey")
+  },
+  get CAPTCHA_SOLVER_PROFILES() {
+    return t("ui.hostnameSolverProfiles")
+  },
+  get WAF_DETECTION_ENABLED() {
+    return t("ui.detectWafProviders")
+  },
+  get METRICS_DASHBOARD_ENABLED() {
+    return t("ui.enableDashboardMetrics")
+  },
+  get METRICS_DASHBOARD_TOKEN() {
+    return t("ui.dashboardAccessToken")
+  },
+  get METRICS_DB_PATH() {
+    return t("ui.historyDatabasePath")
+  },
+  get LOG_LEVEL() {
+    return t("ui.logVerbosity")
+  },
+  get MCP_ENABLED() {
+    return t("ui.enableMcpTools")
+  },
+  get MCP_ALLOWED_ORIGINS() {
+    return t("ui.allowedBrowserOrigins")
+  },
 }
 export function settingLabel(setting: Pick<Setting, "name">) {
+  const key = `settings.${setting.name}.label`
+  if (messages.en[key]) return t(key)
   return (
     labels[setting.name] ??
     setting.name
@@ -128,6 +278,12 @@ export function settingLabel(setting: Pick<Setting, "name">) {
       .replace(/^./, (value) => value.toUpperCase())
   )
 }
+export function settingDescription(setting: Pick<Setting, "name" | "description">) {
+  for (const key of [`settings.android.${setting.name}.description`, `settings.${setting.name}.description`]) {
+    if (messages.en[key] === setting.description) return t(key)
+  }
+  return setting.description
+}
 export function sectionFor(setting: Pick<Setting, "name" | "group">): string {
   if (setting.name.startsWith("BROWSER_SESSION_")) return "sessions"
   if (setting.name === "SCRAPE_PROXY_SELECTION") return "proxies"
@@ -135,15 +291,23 @@ export function sectionFor(setting: Pick<Setting, "name" | "group">): string {
     settingSections.find((section) => (section.groups as readonly string[]).includes(setting.group))?.id ?? "general"
   )
 }
+export function groupedSettings<T extends Pick<Setting, "name" | "group">>(settings: readonly T[]) {
+  return settingSections
+    .map((section) => ({
+      ...section,
+      settings: settings.filter((setting) => sectionFor(setting) === section.id),
+    }))
+    .filter((section) => section.settings.length)
+}
 export function settingValueHint(setting: Setting, value: string): string {
-  if (setting.secret) return value ? "Configured · value hidden" : "Not configured"
-  if (value === "") return "Not configured"
+  if (setting.secret) return value ? t("ui.configuredValueHidden") : t("ui.notConfigured")
+  if (value === "") return t("ui.notConfigured")
   const number = Number(value)
   if (setting.name.endsWith("_MS") && Number.isFinite(number))
-    return number === 0 ? "0 ms · disabled" : `${(number / 1000).toLocaleString()} seconds`
-  if (setting.name.endsWith("_SECONDS") && Number.isFinite(number)) return `${number.toLocaleString()} seconds`
+    return number === 0 ? t("ui.0MsDisabled") : t("counts.seconds", { count: number / 1000 })
+  if (setting.name.endsWith("_SECONDS") && Number.isFinite(number)) return t("counts.seconds", { count: number })
   if (setting.name.endsWith("_BYTES") && number > 0)
-    return `${(number / 1048576).toLocaleString(undefined, { maximumFractionDigits: 2 })} MiB`
+    return `${(number / 1048576).toLocaleString(formatLocale(), { maximumFractionDigits: 2 })} MiB`
   return value.length > 64 ? `${value.slice(0, 61)}…` : value
 }
 export function rebaseSettingsDraft(
@@ -158,4 +322,18 @@ export function rebaseSettingsDraft(
     else delete merged[name]
   }
   return merged
+}
+
+export type DnsSelection = { resolver: string; servers: string }
+export function applyDnsSettings(
+  draft: Record<string, string>,
+  inherited: Record<string, string>,
+  selection: DnsSelection,
+) {
+  const next = { ...draft }
+  if (selection.resolver === (inherited.DNS_RESOLVER ?? "system")) delete next.DNS_RESOLVER
+  else next.DNS_RESOLVER = selection.resolver
+  if (selection.resolver !== "custom" || selection.servers === (inherited.DNS_SERVERS ?? "")) delete next.DNS_SERVERS
+  else next.DNS_SERVERS = selection.servers
+  return next
 }

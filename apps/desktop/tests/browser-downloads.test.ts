@@ -65,7 +65,10 @@ test("bootstrap and download completion share browser snapshot ordering", async 
   const pending: { request: any; resolve: (value: any) => void }[] = []
   Reflect.set(globalThis, "window", {
     __TAURI_INTERNALS__: {
-      invoke: (_: string, args: any) => new Promise((resolve) => pending.push({ request: args.request, resolve })),
+      invoke: (command: string, args: any) =>
+        command === "app_locale"
+          ? Promise.resolve("en")
+          : new Promise((resolve) => pending.push({ request: args.request, resolve })),
     },
   })
   setActivePinia(createPinia())

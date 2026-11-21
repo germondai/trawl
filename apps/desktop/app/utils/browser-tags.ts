@@ -1,4 +1,5 @@
 import type { BrowserInstallation } from "../stores/desktop"
+import { t } from "./localization"
 
 export interface BrowserTagDefinition {
   label: string
@@ -10,79 +11,127 @@ export interface BrowserTagDefinition {
 
 export const browserTags = {
   recommended: {
-    label: "Recommended",
-    description: "The default build verified and recommended for TRAWL.",
+    get label() {
+      return t("ui.recommended")
+    },
+    get description() {
+      return t("ui.theDefaultBuildVerifiedAndRecommendedForTrawl")
+    },
     color: "primary",
     variant: "subtle",
   },
   latest: {
-    label: "Latest",
-    description: "The newest supported non-nightly, non-deprecated build in the catalog for this platform.",
+    get label() {
+      return t("ui.latest")
+    },
+    get description() {
+      return t("ui.theNewestSupportedNonNightlyNonDeprecatedBuild")
+    },
     color: "info",
     variant: "subtle",
   },
   active: {
-    label: "Active",
-    description: "The selected browser version used when the server starts.",
+    get label() {
+      return t("ui.active")
+    },
+    get description() {
+      return t("ui.theSelectedBrowserVersionUsedWhenTheServer")
+    },
     color: "primary",
     variant: "outline",
   },
   installed: {
-    label: "Installed",
-    description: "A ready installation that is available to select.",
+    get label() {
+      return t("ui.installed")
+    },
+    get description() {
+      return t("ui.aReadyInstallationThatIsAvailableToSelect")
+    },
     color: "neutral",
     variant: "subtle",
   },
   "not-installed": {
-    label: "Not installed",
-    description: "An available catalog build that has not been downloaded.",
+    get label() {
+      return t("ui.notInstalled")
+    },
+    get description() {
+      return t("ui.anAvailableCatalogBuildThatHasNotBeen")
+    },
     color: "neutral",
     variant: "subtle",
     class: "text-muted",
   },
   "repair-ready": {
-    label: "Repair ready",
-    description: "A repaired copy is prepared. Stop the server, then choose Apply repair.",
+    get label() {
+      return t("ui.repairReady")
+    },
+    get description() {
+      return t("ui.aRepairedCopyIsPreparedStopTheServer")
+    },
     color: "neutral",
     variant: "subtle",
     class: "bg-teal-400/10 text-teal-300 ring-teal-400/25",
   },
   "repair-needed": {
-    label: "Needs repair",
-    description: "The installation exists but its files or verification are incomplete.",
+    get label() {
+      return t("ui.needsRepair")
+    },
+    get description() {
+      return t("ui.theInstallationExistsButItsFilesOrVerification")
+    },
     color: "neutral",
     variant: "subtle",
     class: "bg-orange-400/10 text-orange-300 ring-orange-400/25",
   },
   "update-available": {
-    label: "Unsupported version",
-    description: "An installed version that is not in the supported catalog.",
+    get label() {
+      return t("ui.unsupportedVersion")
+    },
+    get description() {
+      return t("ui.anInstalledVersionThatIsNotInThe")
+    },
     color: "error",
     variant: "subtle",
   },
   unsupported: {
-    label: "Unsupported platform",
-    description: "A browser build that is unavailable for this operating system or architecture.",
+    get label() {
+      return t("ui.unsupportedPlatform")
+    },
+    get description() {
+      return t("ui.aBrowserBuildThatIsUnavailableForThis")
+    },
     color: "error",
     variant: "subtle",
   },
   unknown: {
-    label: "Unknown",
-    description: "An installation whose browser version could not be identified.",
+    get label() {
+      return t("ui.unknown")
+    },
+    get description() {
+      return t("ui.anInstallationWhoseBrowserVersionCouldNotBe")
+    },
     color: "neutral",
     variant: "subtle",
     class: "bg-yellow-400/10 text-yellow-300 ring-yellow-400/25",
   },
   deprecated: {
-    label: "Deprecated",
-    description: "A build explicitly marked as deprecated in the catalog. Prefer a recommended replacement.",
+    get label() {
+      return t("ui.deprecated")
+    },
+    get description() {
+      return t("ui.aBuildExplicitlyMarkedAsDeprecatedInThe")
+    },
     color: "neutral",
     variant: "subtle",
     class: "bg-orange-400/10 text-orange-300 ring-orange-400/25",
   },
   nightly: {
-    label: "Nightly",
-    description: "An experimental build from the nightly release channel. It is not the recommended default.",
+    get label() {
+      return t("ui.nightly")
+    },
+    get description() {
+      return t("ui.anExperimentalBuildFromTheNightlyReleaseChannel")
+    },
     color: "neutral",
     variant: "subtle",
     class: "bg-violet-400/10 text-violet-300 ring-violet-400/25",

@@ -1,5 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core"
 import { type Fetch, TrawlError } from "@trawl/client"
+import { LocalizedError, t } from "./localization"
 
 interface StreamMessage {
   type: "registered" | "open" | "data"
@@ -16,9 +17,9 @@ export function createInstanceFetch(instanceId: string, baseURL: string, observe
     const request = new Request(input, init)
     const url = new URL(request.url)
     if (url.origin !== base.origin || !url.pathname.startsWith(`${prefix}/`))
-      throw new Error("Unsupported desktop API request")
+      throw new LocalizedError("ui.unsupportedDesktopApiRequest")
     const path = url.pathname.slice(prefix.length) + url.search
-    if (request.signal.aborted) throw new DOMException("Request aborted", "AbortError")
+    if (request.signal.aborted) throw new DOMException(t("ui.requestAborted"), "AbortError")
     if (request.method === "POST" && ["/scrape", "/read", "/extract"].includes(path))
       return operation(instanceId, path, request, observeId)
     if (
@@ -26,17 +27,17 @@ export function createInstanceFetch(instanceId: string, baseURL: string, observe
       (request.method === "DELETE" && /^\/sessions\/[A-Za-z0-9_-]{1,128}$/.test(path))
     )
       return operation(instanceId, path, request)
-    if (request.method !== "GET") throw new Error("Unsupported desktop API request")
+    if (request.method !== "GET") throw new LocalizedError("ui.unsupportedDesktopApiRequest")
     if (path === "/browser/pages") return operation(instanceId, path, request)
     if (
-      /^\/requests\/[A-Za-z0-9_-]{1,80}\/captures\/(html|screenshot|request)$/.test(path) ||
+      /^\/(requests|session-activity)\/[A-Za-z0-9_-]{1,80}\/captures\/(html|screenshot|request)$/.test(path) ||
       /^\/browser\/pages\/[A-Za-z0-9_-]{1,80}\/preview$/.test(path)
     )
       return operation(instanceId, path, request)
     if (["/requests/events", "/logs/events"].includes(path))
       return stream(instanceId, path === "/requests/events" ? "requests" : "logs", request)
     const result = await invoke<{ status: number; body: string }>("api_request", { instanceId, path })
-    if (request.signal.aborted) throw new DOMException("Request aborted", "AbortError")
+    if (request.signal.aborted) throw new DOMException(t("ui.requestAborted"), "AbortError")
     return new Response(result.body, { status: result.status, headers: { "content-type": "application/json" } })
   }
 }
@@ -49,8 +50,8 @@ async function operation(
 ): Promise<Response> {
   const body = await request.text()
   if (new TextEncoder().encode(body).byteLength > 1024 * 1024)
-    throw new TrawlError("Request exceeds the 1 MiB desktop input limit", { kind: "protocol" })
-  if (request.signal.aborted) throw new DOMException("Request aborted", "AbortError")
+    throw new TrawlError(t("ui.requestExceedsThe1MibDesktopInputLimit"), { kind: "protocol" })
+  if (request.signal.aborted) throw new DOMException(t("ui.requestAborted"), "AbortError")
   const operationId = crypto.randomUUID()
   return new Promise((resolve, reject) => {
     let stopped = false
@@ -61,7 +62,7 @@ async function operation(
     const abort = () => {
       stopped = true
       void cancel()
-      reject(new DOMException("Stopped waiting for the request", "AbortError"))
+      reject(new DOMException(t("ui.stoppedWaitingForTheRequest"), "AbortError"))
     }
     const channel = new Channel<{
       type: "registered" | "open"
@@ -98,7 +99,7 @@ async function operation(
       .then((bytes) => {
         if (stopped) return
         if (typeof status !== "number" || !Number.isInteger(status) || status < 200 || status > 599)
-          throw new Error("Invalid instance response status")
+          throw new LocalizedError("ui.invalidInstanceResponseStatus")
         const headers = new Headers({ "content-type": contentType })
         if (requestId && /^[A-Za-z0-9_-]{1,80}$/.test(requestId)) headers.set("x-trawl-request-id", requestId)
         resolve(new Response(bytes instanceof ArrayBuffer ? bytes : new Uint8Array(bytes), { status, headers }))
@@ -135,7 +136,7 @@ function stream(instanceId: string, topic: string, request: Request): Promise<Re
         /* Already cancelled. */
       }
     }
-    const abort = () => fail(new DOMException("Request aborted", "AbortError"))
+    const abort = () => fail(new DOMException(t("ui.requestAborted"), "AbortError"))
     const ack = (sequence: number) => {
       void invoke("api_stream_ack", { streamId, sequence }).catch(fail)
     }
@@ -174,7 +175,7 @@ function stream(instanceId: string, topic: string, request: Request): Promise<Re
           message.status < 200 ||
           message.status > 599
         ) {
-          fail(new Error("Invalid stream response"))
+          fail(new LocalizedError("ui.invalidStreamResponse"))
           return
         }
         opened = true
@@ -198,7 +199,7 @@ function stream(instanceId: string, topic: string, request: Request): Promise<Re
           typeof message.sequence !== "number" ||
           !Number.isSafeInteger(message.sequence)
         ) {
-          fail(new Error("Invalid stream frame"))
+          fail(new LocalizedError("ui.invalidStreamFrame"))
           return
         }
         controller.enqueue(new TextEncoder().encode(message.frame))
@@ -221,7 +222,7 @@ function stream(instanceId: string, topic: string, request: Request): Promise<Re
       onEvent: channel,
     })
       .then(() => {
-        if (!stopped) fail(new Error("Event stream closed"))
+        if (!stopped) fail(new LocalizedError("ui.eventStreamClosed"))
       })
       .catch(fail)
   })
