@@ -23,7 +23,44 @@ export interface Setting {
   choices?: readonly string[]
 }
 
+export const dnsProviders = {
+  cloudflare: { label: "Cloudflare", url: "https://cloudflare-dns.com/dns-query", bootstrap: "1.1.1.1" },
+  google: { label: "Google", url: "https://dns.google/dns-query", bootstrap: "8.8.8.8" },
+  quad9: { label: "Quad9 · threat blocking", url: "https://dns.quad9.net/dns-query", bootstrap: "9.9.9.9" },
+  "quad9-unfiltered": { label: "Quad9 · unfiltered", url: "https://dns10.quad9.net/dns-query", bootstrap: "9.9.9.10" },
+  adguard: {
+    label: "AdGuard · ads and trackers blocked",
+    url: "https://dns.adguard-dns.com/dns-query",
+    bootstrap: "94.140.14.14",
+  },
+  "adguard-unfiltered": {
+    label: "AdGuard · unfiltered",
+    url: "https://unfiltered.adguard-dns.com/dns-query",
+    bootstrap: "94.140.14.140",
+  },
+} as const
+export const dnsChoices = ["system", ...Object.keys(dnsProviders), "custom"]
+
 export const settings: readonly Setting[] = [
+  {
+    name: "DNS_RESOLVER",
+    default: "system",
+    kind: "enum",
+    choices: dnsChoices,
+    description:
+      "Resolver for this instance only. HTTPS presets leave device DNS and VPN unchanged. Upstream proxies resolve on their host. Restart to apply.",
+    group: "dns",
+    restart: true,
+  },
+  {
+    name: "DNS_SERVERS",
+    default: "",
+    kind: "string",
+    description:
+      "Custom mode: up to four IP addresses (optional port; bracket IPv6 ports) or HTTPS DNS-over-HTTPS URLs, separated by commas. IP servers use unencrypted DNS over TCP. Custom HTTPS hostnames use system DNS only to locate the resolver. No system fallback for destination queries.",
+    group: "dns",
+    restart: true,
+  },
   {
     name: "TELEMETRY_ENABLED",
     default: "false",
