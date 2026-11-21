@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:insetLeft="19dp" android:insetTop="19dp"
+    android:insetRight="19dp" android:insetBottom="19dp">
+    <bitmap android:src="@drawable/trawl_mark" android:gravity="fill"
+        android:antialias="true" android:filter="true" />
+</inset>
