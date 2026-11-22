@@ -7,10 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Reuse browser sessions for repeated requests through the same explicit proxy, with separate cache entries for each proxy identity (#298).
+- Include page content in the structured results of MCP `read` and `scrape` for clients that consume structured output (#294).
+- Restore the Redis session cache automatically after a connection loss without blocking scrapes on reconnect (#296).
+- Let queued HTTPS response bytes flush when the MITM tunnel closes, preventing truncated downloads for slow clients (#293).
+
 ### Added
 - Solve Alibaba's Baxia NC "slide to verify" slider on punish pages in the browser tiers. A slide only counts when the server issues a new `x5sec` cookie; rejected slides use the widget's own retry, up to three drags.
+- Show session cache connectivity and operation counters in `/health` and `/metrics` without changing readiness (#297).
+- Add `BROWSER_GEOIP_IP` to start browsers with a known public egress IP when external IP-discovery services are unavailable. Keep automatic discovery by default, validate configured addresses and provide an actionable startup error (#288).
 - Solve the AWS WAF CAPTCHA wall through its audio puzzle in the browser tier, using the existing speech-to-text configuration. Require an accepted answer and verified clearance, bound transcription and token validation to the local budget, and preserve configured external fallback. Transcripts without a usable answer request a fresh puzzle, and at most three answers are submitted per wall (#283).
 - Add `STT_MODEL` to choose the model name sent to `STT_URL` (default `whisper-1`).
+- Show CAPTCHA results in the local metrics dashboard: a per-solver panel with attempts, solved, failed and success rate, and a CAPTCHA column on recent activity and failures. Tier attempts in `timings` carry `captchas` when they tried one.
+
+### Changed
+- Route sessionless `/v1` GET and POST requests through the configured `PROXY_URL` pool when no request proxy is supplied (including Prowlarr's empty proxy object). Fail without sending traffic directly when the proxy is unavailable (#295).
+- Increase the default browser acquisition wait from 15 to 30 seconds so bursts can wait longer for a free browser. Keep explicit `BROWSER_ACQUIRE_TIMEOUT_MS` overrides and the request's overall deadline.
 
 ## [1.11.1] - 2026-11-12
 

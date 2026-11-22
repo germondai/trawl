@@ -4,6 +4,7 @@ import type { ExternalCaptchaSession } from "../solvers/externalCaptcha"
 import { waitForAkamaiResolution } from "./akamaiWait"
 import { type AnubisResolution, waitForAnubisResolution } from "./anubisWait"
 import { type AwsWafResolution, waitForAwsWafResolution } from "./awsWafWait"
+import type { CaptchaSink } from "./captchaOutcomes"
 import { waitForChallengeResolution } from "./challengeWait"
 import type { ChallengeCookieSnapshot } from "./cookies"
 import { type DataDomeResolution, waitForDataDomeResolution } from "./datadomeWait"
@@ -134,6 +135,7 @@ export async function routeChallengeWait(
   external?: ExternalCaptchaSession,
   proxy?: string,
   signal?: AbortSignal,
+  onCaptcha?: CaptchaSink,
 ): Promise<{ challengeType: ChallengeType; resolution: Resolution; captchasSolved?: string[] }> {
   const deadline = Date.now() + timeoutMs
   let eligible = false
@@ -167,7 +169,8 @@ export async function routeChallengeWait(
     result.challengeType === "aws-waf" &&
     result.resolution === "captcha-required" &&
     waiters.awsWafCaptcha &&
-    !signal?.aborted
+    !signal?.aborted &&
+    deadline > Date.now()
   ) {
     // With an external solver configured the local attempt gets only its share, like every
     // other local solver, so the fallback is not left without time.
@@ -182,7 +185,10 @@ export async function routeChallengeWait(
         if (current && !hasAwsWafCaptcha(current)) break
         await sleep(Math.min(250, Math.max(0, clearUntil - Date.now())), signal).catch(() => {})
       }
-      if (signal?.aborted) return result
+      if (signal?.aborted) {
+        onCaptcha?.([{ kind: "aws-waf", outcome: "failed" }])
+        return result
+      }
       const resolution = await waiters.awsWaf(
         page,
         Math.max(0, localDeadline - Date.now()),
@@ -190,8 +196,12 @@ export async function routeChallengeWait(
         initialCookies?.awsWaf,
       )
       result = { challengeType: "aws-waf", resolution }
-      if (resolution === "ok") return { ...result, captchasSolved: ["aws-waf"] }
+      if (resolution === "ok") {
+        onCaptcha?.([{ kind: "aws-waf", outcome: "solved" }])
+        return { ...result, captchasSolved: ["aws-waf"] }
+      }
     }
+    onCaptcha?.([{ kind: "aws-waf", outcome: "failed" }])
   }
   if (
     !eligible ||
@@ -203,8 +213,19 @@ export async function routeChallengeWait(
     signal?.aborted
   )
     return result
-  const solved = await external.solveProfiles(page, Math.max(0, deadline - Date.now()), signal, proxy)
-  if (signal?.aborted) return result
+  const solved = await external.solveProfiles(
+    page,
+    Math.max(0, deadline - Date.now()),
+    signal,
+    proxy,
+    (kind, delivered) => {
+      if (!delivered) onCaptcha?.([{ kind, outcome: "failed" }])
+    },
+  )
+  if (signal?.aborted) {
+    onCaptcha?.(solved.map((kind) => ({ kind, outcome: "failed" })))
+    return result
+  }
   // A delayed or unsupported render must not shorten the original local wait.
   if (!solved.length && !(managedCloudflare && result.resolution === "timeout")) return result
   const verified = await routeLocalChallengeWait(
@@ -218,5 +239,6 @@ export async function routeChallengeWait(
     initialCookies,
     responseHeaders,
   )
+  onCaptcha?.(solved.map((kind) => ({ kind, outcome: verified.resolution === "ok" ? "solved" : "failed" })))
   return verified.resolution === "ok" && solved.length ? { ...verified, captchasSolved: solved } : verified
 }

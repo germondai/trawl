@@ -290,9 +290,27 @@ BROWSER_POOL_SIZE=8   # high-throughput (6+ GB host RAM)
 
 > **Note:** Pool size controls concurrency, not solver capability. The API container sets `shm_size: 1gb` by default. Shared memory does not replace the container memory limit.
 
+### `BROWSER_GEOIP_IP`
+
+**Default:** unset (automatic public IP discovery)
+
+Optional IPv4 or IPv6 address for browser GeoIP. Set it to the container's **actual public egress
+IP** when outbound IP-discovery services are unavailable. Camoufox uses the bundled GeoIP database
+for that address instead of calling external IP services. GeoIP remains enabled; browser profiles,
+proxy routing and TLS checks keep their existing behavior.
+
+```ini
+BROWSER_GEOIP_IP= # leave blank for automatic discovery
+```
+
+Only an IP literal is accepted, with surrounding whitespace ignored. URLs, hostnames and `false`
+are invalid. This setting applies to both browser pools, including cold starts and replacements.
+Update it when your public egress IP changes, including VPN exit changes. It does not configure a
+proxy or discover its IP; it replaces the startup lookup for the container's egress address.
+
 ### `BROWSER_ACQUIRE_TIMEOUT_MS`
 
-**Default:** `15000` (15 seconds)
+**Default:** `30000` (30 seconds)
 
 Maximum queue wait for a free browser before rejecting with `PoolExhaustedError`. Queue time also consumes the request's remaining `maxTimeout`: the shorter deadline wins. Waiting requests wake when capacity becomes available, without periodic queue polling. The default pool intentionally favors low memory use; raise the pool when sustained concurrent browser solves are expected.
 
@@ -300,8 +318,8 @@ Lower it for fail-fast client feedback (Prowlarr will see 429s sooner and retry 
 
 ```ini
 BROWSER_ACQUIRE_TIMEOUT_MS=5000    # fail fast - 429s after 5s
-BROWSER_ACQUIRE_TIMEOUT_MS=15000   # default - bounded queue before HTTP 429
-BROWSER_ACQUIRE_TIMEOUT_MS=30000   # tolerate longer queueing on slow targets
+BROWSER_ACQUIRE_TIMEOUT_MS=15000   # shorter queue wait before HTTP 429
+BROWSER_ACQUIRE_TIMEOUT_MS=30000   # default - allow bursts to wait for a free browser
 ```
 
 When the timeout fires, both `/v1` and `/scrape` return **HTTP 429** with the FlareSolverr v2 error envelope (not a 500).
@@ -852,7 +870,7 @@ contact the configured STT service. Treat `STT_API_KEY` as a secret and avoid co
 
 ### `PROXY_URL`
 
-These environment-level proxies are escalation pools: direct Tier 1 and cached Tier 2 may complete before they are used. In contrast, the API request-level `proxy` field is a routing guarantee; target traffic for that request never falls back to a direct connection.
+For `/scrape`, these environment-level proxies are escalation pools: direct Tier 1 and cached Tier 2 may complete before they are used. For sessionless `/v1` GET and POST requests, the datacenter pool is also the default route when the request omits `proxy` or sends `{}`. An explicit request proxy takes precedence. If the selected proxy fails or the pool has no available endpoint, the request fails without connecting directly. Named sessions still use their session's routing settings.
 
 **Default:** _(empty - no proxy)_
 
@@ -961,7 +979,12 @@ Both `POST /scrape` and `POST /v1` accept an optional `proxy` field in the reque
 { "url": "https://example.com", "proxy": "http://user:pass@my-proxy.example.com:8080" }
 ```
 
-Note: `proxy` on `/v1` is a TRAWL-specific extension - it is not part of the real FlareSolverr v2 contract, so other FlareSolverr-compatible clients simply won't send it.
+FlareSolverr also accepts a proxy object with a `url` and optional credentials. Prowlarr may send an empty object when its global proxy is disabled.
+
+Sessionless requests through an explicit proxy can reuse a cached browser session for the same
+destination and proxy identity, including credentials. Proxied sessions are stored separately from
+direct sessions. If the proxy rotates its exit IP and the site rejects the cached clearance, TRAWL
+invalidates that entry and continues with a fresh solve through the requested proxy.
 
 ### Test an endpoint
 

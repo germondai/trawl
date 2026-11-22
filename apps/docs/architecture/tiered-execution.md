@@ -113,7 +113,7 @@ site loads without a fresh challenge solve.
 
 ## Tier 3 - Fresh Challenge Solve
 
-Acquires a browser from the pool (or waits up to `BROWSER_ACQUIRE_TIMEOUT_MS`, default 15s,
+Acquires a browser from the pool (or waits up to `BROWSER_ACQUIRE_TIMEOUT_MS`, default 30s,
 within the remaining request budget), creates a fresh Camoufox context and navigates. Ordinary
 solves start without cached cookies; explicitly imported cookies use an isolated context and
 do not enter the shared cache. TRAWL identifies the wall and runs the matching provider flow

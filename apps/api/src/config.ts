@@ -1,3 +1,4 @@
+import { isIP } from "node:net"
 import { type ExternalCaptchaOptions, ProxyPool, type ProxySelection, parseCaptchaProfiles } from "@trawl/tiers"
 
 export const REDIS_URL = process.env.REDIS_URL?.trim() || undefined
@@ -43,9 +44,13 @@ export const parseBrowserHardwareConcurrency = (value: string | undefined): numb
 export const PORT = integerInRange(process.env.PORT, 8_191, 1, 65_535)
 export const WAF_DETECTION_ENABLED = !/^(0|false|no)$/i.test(process.env.WAF_DETECTION_ENABLED?.trim() ?? "")
 export const POOL_SIZE = positiveInteger(process.env.BROWSER_POOL_SIZE, 1)
+export const BROWSER_GEOIP_IP = process.env.BROWSER_GEOIP_IP?.trim() || undefined
+if (BROWSER_GEOIP_IP && !isIP(BROWSER_GEOIP_IP)) {
+  throw new Error("BROWSER_GEOIP_IP must be a valid IPv4 or IPv6 address")
+}
 // How long acquire() will poll for a free browser before rejecting with PoolExhaustedError.
 // Tune lower for fast-fail feedback; tune higher to let a small pool absorb longer browser queues.
-export const ACQUIRE_TIMEOUT_MS = positiveInteger(process.env.BROWSER_ACQUIRE_TIMEOUT_MS, 15_000)
+export const ACQUIRE_TIMEOUT_MS = positiveInteger(process.env.BROWSER_ACQUIRE_TIMEOUT_MS, 30_000)
 export const REDIS_SESSION_TTL_SECONDS = positiveInteger(process.env.REDIS_SESSION_TTL_SECONDS, 3_600)
 export const BROWSER_SESSION_MAX_ENTRIES = positiveInteger(process.env.BROWSER_SESSION_MAX_ENTRIES, 4)
 export const BROWSER_SESSION_TTL_SECONDS = positiveInteger(process.env.BROWSER_SESSION_TTL_SECONDS, 3_600)
