@@ -128,6 +128,16 @@ image limits and both API routes with direct and proxied browser requests:
 TRAWL_SHUMEI_TESTS=1 CAMOUFOX_INSTALL_DIR=/path/to/camoufox bun test apps/api/src/shumei.integration.test.ts
 ```
 
+DataDome browser tests use a local audio widget and an independent answer check, plus
+both API routes with ordinary content, persistent CAPTCHA walls and hard blocks:
+
+```bash
+TRAWL_DATADOME_TESTS=1 CAMOUFOX_INSTALL_DIR=/path/to/camoufox bun test apps/api/src/datadome.integration.test.ts
+```
+
+The fixture injects transcription and audio bytes; it does not measure live STT or
+DataDome acceptance. No fixture requests reach external services.
+
 Raw text browser integration tests use owned HTTP fixtures and a local forward proxy:
 
 ```bash

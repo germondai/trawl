@@ -1,4 +1,5 @@
 import type { Page } from "patchright"
+import { sleep } from "./deadline"
 import { hasAwsWafCaptcha, hasAwsWafChallenge } from "./detect"
 
 export type AwsWafResolution = "ok" | "ip-blocked" | "timeout" | "captcha-required"
@@ -8,6 +9,7 @@ interface WaitOptions {
   stablePolls?: number
   redirectGraceMs?: number
   initialTokens?: ReadonlySet<string>
+  signal?: AbortSignal
 }
 
 function domainMatches(host: string, cookieDomain: string): boolean {
@@ -21,7 +23,7 @@ export async function waitForAwsWafResolution(
   originalUrl?: string,
   options: WaitOptions = {},
 ): Promise<AwsWafResolution> {
-  if (timeoutMs <= 0) return "timeout"
+  if (timeoutMs <= 0 || options.signal?.aborted) return "timeout"
   const deadline = Date.now() + timeoutMs
   const pollMs = options.pollMs ?? 300
   const stablePolls = options.stablePolls ?? 2
@@ -48,7 +50,7 @@ export async function waitForAwsWafResolution(
         .map((cookie) => `${cookie.domain}:${cookie.value}`),
     )
 
-  while (Date.now() < deadline) {
+  while (Date.now() < deadline && !options.signal?.aborted) {
     const html = await page.content().catch(() => "")
     if (hasAwsWafCaptcha(html)) return "captcha-required"
 
@@ -70,7 +72,7 @@ export async function waitForAwsWafResolution(
       tokenAt ??= Date.now()
       if (clearPolls >= stablePolls) {
         await page.waitForLoadState("load", { timeout: Math.max(1, deadline - Date.now()) }).catch(() => {})
-        return "ok"
+        return options.signal?.aborted ? "timeout" : "ok"
       }
 
       if (originalUrl && !renavigated && Date.now() - tokenAt >= redirectGraceMs) {
@@ -81,8 +83,8 @@ export async function waitForAwsWafResolution(
       }
     }
 
-    await new Promise((resolve) => setTimeout(resolve, Math.min(pollMs, Math.max(0, deadline - Date.now()))))
+    await sleep(Math.min(pollMs, Math.max(0, deadline - Date.now())), options.signal).catch(() => {})
   }
 
-  return tokenAt !== undefined ? "ip-blocked" : "timeout"
+  return !options.signal?.aborted && tokenAt !== undefined ? "ip-blocked" : "timeout"
 }

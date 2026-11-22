@@ -27,10 +27,10 @@ TRAWL detects supported walls, chooses the matching browser flow and checks whet
 | Imperva / Incapsula     | Supported sensor challenges; no built-in solver for its own interactive CAPTCHA      | Site profile required                                     |
 | DDoS-Guard              | JavaScript challenge execution and cookie checks                                     | No dedicated catalogue entry                              |
 | AWS WAF                 | Token challenges; CAPTCHA wall via the audio puzzle (needs a capable STT model)      | Site profile required for CAPTCHA                         |
-| DataDome                | Device Check through the opt-in headful pool; detects slider CAPTCHA and hard blocks | Site profile required for slider CAPTCHA                  |
+| DataDome                | Device Check and audio CAPTCHA through the opt-in headful pool; experimental opt-in slider | Site profile required                               |
 | DuckDuckGo anomaly wall | Detected and reported as requiring CAPTCHA; no built-in image-puzzle solver          | No dedicated catalogue entry                              |
 
-DataDome browser handling requires `BROWSER_HEADFUL_POOL_SIZE=1`, which adds another browser pool. IP hard blocks may require a different egress IP. Google Search `/sorry/` redirects and supported bot-wall pages are also detected; detection alone does not mean a puzzle can be solved.
+DataDome browser handling requires `BROWSER_HEADFUL_POOL_SIZE=1`, which adds another browser pool. IP hard blocks may require a different egress IP. The audio solver is best effort: DataDome scores the session as well as the answer, so on strict sites it can accept the digits and still answer "access restricted". TRAWL reports that as a failure, not as a solved wall. Digits are understood in English and Portuguese. Google Search `/sorry/` redirects and supported bot-wall pages are also detected; detection alone does not mean a puzzle can be solved.
 
 Baxia NC solving drags the slider on Alibaba's punish page (`.../_____tmd_____/punish`) in the page's own browser, in the punish document or its iframe. Success requires a new, non-empty `x5sec` cookie; the widget's verified text and the challenge's beacon traffic answer 2xx either way and are not trusted. A rejected slide is retried through the widget's own retry control, up to three drags. The click-in-order captcha Baxia sometimes serves for the same block is not solved, and the puzzle-piece variant used before 2026-11-08 is not supported.
 
