@@ -1,4 +1,4 @@
-FROM oven/bun:1.4.4-alpine
+FROM oven/bun:1.4.5-alpine
 WORKDIR /app
 COPY package.json bun.lock ./
 COPY packages/telemetry/ ./packages/telemetry/

@@ -119,7 +119,7 @@ export const geoipAsset: Download = {
   sha256: "1ffc2e3e2c0d83a11cb64dfaa318e6f10f74aae131dd18899d5243eaf81c0364",
 }
 export const uboAsset: Download = {
-  size: 4650100,
-  url: "https://addons.mozilla.org/firefox/downloads/file/5034826/ublock_origin-1.75.0.xpi",
-  sha256: "5b74415860456370644bd80f16125e865b0e6c356bb5dfcfb84069967eaa5287",
+  size: 6371851,
+  url: "https://addons.mozilla.org/firefox/downloads/file/5282683/ublock_origin-1.76.6.xpi",
+  sha256: "debffadf7d5117bd2d4e9218e27bfdf3112544fd2e87f14882d274a11dc95375",
 }
