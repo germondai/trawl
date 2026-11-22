@@ -10,8 +10,8 @@
     "typecheck": "nuxt typecheck",
     "native:dev": "CARGO_BUILD_JOBS=2 tauri dev",
     "native:build": "CARGO_BUILD_JOBS=2 tauri build --no-bundle",
-    "native:package": "CARGO_BUILD_JOBS=2 tauri build",
-    "native:update:package": "CARGO_BUILD_JOBS=2 tauri build --config src-tauri/tauri.updater.conf.json",
+    "native:package": "CARGO_BUILD_JOBS=2 TAURI_BUNDLER_DMG_IGNORE_CI=true tauri build",
+    "native:update:package": "CARGO_BUILD_JOBS=2 TAURI_BUNDLER_DMG_IGNORE_CI=true tauri build --config src-tauri/tauri.updater.conf.json",
     "mobile:assets": "bun scripts/mobile-assets.ts",
     "android:build": "CARGO_BUILD_JOBS=2 tauri android build --apk --target aarch64 armv7 --split-per-abi --ci"
   },
