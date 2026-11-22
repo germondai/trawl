@@ -257,11 +257,14 @@ describe("session cache recovery", () => {
       expect(notifyLost).toBeDefined()
       notifyLost?.()
       expect(recovery.current()).toBeUndefined()
+      expect(recovery.health("redis")).toMatchObject({ state: "unavailable", connected: false })
       expect(closed).toBe(1)
       await ready
       const current = recovery.current()
       expect(current).toBeDefined()
       expect(current).not.toBe(oldCache)
+      await recovery.load("example.test")
+      expect(recovery.health("redis")).toMatchObject({ state: "connected", connected: true, lookups: { miss: 1 } })
       notifyLost?.()
       expect(recovery.current()).toBe(current)
     } finally {

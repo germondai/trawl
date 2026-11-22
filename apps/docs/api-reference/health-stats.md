@@ -35,6 +35,15 @@ curl -s http://localhost:8191/
 
 Full system health check. Used by Docker Compose health checks and monitoring systems.
 
+The `cache` object reports the configured driver, whether it is enabled, connection state
+(`disabled`, `connecting`, `connected` or `unavailable`), the last successful connection time,
+and counters for connection failures, lookups and writes. Operations skipped while the cache
+is offline do not count as misses. Cache availability does not change HTTP readiness.
+
+`/metrics` also exposes `trawl_session_cache_info`, `trawl_session_cache_up`,
+`trawl_session_cache_connect_failures_total`, `trawl_session_cache_lookups_total`
+and `trawl_session_cache_writes_total`.
+
 ### Response
 
 ```json

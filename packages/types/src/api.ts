@@ -376,10 +376,22 @@ export interface RuntimeMemory {
   oomKills: number
 }
 
+export interface SessionCacheHealth {
+  driver: "redis" | "memory"
+  enabled: boolean
+  connected: boolean
+  state: "disabled" | "connecting" | "connected" | "unavailable"
+  lastConnectedAt: string | null
+  connectFailures: number
+  lookups: { hit: number; miss: number; error: number }
+  writes: { ok: number; error: number }
+}
+
 export interface HealthResponse {
   status: "ok" | "starting"
   uptime: number
   memory?: RuntimeMemory
+  cache?: SessionCacheHealth
   pool: PoolStats
 }
 
