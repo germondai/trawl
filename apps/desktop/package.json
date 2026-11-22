@@ -16,10 +16,10 @@
     "android:build": "CARGO_BUILD_JOBS=2 tauri android build --apk --target aarch64 armv7 --split-per-abi --ci"
   },
   "dependencies": {
-    "@iconify-json/lucide": "1.2.155",
-    "@nuxt/ui": "4.12.0",
+    "@iconify-json/lucide": "1.2.158",
+    "@nuxt/ui": "4.13.0",
     "@pinia/nuxt": "1.0.3",
-    "@tauri-apps/api": "2.12.4",
+    "@tauri-apps/api": "2.12.5",
     "@tauri-apps/plugin-autostart": "2.7.0",
     "@trawl/client": "workspace:*",
     "@trawl/config": "workspace:*",
@@ -28,12 +28,12 @@
     "nuxt": "4.6.4",
     "pinia": "^4.1.0",
     "tailwindcss": "4.3.5",
-    "vue": "3.5.45"
+    "vue": "3.5.46"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "2.12.4",
+    "@tauri-apps/cli": "2.12.6",
     "typescript": "^6.0.3",
     "vue-tsc": "^3.3.14",
-    "@types/bun": "^1.4.4"
+    "@types/bun": "^1.4.5"
   }
 }

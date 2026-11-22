@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@noble/hashes": "^1.7.2",
+    "@noble/hashes": "^2.4.0",
     "@trawl/types": "workspace:*",
     "@trawl/browser": "workspace:*",
     "hash-wasm": "^4.13.0",
@@ -17,7 +17,7 @@
     "pngjs": "^7.0.0"
   },
   "devDependencies": {
-    "@types/bun": "^1.4.4",
+    "@types/bun": "^1.4.5",
     "@types/pngjs": "^6.0.5",
     "typescript": "^7.0.2",
     "patchright": "^1.64.3"

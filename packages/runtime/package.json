@@ -18,8 +18,8 @@
     "yauzl": "3.4.0"
   },
   "devDependencies": {
-    "@types/adm-zip": "^0.5.8",
-    "@types/bun": "^1.4.4",
+    "@types/adm-zip": "^0.6.0",
+    "@types/bun": "^1.4.5",
     "@types/proper-lockfile": "^4.1.4",
     "@types/yauzl": "^3.4.0",
     "typescript": "^7.0.2"

@@ -1,4 +1,4 @@
-import { blake2b } from "@noble/hashes/blake2b"
+import { blake2b } from "@noble/hashes/blake2.js"
 
 // Protocol reference: FriendlyCaptcha/friendly-pow@4caf0912, encoding and puzzle layout.
 export function friendlyPuzzle(difficulty = 1, count = 2) {
