@@ -27,7 +27,7 @@ TRAWL detects supported walls, chooses the matching browser flow and checks whet
 | Imperva / Incapsula     | Supported sensor challenges; no built-in solver for its own interactive CAPTCHA      | Site profile required                                     |
 | DDoS-Guard              | JavaScript challenge execution and cookie checks                                     | No dedicated catalogue entry                              |
 | AWS WAF                 | Token challenges; CAPTCHA wall via the audio puzzle (needs a capable STT model)      | Site profile required for CAPTCHA                         |
-| DataDome                | Device Check through the opt-in headful pool; CAPTCHA wall via its audio puzzle      | Site profile required for slider CAPTCHA                  |
+| DataDome                | Device Check and audio CAPTCHA through the opt-in headful pool; experimental opt-in slider | Site profile required                               |
 | DuckDuckGo anomaly wall | Detected and reported as requiring CAPTCHA; no built-in image-puzzle solver          | No dedicated catalogue entry                              |
 
 DataDome browser handling requires `BROWSER_HEADFUL_POOL_SIZE=1`, which adds another browser pool. IP hard blocks may require a different egress IP. The audio solver is best effort: DataDome scores the session as well as the answer, so on strict sites it can accept the digits and still answer "access restricted". TRAWL reports that as a failure, not as a solved wall. Digits are understood in English and Portuguese. Google Search `/sorry/` redirects and supported bot-wall pages are also detected; detection alone does not mean a puzzle can be solved.

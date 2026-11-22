@@ -1,7 +1,7 @@
 // DataDome CAPTCHA solver.
 //
 // The interactive wall offers a slider and an accessibility alternative that plays a short
-// clip reading six digits, typed one per box. The slider is tried first (datadomeSlider.ts);
+// clip reading six digits, typed one per box. An opt-in slider is tried first (datadomeSlider.ts);
 // when it cannot be used or does not pass, the audio alternative is the fallback: the solver
 // switches the widget to audio, reads the clip through the page's own network context,
 // transcribes it and types the digits into the real widget, so the SDK builds its own request
@@ -248,7 +248,7 @@ async function solveAudio(
         await sleep(Math.min(between(pace.typing), remaining()), signal).catch(() => {})
       }
       signal.throwIfAborted()
-      await sleep(Math.min(between(pace.submit), remaining()), signal).catch(() => {})
+      await sleep(Math.min(between(pace.submit), remaining()), signal)
       await frame.locator(SUBMIT).click({ timeout: step(3000) })
       submissions++
 

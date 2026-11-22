@@ -1,6 +1,7 @@
 import type { Page } from "patchright"
 import { solveAwsWaf } from "../solvers/awsWaf"
 import { solveDataDome } from "../solvers/datadome"
+import { hasWallFrame } from "../solvers/datadomeWidget"
 import type { ExternalCaptchaSession } from "../solvers/externalCaptcha"
 import { waitForAkamaiResolution } from "./akamaiWait"
 import { type AnubisResolution, waitForAnubisResolution } from "./anubisWait"
@@ -40,12 +41,14 @@ interface ChallengeWaiters {
     timeoutMs: number,
     originalUrl?: string,
     initialTokens?: ReadonlySet<string>,
+    signal?: AbortSignal,
   ) => Promise<Resolution>
   dataDome: (
     page: Page,
     timeoutMs: number,
     originalUrl?: string,
     initialCookies?: ReadonlySet<string>,
+    signal?: AbortSignal,
   ) => Promise<Resolution>
   // Optional so callers and tests that build their own waiter set never reach a real page.
   awsWafCaptcha?: (page: Page, timeoutMs: number, signal?: AbortSignal) => Promise<boolean>
@@ -59,10 +62,10 @@ const defaultWaiters: ChallengeWaiters = {
   imperva: waitForImpervaResolution,
   akamai: waitForAkamaiResolution,
   ddosGuard: waitForDdosGuardResolution,
-  awsWaf: (page, timeoutMs, originalUrl, initialTokens) =>
-    waitForAwsWafResolution(page, timeoutMs, originalUrl, { initialTokens }),
-  dataDome: (page, timeoutMs, originalUrl, initialCookies) =>
-    waitForDataDomeResolution(page, timeoutMs, originalUrl, { initialCookies }),
+  awsWaf: (page, timeoutMs, originalUrl, initialTokens, signal) =>
+    waitForAwsWafResolution(page, timeoutMs, originalUrl, { initialTokens, signal }),
+  dataDome: (page, timeoutMs, originalUrl, initialCookies, signal) =>
+    waitForDataDomeResolution(page, timeoutMs, originalUrl, { initialCookies, signal }),
 }
 
 async function routeLocalChallengeWait(
@@ -139,6 +142,7 @@ export async function routeChallengeWait(
   proxy?: string,
   signal?: AbortSignal,
   onCaptcha?: CaptchaSink,
+  responseStatus: () => number | undefined = () => undefined,
 ): Promise<{ challengeType: ChallengeType; resolution: Resolution; captchasSolved?: string[] }> {
   const deadline = Date.now() + timeoutMs
   let eligible = false
@@ -175,14 +179,15 @@ export async function routeChallengeWait(
             type: "aws-waf" as const,
             solve: waiters.awsWafCaptcha,
             stillWall: (html: string) => hasAwsWafCaptcha(html),
-            confirm: (timeout: number) => waiters.awsWaf(page, timeout, originalUrl, initialCookies?.awsWaf),
+            confirm: (timeout: number) => waiters.awsWaf(page, timeout, originalUrl, initialCookies?.awsWaf, signal),
           }
         : result.challengeType === "datadome" && waiters.dataDomeCaptcha
           ? {
               type: "datadome" as const,
               solve: waiters.dataDomeCaptcha,
               stillWall: (html: string) => getDataDomeAction(html) === "captcha",
-              confirm: (timeout: number) => waiters.dataDome(page, timeout, originalUrl, initialCookies?.dataDome),
+              confirm: (timeout: number) =>
+                waiters.dataDome(page, timeout, originalUrl, initialCookies?.dataDome, signal),
             }
           : undefined
       : undefined
@@ -204,7 +209,17 @@ export async function routeChallengeWait(
         onCaptcha?.([{ kind: wallSolver.type, outcome: "failed" }])
         return result
       }
-      const resolution = await wallSolver.confirm(Math.max(0, localDeadline - Date.now()))
+      let resolution = await wallSolver.confirm(Math.max(0, localDeadline - Date.now()))
+      if (wallSolver.type === "datadome" && resolution === "ok" && !signal?.aborted) {
+        const current = await page.content().catch(() => "")
+        const action = getDataDomeAction(current, responseHeaders(), responseStatus())
+        if ((responseStatus() ?? 200) >= 400 || action === "blocked") resolution = "ip-blocked"
+        else if (!current || action || hasWallFrame(page)) resolution = "captcha-required"
+      }
+      if (signal?.aborted) {
+        onCaptcha?.([{ kind: wallSolver.type, outcome: "failed" }])
+        return result
+      }
       result = { challengeType: wallSolver.type, resolution }
       if (resolution === "ok") {
         onCaptcha?.([{ kind: wallSolver.type, outcome: "solved" }])

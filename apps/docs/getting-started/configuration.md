@@ -874,8 +874,10 @@ TRAWL solves a DataDome CAPTCHA wall through the widget's audio alternative, in 
   six digits requests a new clip, and at most three answers are submitted per wall.
 - A passed widget is not clearance. DataDome also scores the session, and on strict sites it can
   replace the widget with an "access restricted" page after a correct answer. TRAWL reports that as
-  a failure and the request escalates. Datacenter egress addresses did not help in testing;
-  residential or mobile ones are the ones worth trying.
+  a failure and the request escalates. Clearance requires a successful document response and
+  the disappearance of the challenge frame, as well as a fresh cookie.
+- The experimental slider path is off by default. `DATADOME_SLIDER=true` tries it before audio,
+  using at most half the remaining solver budget, capped at 30 seconds.
 
 The API container already includes ffmpeg. Bare-metal installations must make `ffmpeg` available on
 `PATH` or set `FFMPEG_PATH`. These values are read only by CAPTCHA solving; ordinary scrapes do not

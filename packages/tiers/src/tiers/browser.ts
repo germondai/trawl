@@ -183,6 +183,7 @@ async function runBrowserTierTask<T extends 3 | 4>(
       proxyUrl,
       budget.signal,
       capture.captchaOutcomes,
+      () => mainResponse.status,
     )
 
     if (resolution === "browser-closed") {

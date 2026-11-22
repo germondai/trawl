@@ -172,6 +172,24 @@ const download = async (_page: Page, url: string) => {
 }
 
 describe("DataDome audio solver", () => {
+  test("never submits when cancelled during the pre-submit pause", async () => {
+    const widget = fakeWidget()
+    const request = new AbortController()
+    const type = widget.page.keyboard.type.bind(widget.page.keyboard)
+    widget.page.keyboard.type = async (...args) => {
+      await type(...args)
+      if (widget.typed.length === 6) setTimeout(() => request.abort(), 25)
+    }
+    expect(
+      await solveDataDome(widget.page, 5000, request.signal, recogniser([GOOD]).fn, download, {
+        ...NO_PACE,
+        submit: [200, 200],
+      }),
+    ).toBe(false)
+    expect(widget.typed.join("")).toBe("589244")
+    expect(widget.log).not.toContain(`click:${SUBMIT}`)
+  })
+
   test("opens the audio panel, types the six digits and reports the accepted verdict", async () => {
     downloads.length = 0
     const widget = fakeWidget()
