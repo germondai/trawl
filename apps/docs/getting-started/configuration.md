@@ -981,6 +981,11 @@ Both `POST /scrape` and `POST /v1` accept an optional `proxy` field in the reque
 
 FlareSolverr also accepts a proxy object with a `url` and optional credentials. Prowlarr may send an empty object when its global proxy is disabled.
 
+Sessionless requests through an explicit proxy can reuse a cached browser session for the same
+destination and proxy identity, including credentials. Proxied sessions are stored separately from
+direct sessions. If the proxy rotates its exit IP and the site rejects the cached clearance, TRAWL
+invalidates that entry and continues with a fresh solve through the requested proxy.
+
 ### Test an endpoint
 
 Test an HTTP proxy independently before starting TRAWL:
