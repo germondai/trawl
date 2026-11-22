@@ -3,6 +3,8 @@ import { closeTemporaryContext, FINGERPRINT, newFreshContext } from "@trawl/brow
 import type { Cookie } from "@trawl/types"
 import { capturePageFavicons } from "../favicons"
 import { solvePageCaptchas } from "../solvers"
+import { hasBaxiaNcWidget, solveBaxiaNc } from "../solvers/baxiaNc"
+import { waitForBaxiaNavigation } from "../utils/baxiaWait"
 import { reportBlocked } from "../utils/blockedEvidence"
 import { captureBrowserDocument, waitForBrowserLoad } from "../utils/browserCapture"
 import { persistentBrowserWall } from "../utils/browserWall"
@@ -253,8 +255,28 @@ async function runBrowserTierTask<T extends 3 | 4>(
       }))
       captchasSolved = [...new Set([...captchasSolved, ...solveResult.solved])]
       capture.captchaOutcomes?.(widgetOutcomes(solveResult.attempted, solveResult.solved))
+    } else if (
+      capture.solveEmbeddedCaptchas === false &&
+      budget.remaining() > 5000 &&
+      (challengeType === "baxia" || /\/_____tmd_____\/punish/.test(page.url())) &&
+      (await hasBaxiaNcWidget(page, Math.min(5000, solveRemaining), budget.signal)) &&
+      persistentBrowserWall(
+        await page.content().catch(() => ""),
+        page.url(),
+        mainResponse.headers,
+        mainResponse.status,
+        challengeType,
+      )?.reason === "baxia-persistent"
+    ) {
+      // Access walls must clear even when application CAPTCHA solving is disabled.
+      budget.check()
+      const solved = await solveBaxiaNc(page, Math.max(0, budget.remaining() - 2000), budget.signal).catch(() => false)
+      if (solved) captchasSolved.push("baxia-nc")
+      capture.captchaOutcomes?.([{ kind: "baxia-nc", outcome: solved ? "solved" : "failed" }])
     }
 
+    if (captchasSolved.includes("baxia-nc"))
+      await waitForBaxiaNavigation(page, Math.min(2000, budget.remaining()), budget.signal, () => mainResponse.headers)
     if (overlapWidgetSettling) await sleep(Math.max(0, settleUntil - Date.now()), budget.signal)
 
     const { html, shot, evidence } = await captureBrowserDocument(page, capture, pageCapture, budget, screenshot)

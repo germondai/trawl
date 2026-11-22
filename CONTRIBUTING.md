@@ -138,6 +138,14 @@ TRAWL_DATADOME_TESTS=1 CAMOUFOX_INSTALL_DIR=/path/to/camoufox bun test apps/api/
 The fixture injects transcription and audio bytes; it does not measure live STT or
 DataDome acceptance. No fixture requests reach external services.
 
+Baxia tests use a local NC slider with independent server verification through both
+API routes. They cover fresh and cached sessions, rejected or missing widgets,
+and the embedded CAPTCHA opt-out:
+
+```bash
+TRAWL_BAXIA_TESTS=1 CAMOUFOX_INSTALL_DIR=/path/to/camoufox bun test apps/api/src/baxia.integration.test.ts
+```
+
 Raw text browser integration tests use owned HTTP fixtures and a local forward proxy:
 
 ```bash
