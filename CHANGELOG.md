@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Include page content in the structured results of MCP `read` and `scrape` for clients that consume structured output (#294).
 - Restore the Redis session cache automatically after a connection loss without blocking scrapes on reconnect (#296).
 - Let queued HTTPS response bytes flush when the MITM tunnel closes, preventing truncated downloads for slow clients (#293).
 
