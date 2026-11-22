@@ -83,12 +83,13 @@ export function v1Route({
       }
 
       const scrapeRequest = buildScrapeRequestFromFlareSolverr(req as FlareSolverrScrapeRequest)
-      const deps = orchestratorDeps()
+      let deps = orchestratorDeps()
       const scrapeReq = req as FlareSolverrScrapeRequest
       const sessionId = scrapeReq.session
       if (!sessionId && !scrapeRequest.proxy && deps.proxyPool?.size) {
-        scrapeRequest.proxy = deps.proxyPool.next(new URL(scrapeRequest.url).hostname)
+        scrapeRequest.proxy = deps.proxyPool.next(URL.parse(scrapeRequest.url)?.hostname)
         if (!scrapeRequest.proxy) throw new RequestValidationError("proxy-connection-failed", 503)
+        deps = { ...deps, proxyFromPool: true }
       }
       if (sessionId) {
         const sessions = deps.sessions

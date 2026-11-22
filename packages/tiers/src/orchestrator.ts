@@ -84,6 +84,8 @@ export interface OrchestratorDeps {
   saveSession(domain: string, data: SessionData): Promise<void>
   invalidateSession(domain: string): Promise<void>
   proxyPool?: ProxyPool
+  // The caller pinned req.proxy to a configured pool endpoint for this request.
+  proxyFromPool?: boolean
   residentialProxyPool?: ProxyPool
   // Deployment-wide lower bound for the escalation ladder. API request flags may
   // raise this floor, but never lower it.
@@ -468,7 +470,9 @@ async function scrapeWithinBudget(
 
   // Tier 1 is the only look at the wall that happens before a browser is checked out, so
   // it is also the only chance to pick the right kind of browser for the tiers below.
-  let session = minTier <= 2 && !explicitProxy && !privateRequest ? await deps.loadSession(domain) : undefined
+  const cacheAllowed = (!explicitProxy || deps.proxyFromPool) && !privateRequest
+  let session = minTier <= 2 && cacheAllowed ? await deps.loadSession(domain) : undefined
+  if (explicitProxy && session?.proxyId !== proxyIdentity(explicitProxy)) session = undefined
   const sessionProxy = session?.proxyId
     ? (deps.proxyPool?.resolve(session.proxyId) ?? deps.residentialProxyPool?.resolve(session.proxyId))
     : undefined
@@ -811,7 +815,7 @@ async function scrapeWithinBudget(
       emit(crossed3 ? crossedTiming(t3, crossed3) : t3)
       if (hasUsablePayload(t3) && !crossed3) {
         const cookies: Cookie[] = t3.cookies ?? []
-        if (cookies.length > 0 && !explicitProxy && !privateRequest) {
+        if (cookies.length > 0 && cacheAllowed) {
           await deps.saveSession(domain, {
             cookies,
             userAgent: t3.userAgent ?? handle.fingerprint.userAgent,
@@ -924,7 +928,7 @@ async function scrapeWithinBudget(
     emit(crossed4 ? crossedTiming(t4, crossed4) : t4)
     if (hasUsablePayload(t4) && !crossed4) {
       const cookies: Cookie[] = t4.cookies ?? []
-      if (cookies.length > 0 && !explicitProxy && !privateRequest) {
+      if (cookies.length > 0 && cacheAllowed) {
         await deps.saveSession(domain, {
           cookies,
           userAgent: t4.userAgent ?? handle.fingerprint.userAgent,
