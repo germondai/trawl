@@ -179,7 +179,7 @@ async function handleConnect(
     upstream.on("error", () => clientSocket.destroy())
     clientSocket.on("error", () => upstream.destroy())
     clientSocket.once("close", () => upstream.destroy())
-    upstream.once("close", () => clientSocket.destroy())
+    upstream.once("close", () => clientSocket.end())
   })
 }
 
