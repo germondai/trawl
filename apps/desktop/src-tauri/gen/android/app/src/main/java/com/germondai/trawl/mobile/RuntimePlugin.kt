@@ -69,8 +69,6 @@ class RuntimePlugin(activity: Activity) : Plugin(activity), DefaultLifecycleObse
                     "minimize" -> minimize(invoke)
                     "shutdown" -> shutdown(invoke)
                     "actionFeedback" -> { RuntimeService.instance?.actionFeedback(invoke.getArgs().optString("action"), invoke.getArgs().optBoolean("success")); invoke.resolve() }
-                    "prepareUpdate" -> invoke.resolve(AppUpdates.prepare(activity,invoke.getArgs().optString("url")))
-                    "updateStatus" -> invoke.resolve(AppUpdates.status(context))
                     "liveActivityStatus" -> FocusNotifications.status(context,invoke)
                     "appLocale" -> { RuntimeService.syncLanguage(context);invoke.resolve(JSObject().apply { put("locale",Localizations.locale()) }) }
                     else -> invoke.reject("Unknown Android service operation")

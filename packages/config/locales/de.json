@@ -568,9 +568,9 @@
   "ui.installDownloadedUpdate": "Heruntergeladenes Update installieren",
   "ui.downloadUpdate": "Update herunterladen",
   "ui.updateAndRestart": "Aktualisieren und neu starten",
-  "ui.androidUsesItsSystemInstallerAndChecksThat": "Android verwendet den Systeminstaller und prüft die gleiche Anwendungssignatur der neueren APK. Erlaube bei Aufforderung Installationen aus TRAWL und kehre hierher zurück.",
+  "ui.androidUpdateUsesBrowser": "Android prüft bei der APK-Installation die Signatur der App.",
   "ui.updateTrawl": "TRAWL aktualisieren?",
-  "ui.downloadTheNewApkAndroidWillAskYou": "Lade die neue APK herunter. Android fragt vor der Installation nach.",
+  "ui.androidUpdateOpenBrowser": "Öffne den offiziellen APK-Download im Browser.",
   "ui.downloadAndVerifyTheSignedUpdateThenStop": "Lädt das signierte Update herunter und prüft es, stoppt den lokalen Server und startet TRAWL neu. Laufende Arbeit wird unterbrochen.",
   "ui.draining": "Anfragen werden abgeschlossen",
   "ui.needsAttention": "Aufmerksamkeit erforderlich",
@@ -1873,5 +1873,7 @@
   "native.error.atMostLimitOperationsCanRunAtOnce": "Es können höchstens {limit} Vorgänge gleichzeitig laufen",
   "native.error.detailsLoginStartupCouldNotBeRestoredCheckYourSystemLoginSettings": "{details}. Der Start bei der Anmeldung konnte nicht wiederhergestellt werden; prüfe die Anmeldeeinstellungen deines Systems.",
   "native.error.couldNotStartServerDetails": "Der Server konnte nicht gestartet werden: {details}",
-  "native.error.targetRequestFailedDetails": "Die Zielanfrage ist fehlgeschlagen: {details}"
+  "native.error.targetRequestFailedDetails": "Die Zielanfrage ist fehlgeschlagen: {details}",
+  "native.feedAccessDenied": "GitHub hat den Zugriff auf die Update-Quelle verweigert. Versuche es später erneut oder prüfe die Netzwerkeinschränkungen.",
+  "native.feedRateLimited": "GitHub begrenzt die Update-Anfragen. Versuche es später erneut."
 }

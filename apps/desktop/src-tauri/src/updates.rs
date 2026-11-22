@@ -3,6 +3,17 @@ use std::{sync::Mutex, time::Duration};
 
 const FEED: &str = "https://github.com/germondai/trawl/releases/latest/download/app-updates.json";
 
+#[cfg(any(target_os = "android", test))]
+fn feed_available(status: reqwest::StatusCode) -> Result<bool, &'static str> {
+    match status.as_u16() {
+        404 => Ok(false),
+        403 => Err("native.feedAccessDenied"),
+        429 => Err("native.feedRateLimited"),
+        200..=299 => Ok(true),
+        _ => Err("native.feedUnavailable"),
+    }
+}
+
 #[cfg(not(target_os = "android"))]
 static PENDING: Mutex<Option<tauri_plugin_updater::Update>> = Mutex::new(None);
 #[cfg(target_os = "android")]
@@ -156,50 +167,14 @@ pub async fn check_app_update(app: tauri::AppHandle) -> Result<Value, String> {
         .redirect(reqwest::redirect::Policy::limited(3))
         .build()
         .map_err(|_| "native.prepareCheckFailed")?;
-    // Discover whether an app feed exists before following a release-download redirect.
-    let release = client
-        .get("https://api.github.com/repos/germondai/trawl/releases/latest")
+    let mut response = client
+        .get(FEED)
         .header("User-Agent", "TRAWL-updater")
         .send()
         .await
-        .map_err(|_| "native.releaseConnectionFailed")?;
-    if release.status() == 404 {
-        return Ok(json!({"state":"unpublished","current":current.to_string()}));
-    }
-    let mut release = release
-        .error_for_status()
-        .map_err(|_| "native.releasesUnavailable")?;
-    let mut metadata = Vec::new();
-    while let Some(chunk) = release
-        .chunk()
-        .await
-        .map_err(|_| "native.readReleaseFailed")?
-    {
-        if metadata.len() + chunk.len() > 131072 {
-            return Err("native.releaseTooLarge".to_owned());
-        }
-        metadata.extend_from_slice(&chunk);
-    }
-    let metadata: Value = serde_json::from_slice(&metadata).map_err(|_| "native.invalidRelease")?;
-    let assets = metadata["assets"]
-        .as_array()
-        .ok_or("native.missingAssets")?;
-    if !assets
-        .iter()
-        .any(|asset| asset["name"] == "app-updates.json")
-    {
-        return Ok(json!({"state":"unpublished","current":current.to_string()}));
-    }
-    let mut response = client
-        .get(FEED)
-        .send()
-        .await
         .map_err(|_| "native.feedConnectionFailed")?;
-    if response.status() == 404 {
+    if !feed_available(response.status())? {
         return Ok(json!({"state":"unpublished","current":current.to_string()}));
-    }
-    if !response.status().is_success() {
-        return Err("native.feedUnavailable".to_owned());
     }
     let mut data = Vec::new();
     while let Some(chunk) = response
@@ -238,21 +213,32 @@ pub async fn check_app_update(app: tauri::AppHandle) -> Result<Value, String> {
 #[cfg(target_os = "android")]
 #[tauri::command]
 pub async fn install_app_update(_app: tauri::AppHandle) -> Result<Value, String> {
-    let url = PENDING.lock().unwrap().clone().unwrap_or_default();
-    crate::mobile::bridge::call("prepareUpdate", json!({"url":url})).await
-}
-
-#[tauri::command]
-pub async fn app_update_download_status() -> Result<Value, String> {
-    #[cfg(target_os = "android")]
-    return crate::mobile::bridge::call("updateStatus", json!({})).await;
-    #[cfg(not(target_os = "android"))]
+    let url = PENDING.lock().unwrap().clone().ok_or("native.checkAndroidUpdate")?;
+    crate::mobile::bridge::call("openUrl", json!({"url":url})).await?;
     Ok(json!({"state":"idle"}))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn missing_app_feeds_are_unpublished_but_access_errors_are_not() {
+        use reqwest::StatusCode;
+        assert_eq!(feed_available(StatusCode::OK), Ok(true));
+        assert_eq!(feed_available(StatusCode::NOT_FOUND), Ok(false));
+        assert_eq!(
+            feed_available(StatusCode::FORBIDDEN),
+            Err("native.feedAccessDenied")
+        );
+        assert_eq!(
+            feed_available(StatusCode::TOO_MANY_REQUESTS),
+            Err("native.feedRateLimited")
+        );
+        assert_eq!(
+            feed_available(StatusCode::BAD_GATEWAY),
+            Err("native.feedUnavailable")
+        );
+    }
     #[test]
     fn only_accepts_release_assets_from_the_owned_repository() {
         assert!(trusted_asset(

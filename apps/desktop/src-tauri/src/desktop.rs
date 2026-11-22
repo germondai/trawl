@@ -335,7 +335,7 @@ pub fn run() {
                 _ => {}
             }
         })
-        .invoke_handler(tauri::generate_handler![crate::app_locale, crate::i18n::refresh_app_language, crate::updates::check_app_update, crate::updates::install_app_update, crate::updates::app_update_download_status, enable_notifications,
+        .invoke_handler(tauri::generate_handler![crate::app_locale, crate::i18n::refresh_app_language, crate::updates::check_app_update, crate::updates::install_app_update, enable_notifications,
             crate::setting_paths::choose_setting_path,
             cancel_quit_gesture,
             runtime::management,

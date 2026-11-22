@@ -568,9 +568,9 @@
   "ui.installDownloadedUpdate": "Install downloaded update",
   "ui.downloadUpdate": "Download update",
   "ui.updateAndRestart": "Update and restart",
-  "ui.androidUsesItsSystemInstallerAndChecksThat": "Android uses its system installer and checks that the newer APK has the same application signature. If prompted, allow installs from TRAWL and return here to install.",
+  "ui.androidUpdateUsesBrowser": "Android verifies the application signature when you install the APK.",
   "ui.updateTrawl": "Update TRAWL?",
-  "ui.downloadTheNewApkAndroidWillAskYou": "Download the new APK. Android will ask you before installation.",
+  "ui.androidUpdateOpenBrowser": "Open the official APK download in your browser.",
   "ui.downloadAndVerifyTheSignedUpdateThenStop": "Download and verify the signed update, then stop the local server and restart TRAWL. Active work will be interrupted.",
   "ui.draining": "Draining",
   "ui.needsAttention": "Needs attention",
@@ -1873,5 +1873,7 @@
   "native.error.atMostLimitOperationsCanRunAtOnce": "At most {limit} operations can run at once",
   "native.error.detailsLoginStartupCouldNotBeRestoredCheckYourSystemLoginSettings": "{details}. Login startup could not be restored; check your system login settings.",
   "native.error.couldNotStartServerDetails": "Could not start server: {details}",
-  "native.error.targetRequestFailedDetails": "Target request failed: {details}"
+  "native.error.targetRequestFailedDetails": "Target request failed: {details}",
+  "native.feedAccessDenied": "GitHub denied access to the update feed. Try again later or check your network restrictions.",
+  "native.feedRateLimited": "GitHub is limiting update requests. Try again later."
 }

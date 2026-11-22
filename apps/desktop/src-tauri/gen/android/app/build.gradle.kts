@@ -20,7 +20,8 @@ android {
     namespace = "com.germondai.trawl.desktop"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
-        applicationId = "com.germondai.trawl.desktop"
+        // Keep the namespace for Tauri's generated Kotlin and JNI bindings.
+        applicationId = "com.germondai.trawl"
         minSdk = 24
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()

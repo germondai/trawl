@@ -414,7 +414,6 @@ pub fn run() {
             crate::app_locale,
             crate::updates::check_app_update,
             crate::updates::install_app_update,
-            crate::updates::app_update_download_status,
             management,
             server_start,
             instance_status,

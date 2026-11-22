@@ -568,9 +568,9 @@
   "ui.installDownloadedUpdate": "Installer la mise à jour téléchargée",
   "ui.downloadUpdate": "Télécharger la mise à jour",
   "ui.updateAndRestart": "Mettre à jour et redémarrer",
-  "ui.androidUsesItsSystemInstallerAndChecksThat": "Android utilise son installateur système et vérifie que le nouvel APK porte la même signature. Si demandé, autorisez les installations depuis TRAWL puis revenez ici.",
+  "ui.androidUpdateUsesBrowser": "Android vérifie la signature de l’application lors de l’installation de l’APK.",
   "ui.updateTrawl": "Mettre à jour TRAWL ?",
-  "ui.downloadTheNewApkAndroidWillAskYou": "Téléchargez le nouvel APK. Android vous demandera confirmation avant l’installation.",
+  "ui.androidUpdateOpenBrowser": "Ouvrir le téléchargement officiel de l’APK dans le navigateur.",
   "ui.downloadAndVerifyTheSignedUpdateThenStop": "Télécharge et vérifie la mise à jour signée, puis arrête le serveur local et redémarre TRAWL. Le travail en cours sera interrompu.",
   "ui.draining": "Fin des requêtes en cours",
   "ui.needsAttention": "Attention requise",
@@ -1882,5 +1882,7 @@
   "native.error.atMostLimitOperationsCanRunAtOnce": "Au maximum {limit} opérations peuvent s’exécuter simultanément",
   "native.error.detailsLoginStartupCouldNotBeRestoredCheckYourSystemLoginSettings": "{details}. Impossible de rétablir le démarrage à la connexion ; vérifiez les paramètres de connexion du système.",
   "native.error.couldNotStartServerDetails": "Impossible de démarrer le serveur : {details}",
-  "native.error.targetRequestFailedDetails": "La requête cible a échoué : {details}"
+  "native.error.targetRequestFailedDetails": "La requête cible a échoué : {details}",
+  "native.feedAccessDenied": "GitHub a refusé l’accès à la source des mises à jour. Réessaie plus tard ou vérifie les restrictions du réseau.",
+  "native.feedRateLimited": "GitHub limite les demandes de mise à jour. Réessaie plus tard."
 }

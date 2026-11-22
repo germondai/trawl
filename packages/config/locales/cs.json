@@ -568,9 +568,9 @@
   "ui.installDownloadedUpdate": "Nainstalovat staženou aktualizaci",
   "ui.downloadUpdate": "Stáhnout aktualizaci",
   "ui.updateAndRestart": "Aktualizovat a restartovat",
-  "ui.androidUsesItsSystemInstallerAndChecksThat": "Android použije systémový instalátor a ověří, že novější APK má stejný podpis aplikace. Pokud tě vyzve, povol instalace z TRAWLu a vrať se sem.",
+  "ui.androidUpdateUsesBrowser": "Android při instalaci APK ověří podpis aplikace.",
   "ui.updateTrawl": "Aktualizovat TRAWL?",
-  "ui.downloadTheNewApkAndroidWillAskYou": "Stáhni nové APK. Android se před instalací zeptá.",
+  "ui.androidUpdateOpenBrowser": "Otevři stažení oficiálního APK v prohlížeči.",
   "ui.downloadAndVerifyTheSignedUpdateThenStop": "Stáhne a ověří podepsanou aktualizaci, zastaví místní server a restartuje TRAWL. Probíhající práce se přeruší.",
   "ui.draining": "Dokončování požadavků",
   "ui.needsAttention": "Vyžaduje pozornost",
@@ -1891,5 +1891,7 @@
   "native.error.atMostLimitOperationsCanRunAtOnce": "Současně může běžet nejvýše {limit} operací",
   "native.error.detailsLoginStartupCouldNotBeRestoredCheckYourSystemLoginSettings": "{details}. Nepodařilo se obnovit spouštění při přihlášení; zkontroluj systémové nastavení přihlašování.",
   "native.error.couldNotStartServerDetails": "Nepodařilo se spustit server: {details}",
-  "native.error.targetRequestFailedDetails": "Cílový požadavek selhal: {details}"
+  "native.error.targetRequestFailedDetails": "Cílový požadavek selhal: {details}",
+  "native.feedAccessDenied": "GitHub odmítl přístup ke zdroji aktualizací. Zkus to později nebo zkontroluj omezení sítě.",
+  "native.feedRateLimited": "GitHub omezuje počet kontrol aktualizací. Zkus to později."
 }

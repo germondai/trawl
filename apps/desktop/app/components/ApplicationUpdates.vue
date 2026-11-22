@@ -41,7 +41,7 @@ function install() {
         </p>
         <UProgress :model-value="percentage" /></template
       >
-      <div class="actions">
+      <div class="actions update-actions">
         <UButton
           color="neutral"
           variant="outline"
@@ -52,11 +52,8 @@ function install() {
             t("ui.checkForUpdates")
           }}</UButton
         >
-        <UButton v-if="progress.state === 'ready'" :disabled="instance.settingsDirty" @click="updates.install">{{
-          t("ui.installDownloadedUpdate")
-        }}</UButton>
         <UButton
-          v-else-if="result?.state === 'available'"
+          v-if="result?.state === 'available'"
           icon="i-lucide-download"
           :disabled="installing || instance.settingsDirty"
           @click="confirm = true"
@@ -65,16 +62,16 @@ function install() {
           }}</UButton
         >
       </div>
-      <p v-if="instance.mobile" class="text-xs muted">
-        {{ t("ui.androidUsesItsSystemInstallerAndChecksThat") }}
-      </p>
     </div>
+    <p v-if="instance.mobile" class="panel-footer text-xs muted">
+      {{ t("ui.androidUpdateUsesBrowser") }}
+    </p>
   </section>
   <AppDialog
     v-model:open="confirm"
     :title="t('ui.updateTrawl')"
     :description="
-      instance.mobile ? t('ui.downloadTheNewApkAndroidWillAskYou') : t('ui.downloadAndVerifyTheSignedUpdateThenStop')
+      instance.mobile ? t('ui.androidUpdateOpenBrowser') : t('ui.downloadAndVerifyTheSignedUpdateThenStop')
     "
   >
     <template #footer
@@ -85,3 +82,17 @@ function install() {
     >
   </AppDialog>
 </template>
+<style scoped>
+.notice {
+  margin: 0;
+}
+@media (max-width: 640px) {
+  .panel-footer {
+    padding: 16px;
+  }
+  .update-actions > button {
+    flex: 1;
+    justify-content: center;
+  }
+}
+</style>

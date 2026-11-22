@@ -568,9 +568,9 @@
   "ui.installDownloadedUpdate": "Zainstaluj pobraną aktualizację",
   "ui.downloadUpdate": "Pobierz aktualizację",
   "ui.updateAndRestart": "Zaktualizuj i uruchom ponownie",
-  "ui.androidUsesItsSystemInstallerAndChecksThat": "Android używa instalatora systemowego i sprawdza, czy nowszy APK ma ten sam podpis aplikacji. Jeśli poprosi, zezwól na instalacje z TRAWL i wróć tutaj.",
+  "ui.androidUpdateUsesBrowser": "Android sprawdza podpis aplikacji podczas instalowania APK.",
   "ui.updateTrawl": "Zaktualizować TRAWL?",
-  "ui.downloadTheNewApkAndroidWillAskYou": "Pobierz nowy APK. Android zapyta przed instalacją.",
+  "ui.androidUpdateOpenBrowser": "Otwórz oficjalny plik APK do pobrania w przeglądarce.",
   "ui.downloadAndVerifyTheSignedUpdateThenStop": "Pobierze i zweryfikuje podpisaną aktualizację, zatrzyma lokalny serwer i uruchomi TRAWL ponownie. Bieżąca praca zostanie przerwana.",
   "ui.draining": "Kończenie żądań",
   "ui.needsAttention": "Wymaga uwagi",
@@ -1891,5 +1891,7 @@
   "native.error.atMostLimitOperationsCanRunAtOnce": "Jednocześnie może działać najwyżej {limit} operacji",
   "native.error.detailsLoginStartupCouldNotBeRestoredCheckYourSystemLoginSettings": "{details}. Nie udało się przywrócić uruchamiania przy logowaniu; sprawdź ustawienia logowania systemu.",
   "native.error.couldNotStartServerDetails": "Nie udało się uruchomić serwera: {details}",
-  "native.error.targetRequestFailedDetails": "Żądanie docelowe nie powiodło się: {details}"
+  "native.error.targetRequestFailedDetails": "Żądanie docelowe nie powiodło się: {details}",
+  "native.feedAccessDenied": "GitHub odmówił dostępu do źródła aktualizacji. Spróbuj później lub sprawdź ograniczenia sieci.",
+  "native.feedRateLimited": "GitHub ogranicza liczbę sprawdzeń aktualizacji. Spróbuj później."
 }
