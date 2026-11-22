@@ -97,6 +97,27 @@ jobs:
           bun -e 'import { verifyRuntime } from "./packages/runtime/src/assets.ts"; await verifyRuntime("./apps/desktop/src-tauri/target/release/bundle/macos/TRAWL.app/Contents/Resources/runtime"); console.log("Packaged runtime integrity verified")'
       - name: Check native lifecycle helpers
         run: cargo test --release --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --lib
+      - name: Package desktop installer
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          case "$RUNNER_OS" in
+            macOS) bundles=dmg ;;
+            Linux) bundles=deb ;;
+            Windows) bundles=nsis ;;
+            *) exit 1 ;;
+          esac
+          bun --cwd apps/desktop native:package --bundles "$bundles" --config '{"build":{"beforeBuildCommand":""}}'
+      - name: Retain desktop installer
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v7
+        with:
+          name: trawl-desktop-${{ matrix.runner }}
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            apps/desktop/src-tauri/target/release/bundle/deb/*.deb
+            apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+          retention-days: 7
+          if-no-files-found: error
       - name: Retain verification report
         uses: actions/upload-artifact@v7
         with:
