@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `STT_MODEL` to choose the model name sent to `STT_URL` (default `whisper-1`).
 
 ### Changed
+- Route sessionless `/v1` GET and POST requests through the configured `PROXY_URL` pool when no request proxy is supplied (including Prowlarr's empty proxy object). Fail without sending traffic directly when the proxy is unavailable (#295).
 - Increase the default browser acquisition wait from 15 to 30 seconds so bursts can wait longer for a free browser. Keep explicit `BROWSER_ACQUIRE_TIMEOUT_MS` overrides and the request's overall deadline.
 
 ## [1.11.1] - 2026-11-12

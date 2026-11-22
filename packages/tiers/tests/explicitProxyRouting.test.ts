@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { BrowserHandle } from "@trawl/browser"
 import { type OrchestratorDeps, ScrapeError, scrape } from "../src/orchestrator"
+import { ProxyPool } from "../src/utils/proxyRotator"
 import { tier1Transport } from "../src/utils/tier1Transport"
 
 function unusedBrowserDeps(overrides: Partial<OrchestratorDeps> = {}): OrchestratorDeps {
@@ -339,8 +340,9 @@ describe("explicit proxy routing", () => {
     expect(loadCalls).toBe(1)
   })
 
-  test("retains session persistence for configured-pool escalation", async () => {
+  test.each([false, true])("retains configured-pool session persistence (pinned: %s)", async (pinned) => {
     let saveCalls = 0
+    const proxy = "http://pool.example:8080"
     const handle = {
       id: 7,
       lease: 11,
@@ -352,32 +354,34 @@ describe("explicit proxy routing", () => {
       saveSession: async () => {
         saveCalls++
       },
-      proxyPool: {
-        next: () => "http://pool.example:8080",
-        markBad: () => {},
-      } as unknown as OrchestratorDeps["proxyPool"],
+      proxyPool: new ProxyPool([proxy]),
+      proxyFromPool: pinned,
     })
 
-    const result = await scrape({ url: "https://target.example", skipHttp: true, maxTier: 3 }, deps, {
-      tier3: async () => ({
-        tier: 3,
-        status: "success",
-        durationMs: 1,
-        html: "<html>pool</html>",
-        cookies: [
-          {
-            name: "pool-cookie",
-            value: "ok",
-            domain: "target.example",
-            path: "/",
-            expires: -1,
-            httpOnly: false,
-            secure: true,
-          },
-        ],
-        statusCode: 200,
-      }),
-    })
+    const result = await scrape(
+      { url: "https://target.example", skipHttp: true, maxTier: 3, proxy: pinned ? proxy : undefined },
+      deps,
+      {
+        tier3: async () => ({
+          tier: 3,
+          status: "success",
+          durationMs: 1,
+          html: "<html>pool</html>",
+          cookies: [
+            {
+              name: "pool-cookie",
+              value: "ok",
+              domain: "target.example",
+              path: "/",
+              expires: -1,
+              httpOnly: false,
+              secure: true,
+            },
+          ],
+          statusCode: 200,
+        }),
+      },
+    )
 
     expect(result.proxyUsed).toBeTrue()
     expect(saveCalls).toBe(1)
