@@ -471,14 +471,16 @@ async function scrapeWithinBudget(
 
   // Tier 1 is the only look at the wall that happens before a browser is checked out, so
   // it is also the only chance to pick the right kind of browser for the tiers below.
-  const cacheAllowed = (!explicitProxy || deps.proxyFromPool) && !privateRequest
-  let session = minTier <= 2 && cacheAllowed ? await deps.loadSession(domain) : undefined
-  if (explicitProxy && session?.proxyId !== proxyIdentity(explicitProxy)) session = undefined
+  const cacheAllowed = !privateRequest && !trustedProxyCa
+  const proxyId = explicitProxy ? proxyIdentity(explicitProxy) : undefined
+  const cacheKey = callerProxy ? `proxy:${proxyId}:${domain}` : domain
+  let session = minTier <= 2 && cacheAllowed ? await deps.loadSession(cacheKey) : undefined
+  if (explicitProxy && session?.proxyId !== proxyId) session = undefined
   const sessionProxy = session?.proxyId
-    ? (deps.proxyPool?.resolve(session.proxyId) ?? deps.residentialProxyPool?.resolve(session.proxyId))
+    ? (callerProxy ?? deps.proxyPool?.resolve(session.proxyId) ?? deps.residentialProxyPool?.resolve(session.proxyId))
     : undefined
   if (session?.proxyId && !sessionProxy) {
-    await deps.invalidateSession(domain)
+    await deps.invalidateSession(cacheKey)
     session = undefined
   }
   const safeMethod = !req.method || req.method === "GET" || req.method === "HEAD"
@@ -578,7 +580,7 @@ async function scrapeWithinBudget(
     }
     if (hasUsablePayload(t1) && !crossed1) {
       if (httpSession && session && t1.cookies) {
-        await deps.saveSession(domain, { ...session, cookies: t1.cookies, savedAt: Date.now() })
+        await deps.saveSession(cacheKey, { ...session, cookies: t1.cookies, savedAt: Date.now() })
       }
       return {
         url: t1.effectiveUrl ?? req.url,
@@ -700,7 +702,7 @@ async function scrapeWithinBudget(
       emit(crossed2 ? crossedTiming(t2, crossed2) : t2)
       if (hasUsablePayload(t2) && !crossed2) {
         if (t2.cookies && t2.cookies.length > 0) {
-          await deps.saveSession(domain, {
+          await deps.saveSession(cacheKey, {
             ...session,
             cookies: t2.cookies,
             userAgent: session.userAgent,
@@ -740,7 +742,7 @@ async function scrapeWithinBudget(
       }
       // Session failed - purge it
       await checkPostReplay(t2)
-      await deps.invalidateSession(domain)
+      await deps.invalidateSession(cacheKey)
     }
 
     if (maxTier < 3) {
@@ -817,7 +819,7 @@ async function scrapeWithinBudget(
       if (hasUsablePayload(t3) && !crossed3) {
         const cookies: Cookie[] = t3.cookies ?? []
         if (cookies.length > 0 && cacheAllowed) {
-          await deps.saveSession(domain, {
+          await deps.saveSession(cacheKey, {
             cookies,
             userAgent: t3.userAgent ?? handle.fingerprint.userAgent,
             savedAt: Date.now(),
@@ -930,7 +932,7 @@ async function scrapeWithinBudget(
     if (hasUsablePayload(t4) && !crossed4) {
       const cookies: Cookie[] = t4.cookies ?? []
       if (cookies.length > 0 && cacheAllowed) {
-        await deps.saveSession(domain, {
+        await deps.saveSession(cacheKey, {
           cookies,
           userAgent: t4.userAgent ?? handle.fingerprint.userAgent,
           savedAt: Date.now(),

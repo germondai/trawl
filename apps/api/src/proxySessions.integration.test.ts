@@ -55,13 +55,21 @@ describe.skipIf(process.env.TRAWL_PROXY_SESSION_TESTS !== "1")("Camoufox proxy s
     maxTimeout = 10000,
     maxTier = 3,
     solveEmbeddedCaptchas = false,
+    requestProxy?: { url: string; username: string; password: string },
   ) => {
     attempts.length = 0
     const response = await app.handle(
       new Request(`http://localhost${route}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ url, maxTimeout, maxTier, cmd: "request.get", solveEmbeddedCaptchas }),
+        body: JSON.stringify({
+          url,
+          maxTimeout,
+          maxTier,
+          cmd: "request.get",
+          solveEmbeddedCaptchas,
+          proxy: requestProxy,
+        }),
       }),
     )
     return { status: response.status, body: await response.json(), attempts: [...attempts] }
@@ -179,6 +187,18 @@ describe.skipIf(process.env.TRAWL_PROXY_SESSION_TESTS !== "1")("Camoufox proxy s
     },
     30000,
   )
+
+  test("reuses clearance for Prowlarr's explicit proxy payload", async () => {
+    const requestProxy = { url: `http://127.0.0.1:${proxy.port}`, username: "fixture", password: "fixture" }
+    const first = await send("/v1", target(), 10000, 3, false, requestProxy)
+    expect(first.status, JSON.stringify(first.body)).toBe(200)
+    expect(first.attempts.map(({ tier }) => tier)).toEqual([3])
+    const start = requests.length
+    const second = await send("/v1", target(), 10000, 2, false, requestProxy)
+    expect(second.status, JSON.stringify(second.body)).toBe(200)
+    expect(second.attempts.map(({ tier }) => tier)).toEqual([2])
+    expect(requests.slice(start).some(({ proxy, cookie }) => proxy && cookie.includes("cf_clearance=proxy"))).toBe(true)
+  }, 30000)
 
   test("closes the proxied context on timeout and leaves the pooled context usable", async () => {
     await cache.invalidate("proxy-session.invalid")
