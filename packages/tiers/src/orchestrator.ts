@@ -2,6 +2,7 @@ import type { BrowserHandle } from "@trawl/browser"
 import { FINGERPRINT, FINGERPRINT_POOL, PoolExhaustedError } from "@trawl/browser"
 import type {
   BlockedEvidence,
+  CaptchaOutcome,
   Cookie,
   ScrapeRequest,
   ScrapeResult,
@@ -84,6 +85,8 @@ export interface OrchestratorDeps {
   saveSession(domain: string, data: SessionData): Promise<void>
   invalidateSession(domain: string): Promise<void>
   proxyPool?: ProxyPool
+  // The caller pinned req.proxy to a configured pool endpoint for this request.
+  proxyFromPool?: boolean
   residentialProxyPool?: ProxyPool
   // Deployment-wide lower bound for the escalation ladder. API request flags may
   // raise this floor, but never lower it.
@@ -255,6 +258,7 @@ async function scrapeWithinBudget(
   const timings: TierResult[] = []
   const domain = extractDomain(req.url)
   const explicitProxy = req.proxy
+  const callerProxy = deps.proxyFromPool ? undefined : explicitProxy
   const tier1Proxy = explicitProxy && /^https?:\/\//i.test(explicitProxy) ? explicitProxy : undefined
   const trustedProxyCa = explicitProxy ? await deps.trustedProxyCa?.(explicitProxy) : undefined
   const skipTier1ForProxy = Boolean(explicitProxy && !tier1Proxy)
@@ -271,7 +275,11 @@ async function scrapeWithinBudget(
   // of `timings` - that stays the thin, machine-readable attempt history - and reached
   // only via the thrown ScrapeError.
   let blockedEvidence: BlockedEvidence | undefined
+  // CAPTCHAs the running tier tried. `emit` moves them onto that tier's attempt, and tiers
+  // run one at a time, so they always land on the attempt that produced them.
+  let pendingCaptchas: CaptchaOutcome[] = []
   const capture: CaptureOptions = {
+    captchaOutcomes: (outcomes) => pendingCaptchas.push(...outcomes),
     networkProxy,
     anubisDetected: false,
     cookies: req.cookies,
@@ -330,7 +338,9 @@ async function scrapeWithinBudget(
       status: r.status,
       durationMs: r.durationMs,
       ...(r.reason === undefined ? {} : { reason: r.reason }),
+      ...(pendingCaptchas.length === 0 ? {} : { captchas: pendingCaptchas }),
     }
+    pendingCaptchas = []
     timings.push(publicResult)
     deps.onTierAttempt?.(publicResult)
   }
@@ -468,12 +478,16 @@ async function scrapeWithinBudget(
 
   // Tier 1 is the only look at the wall that happens before a browser is checked out, so
   // it is also the only chance to pick the right kind of browser for the tiers below.
-  let session = minTier <= 2 && !explicitProxy && !privateRequest ? await deps.loadSession(domain) : undefined
+  const cacheAllowed = !privateRequest && !trustedProxyCa
+  const proxyId = explicitProxy ? proxyIdentity(explicitProxy) : undefined
+  const cacheKey = callerProxy ? `proxy:${proxyId}:${domain}` : domain
+  let session = minTier <= 2 && cacheAllowed ? await deps.loadSession(cacheKey) : undefined
+  if (explicitProxy && session?.proxyId !== proxyId) session = undefined
   const sessionProxy = session?.proxyId
-    ? (deps.proxyPool?.resolve(session.proxyId) ?? deps.residentialProxyPool?.resolve(session.proxyId))
+    ? (callerProxy ?? deps.proxyPool?.resolve(session.proxyId) ?? deps.residentialProxyPool?.resolve(session.proxyId))
     : undefined
   if (session?.proxyId && !sessionProxy) {
-    await deps.invalidateSession(domain)
+    await deps.invalidateSession(cacheKey)
     session = undefined
   }
   const safeMethod = !req.method || req.method === "GET" || req.method === "HEAD"
@@ -573,7 +587,7 @@ async function scrapeWithinBudget(
     }
     if (hasUsablePayload(t1) && !crossed1) {
       if (httpSession && session && t1.cookies) {
-        await deps.saveSession(domain, { ...session, cookies: t1.cookies, savedAt: Date.now() })
+        await deps.saveSession(cacheKey, { ...session, cookies: t1.cookies, savedAt: Date.now() })
       }
       return {
         url: t1.effectiveUrl ?? req.url,
@@ -695,7 +709,7 @@ async function scrapeWithinBudget(
       emit(crossed2 ? crossedTiming(t2, crossed2) : t2)
       if (hasUsablePayload(t2) && !crossed2) {
         if (t2.cookies && t2.cookies.length > 0) {
-          await deps.saveSession(domain, {
+          await deps.saveSession(cacheKey, {
             ...session,
             cookies: t2.cookies,
             userAgent: session.userAgent,
@@ -735,7 +749,7 @@ async function scrapeWithinBudget(
       }
       // Session failed - purge it
       await checkPostReplay(t2)
-      await deps.invalidateSession(domain)
+      await deps.invalidateSession(cacheKey)
     }
 
     if (maxTier < 3) {
@@ -751,7 +765,7 @@ async function scrapeWithinBudget(
       // fallback candidate, so it's tried exactly once.
       let proxy3 = req.proxy ?? deps.proxyPool?.next(domain) ?? undefined
       const tier3Capture =
-        maxTier >= 4 && !explicitProxy && deps.residentialProxyPool?.hasAvailable()
+        maxTier >= 4 && !callerProxy && deps.residentialProxyPool?.hasAvailable()
           ? { ...capture, cloudflareDeadline: budget.deadline - Math.min(30_000, Math.floor(budget.remaining() / 3)) }
           : capture
       let t3: Awaited<ReturnType<typeof runTier3>>
@@ -811,8 +825,8 @@ async function scrapeWithinBudget(
       emit(crossed3 ? crossedTiming(t3, crossed3) : t3)
       if (hasUsablePayload(t3) && !crossed3) {
         const cookies: Cookie[] = t3.cookies ?? []
-        if (cookies.length > 0 && !explicitProxy && !privateRequest) {
-          await deps.saveSession(domain, {
+        if (cookies.length > 0 && cacheAllowed) {
+          await deps.saveSession(cacheKey, {
             cookies,
             userAgent: t3.userAgent ?? handle.fingerprint.userAgent,
             savedAt: Date.now(),
@@ -860,7 +874,7 @@ async function scrapeWithinBudget(
 
     // Tier 4: residential proxy escalation - requires at least one residential proxy,
     // supplied either per-request (req.proxy) or via the configured residential pool.
-    let proxy4 = forcedTier4Proxy ?? req.proxy ?? deps.residentialProxyPool?.next(domain)
+    let proxy4 = forcedTier4Proxy ?? callerProxy ?? deps.residentialProxyPool?.next(domain) ?? explicitProxy
     if (!proxy4) {
       throw failure(
         tier3Failure
@@ -913,7 +927,7 @@ async function scrapeWithinBudget(
         continue
       }
       const pool = deps.residentialProxyPool
-      if (t4.status !== "blocked" || req.proxy || !pool || attempt + 1 >= MAX_PROXY_ATTEMPTS) break
+      if (t4.status !== "blocked" || callerProxy || !pool || attempt + 1 >= MAX_PROXY_ATTEMPTS) break
       await checkPostReplay(t4)
       pool.markBad(proxy4)
       const next = pool.next(domain)
@@ -924,8 +938,8 @@ async function scrapeWithinBudget(
     emit(crossed4 ? crossedTiming(t4, crossed4) : t4)
     if (hasUsablePayload(t4) && !crossed4) {
       const cookies: Cookie[] = t4.cookies ?? []
-      if (cookies.length > 0 && !explicitProxy && !privateRequest) {
-        await deps.saveSession(domain, {
+      if (cookies.length > 0 && cacheAllowed) {
+        await deps.saveSession(cacheKey, {
           cookies,
           userAgent: t4.userAgent ?? handle.fingerprint.userAgent,
           savedAt: Date.now(),

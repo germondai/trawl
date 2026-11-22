@@ -185,14 +185,22 @@ export class ExternalCaptchaSession {
     return profile ? (captchaTask(profile.taskType)?.kind ?? kind) : kind
   }
 
-  async solveProfiles(page: Page, remainingMs: number, signal?: AbortSignal, proxy?: string): Promise<string[]> {
+  async solveProfiles(
+    page: Page,
+    remainingMs: number,
+    signal?: AbortSignal,
+    proxy?: string,
+    onAttempt?: (label: string, delivered: boolean) => void,
+  ): Promise<string[]> {
     const deadline = Date.now() + remainingMs
     const solved: string[] = []
     for (const kind of await this.discover(page)) {
       if (signal?.aborted || deadline - Date.now() <= 5000) break
       if (!(await this.canSolve(page, kind, proxy))) continue
-      if (await this.solve(page, kind, deadline - Date.now(), signal, proxy))
-        solved.push(`${this.label(kind)}:2captcha`)
+      const label = `${this.label(kind)}:2captcha`
+      const delivered = await this.solve(page, kind, deadline - Date.now(), signal, proxy)
+      onAttempt?.(label, delivered)
+      if (delivered) solved.push(label)
     }
     return solved
   }

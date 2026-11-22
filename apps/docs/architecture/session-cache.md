@@ -191,14 +191,14 @@ rejection before the cache TTL ends.
 
 ## Redis
 
-When `SESSION_CACHE_DRIVER=redis` (the default), TRAWL uses `new RedisClient(REDIS_URL)` from Bun's native Redis client.
+When `SESSION_CACHE_DRIVER=redis` (the default), TRAWL uses Bun's native Redis client.
 
 The cache is optional. When `REDIS_URL` is empty or unset with the Redis driver selected, TRAWL
 does not create a Redis client. Shared clearance reuse and Tier 2 are unavailable; ordinary HTTP
 and fresh browser solves still work.
 
 Each connection attempt is bounded by `REDIS_CONNECT_TIMEOUT_MS` (default 5 seconds). If Redis is
-not ready, scraping continues without Tier 2 while TRAWL retries in the background every
+not ready at startup or the connection drops later, scraping continues without Tier 2 while TRAWL retries in the background every
 `REDIS_RETRY_DELAY_MS` (default 5 seconds). Set the retry delay to `0` to disable reconnects after a
 configured Redis endpoint becomes unavailable.
 

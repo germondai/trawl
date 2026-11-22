@@ -24,11 +24,22 @@ describe("GET /health", () => {
         oomEvents: 2,
         oomKills: 1,
       }),
+      () => ({
+        driver: "redis",
+        enabled: true,
+        connected: false,
+        state: "unavailable",
+        lastConnectedAt: null,
+        connectFailures: 1,
+        lookups: { hit: 0, miss: 0, error: 0 },
+        writes: { ok: 0, error: 0 },
+      }),
     ).handle(new Request("http://localhost/health"))
 
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({
       status: "ok",
+      cache: { enabled: true, connected: false, state: "unavailable", connectFailures: 1 },
       pool: { live: 1 },
       memory: { underProvisioned: true, oomKills: 1 },
     })

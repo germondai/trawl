@@ -885,7 +885,7 @@ contact the configured STT service. Treat `STT_API_KEY` as a secret and avoid co
 
 ### `PROXY_URL`
 
-These environment-level proxies are escalation pools: direct Tier 1 and cached Tier 2 may complete before they are used. In contrast, the API request-level `proxy` field is a routing guarantee; target traffic for that request never falls back to a direct connection.
+For `/scrape`, these environment-level proxies are escalation pools: direct Tier 1 and cached Tier 2 may complete before they are used. For sessionless `/v1` GET and POST requests, the datacenter pool is also the default route when the request omits `proxy` or sends `{}`. An explicit request proxy takes precedence. If the selected proxy fails or the pool has no available endpoint, the request fails without connecting directly. Named sessions still use their session's routing settings.
 
 **Default:** _(empty - no proxy)_
 
@@ -994,7 +994,12 @@ Both `POST /scrape` and `POST /v1` accept an optional `proxy` field in the reque
 { "url": "https://example.com", "proxy": "http://user:pass@my-proxy.example.com:8080" }
 ```
 
-Note: `proxy` on `/v1` is a TRAWL-specific extension - it is not part of the real FlareSolverr v2 contract, so other FlareSolverr-compatible clients simply won't send it.
+FlareSolverr also accepts a proxy object with a `url` and optional credentials. Prowlarr may send an empty object when its global proxy is disabled.
+
+Sessionless requests through an explicit proxy can reuse a cached browser session for the same
+destination and proxy identity, including credentials. Proxied sessions are stored separately from
+direct sessions. If the proxy rotates its exit IP and the site rejects the cached clearance, TRAWL
+invalidates that entry and continues with a fresh solve through the requested proxy.
 
 ### Test an endpoint
 

@@ -6,7 +6,7 @@ import {
   RequestValidationError,
   WafDetector,
 } from "@trawl/tiers"
-import type { SessionData } from "@trawl/types"
+import type { SessionCacheHealth, SessionData } from "@trawl/types"
 import {
   ACQUIRE_TIMEOUT_MS,
   BROWSER_BLOCK_ADS,
@@ -75,6 +75,46 @@ export class SessionCacheRecovery {
   private cache?: SessionCacheStore
   private retryTimer?: ReturnType<typeof setTimeout>
   private stopped = true
+  private generation = 0
+  private connecting = false
+  private lastConnectedAt: string | null = null
+  private connectFailures = 0
+  private lookups = { hit: 0, miss: 0, error: 0 }
+  private writes = { ok: 0, error: 0 }
+
+  health(driver: SessionCacheHealth["driver"]): SessionCacheHealth {
+    return {
+      driver,
+      enabled: true,
+      connected: Boolean(this.cache),
+      state: this.cache ? "connected" : this.connecting ? "connecting" : "unavailable",
+      lastConnectedAt: this.lastConnectedAt,
+      connectFailures: this.connectFailures,
+      lookups: { ...this.lookups },
+      writes: { ...this.writes },
+    }
+  }
+
+  async load(domain: string): Promise<SessionData | undefined> {
+    if (!this.cache) return
+    try {
+      const data = await this.cache.load(domain)
+      this.lookups[data ? "hit" : "miss"]++
+      return data
+    } catch {
+      this.lookups.error++
+    }
+  }
+
+  async save(domain: string, data: SessionData): Promise<void> {
+    if (!this.cache) return
+    try {
+      await this.cache.save(domain, data)
+      this.writes.ok++
+    } catch {
+      this.writes.error++
+    }
+  }
 
   constructor(private readonly options: SessionCacheRecoveryOptions) {}
 
@@ -83,13 +123,18 @@ export class SessionCacheRecovery {
   }
 
   async start(): Promise<void> {
-    await this.stop()
+    const stopping = this.stop()
+    const generation = this.generation
+    await stopping
+    if (generation !== this.generation) return
     this.stopped = false
     await this.connect()
   }
 
   async stop(): Promise<void> {
     this.stopped = true
+    this.connecting = false
+    this.generation++
     if (this.retryTimer) clearTimeout(this.retryTimer)
     this.retryTimer = undefined
     this.cache?.close()
@@ -98,26 +143,42 @@ export class SessionCacheRecovery {
 
   private async connect(): Promise<void> {
     if (this.stopped) return
+    const generation = this.generation
     const candidate = this.options.createCache()
+    this.connecting = true
     try {
       await candidate.connect(this.options.connectTimeoutMs)
-      if (this.stopped) {
+      if (generation !== this.generation) {
         candidate.close()
         return
       }
       this.cache = candidate
+      this.connecting = false
+      this.lastConnectedAt = new Date().toISOString()
+      candidate.onLost?.(() => {
+        if (this.cache !== candidate || generation !== this.generation) return
+        this.cache = undefined
+        candidate.close()
+        this.retry(new Error("Redis connection lost"))
+      })
       this.options.onConnected?.()
     } catch (error) {
       candidate.close()
-      if (this.stopped) return
-      this.options.onUnavailable?.(error)
-      if (this.options.retryDelayMs === 0) return
-      this.retryTimer = setTimeout(() => {
-        this.retryTimer = undefined
-        void this.connect()
-      }, this.options.retryDelayMs)
-      this.retryTimer.unref?.()
+      if (generation !== this.generation) return
+      this.connecting = false
+      this.connectFailures++
+      this.retry(error)
     }
+  }
+
+  private retry(error: unknown): void {
+    this.options.onUnavailable?.(error)
+    if (this.stopped || this.options.retryDelayMs === 0) return
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = undefined
+      void this.connect()
+    }, this.options.retryDelayMs)
+    this.retryTimer.unref?.()
   }
 }
 
@@ -171,6 +232,21 @@ const sessionCacheRecovery = createSessionCacheRecovery({
   redisConnectTimeoutMs: REDIS_CONNECT_TIMEOUT_MS,
   redisRetryDelayMs: REDIS_RETRY_DELAY_MS,
 })
+
+export function getSessionCacheHealth(): SessionCacheHealth {
+  return (
+    sessionCacheRecovery?.health(SESSION_CACHE_DRIVER) ?? {
+      driver: SESSION_CACHE_DRIVER,
+      enabled: false,
+      connected: false,
+      state: "disabled",
+      lastConnectedAt: null,
+      connectFailures: 0,
+      lookups: { hit: 0, miss: 0, error: 0 },
+      writes: { ok: 0, error: 0 },
+    }
+  )
+}
 
 interface InitPoolOptions {
   poolSize?: number
@@ -296,16 +372,8 @@ export const getDeps = (): OrchestratorDeps => {
       handleOwners.get(handle)?.release(handle.id, handle.lease)
       handleOwners.delete(handle)
     },
-    loadSession: (d: string) =>
-      sessionCacheRecovery
-        ?.current()
-        ?.load(d)
-        .catch(() => undefined) ?? Promise.resolve(undefined),
-    saveSession: (d: string, data: SessionData) =>
-      sessionCacheRecovery
-        ?.current()
-        ?.save(d, data)
-        .catch(() => {}) ?? Promise.resolve(),
+    loadSession: (d: string) => sessionCacheRecovery?.load(d) ?? Promise.resolve(undefined),
+    saveSession: (d: string, data: SessionData) => sessionCacheRecovery?.save(d, data) ?? Promise.resolve(),
     invalidateSession: (d: string) =>
       sessionCacheRecovery
         ?.current()

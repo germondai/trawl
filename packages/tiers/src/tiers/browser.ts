@@ -6,6 +6,7 @@ import { solvePageCaptchas } from "../solvers"
 import { reportBlocked } from "../utils/blockedEvidence"
 import { captureBrowserDocument, waitForBrowserLoad } from "../utils/browserCapture"
 import { persistentBrowserWall } from "../utils/browserWall"
+import { widgetOutcomes } from "../utils/captchaOutcomes"
 import { attachPageCapture, type CaptureOptions } from "../utils/capture"
 import { routeChallengeWait } from "../utils/challengeRouter"
 import { normalizeInputCookies, snapshotChallengeCookies, toCookies } from "../utils/cookies"
@@ -181,6 +182,7 @@ async function runBrowserTierTask<T extends 3 | 4>(
       capture.externalCaptcha,
       proxyUrl,
       budget.signal,
+      capture.captchaOutcomes,
     )
 
     if (resolution === "browser-closed") {
@@ -249,6 +251,7 @@ async function runBrowserTierTask<T extends 3 | 4>(
         solved: [],
       }))
       captchasSolved = [...new Set([...captchasSolved, ...solveResult.solved])]
+      capture.captchaOutcomes?.(widgetOutcomes(solveResult.attempted, solveResult.solved))
     }
 
     if (overlapWidgetSettling) await sleep(Math.max(0, settleUntil - Date.now()), budget.signal)
@@ -256,7 +259,14 @@ async function runBrowserTierTask<T extends 3 | 4>(
     const { html, shot, evidence } = await captureBrowserDocument(page, capture, pageCapture, budget, screenshot)
     let captured: CapturedResponse | undefined
 
-    const wall = persistentBrowserWall(html, page.url(), mainResponse.headers, mainResponse.status, challengeType)
+    const wall = persistentBrowserWall(
+      html,
+      page.url(),
+      mainResponse.headers,
+      mainResponse.status,
+      challengeType,
+      captchasSolved,
+    )
     // Anubis verification URLs and Google's sorry URL identify a wall even when
     // the document is empty. Other providers follow the network-error checks.
     if (wall?.reason !== "anubis-persistent" && wall?.reason !== "google-sorry-persistent") {

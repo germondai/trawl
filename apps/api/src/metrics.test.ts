@@ -106,7 +106,7 @@ describe("local metrics", () => {
     store.close()
   })
 
-  test("migrates existing history without dropping events and persists WAF metadata", () => {
+  test("migrates existing history without dropping events and persists WAF and CAPTCHA data", () => {
     const dir = mkdtempSync(join(tmpdir(), "trawl-waf-migration-"))
     const path = join(dir, "events.sqlite")
     try {
@@ -119,10 +119,19 @@ describe("local metrics", () => {
         .run(Date.now(), "old.example", "native", 1, 1, 1, 200)
       old.close()
       const first = new MetricsStore(true, path)
-      first.record({ source: "native", url: "https://new.example", statusCode: 200, durationMs: 4, waf })
+      first.record({
+        source: "native",
+        url: "https://new.example",
+        statusCode: 200,
+        durationMs: 4,
+        waf,
+        attempts: [{ tier: 3, status: "success", durationMs: 4, captchas: [{ kind: "altcha", outcome: "solved" }] }],
+      })
       first.close()
       const reopened = new MetricsStore(true, path)
       expect(reopened.snapshot().requests).toBe(2)
+      expect(reopened.snapshot().captchas).toMatchObject({ attempts: 1, solved: 1, failed: 0 })
+      expect(reopened.snapshot().recentEvents.find(({ domain }) => domain === "old.example")?.captchas).toBeUndefined()
       expect(reopened.snapshot().waf.providers).toEqual([{ product: "Cloudflare", requests: 1, failures: 0 }])
       expect(reopened.snapshot().recentEvents[0]?.waf).toMatchObject({ products: ["Cloudflare"] })
       expect(reopened.snapshot().recentEvents[0]?.waf).toMatchObject({
@@ -242,6 +251,173 @@ describe("local metrics", () => {
       expect(readFileSync(path).toString()).not.toMatch(/private|secret|password/)
     } finally {
       rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe("CAPTCHA metrics", () => {
+  const attempt = (captchas?: { kind: string; outcome: "solved" | "failed" }[]) => ({
+    tier: 3 as const,
+    status: "success" as const,
+    durationMs: 5,
+    ...(captchas ? { captchas } : {}),
+  })
+
+  test("aggregates attempts, solves and failures per solver", () => {
+    const store = new MetricsStore()
+    try {
+      store.record({
+        source: "native",
+        url: "https://a.example/",
+        statusCode: 200,
+        durationMs: 10,
+        attempts: [attempt([{ kind: "altcha", outcome: "solved" }])],
+      })
+      store.record({
+        source: "native",
+        url: "https://b.example/",
+        statusCode: 200,
+        durationMs: 10,
+        attempts: [
+          attempt([
+            { kind: "altcha", outcome: "failed" },
+            { kind: "turnstile", outcome: "failed" },
+            { kind: "turnstile:2captcha", outcome: "solved" },
+          ]),
+        ],
+      })
+      store.record({
+        source: "native",
+        url: "https://c.example/",
+        statusCode: 200,
+        durationMs: 10,
+        attempts: [attempt()],
+      })
+      const { captchas } = store.snapshot(60)
+      expect(captchas).toEqual({
+        attempts: 4,
+        solved: 2,
+        failed: 2,
+        kinds: [
+          { kind: "altcha", attempts: 2, solved: 1, failed: 1 },
+          { kind: "turnstile", attempts: 1, solved: 0, failed: 1 },
+          { kind: "turnstile:2captcha", attempts: 1, solved: 1, failed: 0 },
+        ],
+      })
+    } finally {
+      store.close()
+    }
+  })
+
+  test("includes attempts outside the displayed solver rows in aggregate totals", () => {
+    const store = new MetricsStore()
+    try {
+      for (let i = 0; i < 33; i++) {
+        store.record({
+          source: "native",
+          url: "https://example.test/",
+          statusCode: 200,
+          durationMs: 10,
+          attempts: [attempt([{ kind: `solver-${i}`, outcome: i === 9 ? "failed" : "solved" }])],
+        })
+      }
+      const { captchas } = store.snapshot(60)
+      expect(captchas.kinds).toHaveLength(32)
+      expect(captchas).toMatchObject({ attempts: 33, solved: 32, failed: 1 })
+    } finally {
+      store.close()
+    }
+  })
+
+  test("counts CAPTCHAs on a failed request and lists them on the event", () => {
+    const store = new MetricsStore()
+    try {
+      store.record({
+        source: "native",
+        url: "https://wall.example/",
+        durationMs: 10,
+        error: new ScrapeError("blocked", [
+          {
+            tier: 3,
+            status: "blocked",
+            durationMs: 4,
+            reason: "aws-waf-captcha-required",
+            captchas: [{ kind: "aws-waf", outcome: "failed" }],
+          },
+        ]),
+      })
+      const snapshot = store.snapshot(60)
+      expect(snapshot.captchas.kinds).toEqual([{ kind: "aws-waf", attempts: 1, solved: 0, failed: 1 }])
+      expect(snapshot.recentFailures[0]?.captchas).toEqual([{ kind: "aws-waf", outcome: "failed" }])
+      expect(snapshot.recentEvents[0]?.captchas).toEqual([{ kind: "aws-waf", outcome: "failed" }])
+    } finally {
+      store.close()
+    }
+  })
+
+  test("leaves events without CAPTCHAs unchanged and stays empty when none were tried", () => {
+    const store = new MetricsStore()
+    try {
+      store.record({
+        source: "native",
+        url: "https://plain.example/",
+        statusCode: 200,
+        durationMs: 3,
+        attempts: [attempt()],
+      })
+      const snapshot = store.snapshot(60)
+      expect(snapshot.captchas).toEqual({ attempts: 0, solved: 0, failed: 0, kinds: [] })
+      expect(snapshot.recentEvents[0]).not.toHaveProperty("captchas")
+    } finally {
+      store.close()
+    }
+  })
+
+  test("bounds and sanitises stored kinds", () => {
+    const store = new MetricsStore()
+    try {
+      const many = Array.from({ length: 40 }, () => ({ kind: "cap", outcome: "solved" as const }))
+      store.record({
+        source: "native",
+        url: "https://many.example/",
+        statusCode: 200,
+        durationMs: 3,
+        attempts: [attempt([...many, { kind: "<script>alert(1)</script>", outcome: "failed" }])],
+      })
+      expect(store.snapshot(60).captchas.attempts).toBe(16)
+      const other = new MetricsStore()
+      other.record({
+        source: "native",
+        url: "https://odd.example/",
+        statusCode: 200,
+        durationMs: 3,
+        attempts: [attempt([{ kind: "<script>alert(1)</script>", outcome: "failed" }])],
+      })
+      expect(other.snapshot(60).captchas.kinds).toEqual([{ kind: "other", attempts: 1, solved: 0, failed: 1 }])
+      other.close()
+    } finally {
+      store.close()
+    }
+  })
+
+  test("respects the selected time range", () => {
+    const now = Date.parse("2026-11-11T12:00:00Z")
+    const clock = spyOn(Date, "now").mockReturnValue(now - 2 * 60 * 60_000)
+    const store = new MetricsStore()
+    try {
+      store.record({
+        source: "native",
+        url: "https://old.example/",
+        statusCode: 200,
+        durationMs: 3,
+        attempts: [attempt([{ kind: "shumei", outcome: "solved" }])],
+      })
+      clock.mockReturnValue(now)
+      expect(store.snapshot(60).captchas.attempts).toBe(0)
+      expect(store.snapshot(1440).captchas.attempts).toBe(1)
+    } finally {
+      store.close()
+      clock.mockRestore()
     }
   })
 })

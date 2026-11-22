@@ -1,12 +1,53 @@
 import { describe, expect, spyOn, test } from "bun:test"
 import { EventEmitter } from "node:events"
 import { PoolExhaustedError } from "@trawl/browser"
-import { BrowserSessions, type OrchestratorDeps, ScrapeError, type scrape } from "@trawl/tiers"
+import { BrowserSessions, type OrchestratorDeps, ProxyPool, ScrapeError, type scrape } from "@trawl/tiers"
 import type { Cookie, ScrapeRequest, ScrapeResult } from "@trawl/types"
 import { MetricsStore } from "../metrics"
 import { v1Route } from "./v1"
 
 describe("POST /v1", () => {
+  test("uses the configured proxy for sessionless requests and fails closed when the pool is unavailable", async () => {
+    const configured = "http://configured.example:8080"
+    const explicit = "http://explicit.example:8080"
+    let proxyPool: ProxyPool | undefined = new ProxyPool([configured])
+    const routes: (string | undefined)[] = []
+    const metricsStore = new MetricsStore()
+    const app = v1Route({
+      poolReady: () => true,
+      cookieFallback: false,
+      orchestratorDeps: () => ({ proxyPool }) as OrchestratorDeps,
+      metricsStore,
+      runScrape: async (req) => {
+        routes.push(req.proxy)
+        throw new ScrapeError("fixture", [])
+      },
+    })
+    const send = (fields: object) =>
+      app.handle(
+        new Request("http://localhost/v1", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ cmd: "request.get", url: "https://target.example", ...fields }),
+        }),
+      )
+
+    try {
+      await send({})
+      await send({ cmd: "request.post", proxy: {} })
+      proxyPool?.markBad(configured)
+      const unavailable = await send({ proxy: {} })
+      expect(unavailable.status).toBe(503)
+      expect(await unavailable.json()).toMatchObject({ status: "error", message: "proxy-connection-failed" })
+      await send({ proxy: { url: explicit } })
+      proxyPool = undefined
+      await send({})
+      expect(routes).toEqual([configured, configured, explicit, undefined])
+    } finally {
+      metricsStore.close()
+    }
+  })
+
   test("bounds implicit session acquisition by the request deadline and releases a late handle", async () => {
     let acquisitionBudget = 0
     let released = 0
