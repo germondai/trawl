@@ -13,6 +13,7 @@ suites=(
   apps/api/src/turnstile.integration.test.ts
   apps/api/src/shumei.integration.test.ts
   apps/api/src/datadome.integration.test.ts
+  apps/api/src/baxia.integration.test.ts
   apps/api/src/cloudflareFallback.integration.test.ts
   apps/api/src/externalCaptcha.integration.test.ts
   packages/browser/tests/metaRefresh.integration.test.ts
@@ -48,6 +49,7 @@ do
     -e TRAWL_TURNSTILE_TESTS=1 \
     -e TRAWL_SHUMEI_TESTS=1 \
     -e TRAWL_DATADOME_TESTS=1 \
+    -e TRAWL_BAXIA_TESTS=1 \
     -e TRAWL_CLOUDFLARE_FALLBACK_TESTS=1 \
     -e TRAWL_EXTERNAL_CAPTCHA_TESTS=1 \
     -e TRAWL_SHUTDOWN_TESTS=1 \
@@ -60,6 +62,7 @@ do
     -v "$repo_root/apps/api/src/turnstile.integration.test.ts:/app/apps/api/src/turnstile.integration.test.ts:ro" \
     -v "$repo_root/apps/api/src/shumei.integration.test.ts:/app/apps/api/src/shumei.integration.test.ts:ro" \
     -v "$repo_root/apps/api/src/datadome.integration.test.ts:/app/apps/api/src/datadome.integration.test.ts:ro" \
+    -v "$repo_root/apps/api/src/baxia.integration.test.ts:/app/apps/api/src/baxia.integration.test.ts:ro" \
     -v "$repo_root/apps/api/src/cloudflareFallback.integration.test.ts:/app/apps/api/src/cloudflareFallback.integration.test.ts:ro" \
     -v "$repo_root/apps/api/src/externalCaptcha.integration.test.ts:/app/apps/api/src/externalCaptcha.integration.test.ts:ro" \
     -v "$repo_root/apps/api/src/poolResources.integration.test.ts:/app/apps/api/src/poolResources.integration.test.ts:ro" \
