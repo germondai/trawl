@@ -265,7 +265,7 @@ watch(
     />
   </TransitionGroup>
   <form class="panel" @submit.prevent="sendRequest">
-    <div class="panel-heading">
+    <div class="panel-heading request-heading">
       <h2>{{ t("ui.newRequest") }}</h2>
       <div class="actions">
         <UPopover>
@@ -283,16 +283,17 @@ watch(
             </div></template
           >
         </UPopover>
-        <UButton
-          icon="i-lucide-rotate-cw"
-          color="neutral"
-          variant="ghost"
-          :disabled="pending"
-          @click="requestDiscard(workbench.activeTabId)"
-          >{{
-            t("ui.resetRequest")
-          }}</UButton
-        >
+        <AppTooltip :text="t('ui.resetRequest')">
+          <UButton
+            icon="i-lucide-rotate-cw"
+            color="neutral"
+            variant="ghost"
+            :aria-label="t('ui.resetRequest')"
+            :disabled="pending"
+            @click="requestDiscard(workbench.activeTabId)"
+            ><span class="request-reset-label">{{ t("ui.resetRequest") }}</span></UButton
+          >
+        </AppTooltip>
       </div>
     </div>
     <fieldset class="panel-body form-stack" :disabled="pending">

@@ -382,10 +382,4 @@ onScopeDispose(() => {
   text-align: right;
   white-space: nowrap;
 }
-@media (max-width: 720px) {
-  .managed-storage > div {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 8px;
-  }
-}
 </style>

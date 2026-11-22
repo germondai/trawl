@@ -92,12 +92,19 @@ const confirmDescription = computed(() =>
         {{ t("ui.installed2") }}</UBadge
       >
     </div>
-    <p v-if="desktop.browser.system" class="panel-body text-sm muted">
-      {{ t("ui.androidProvidesAndUpdatesThisBrowserTrawlUses") }}
-      <UButton class="mt-3" icon="i-lucide-network" color="neutral" variant="outline" @click="emit('connect')">{{
-        t("ui.connectAFullTrawlInstance")
-      }}</UButton>
-    </p>
+    <div v-if="desktop.browser.system" class="panel-body form-stack">
+      <p class="text-sm muted">{{ t("ui.androidProvidesAndUpdatesThisBrowserTrawlUses") }}</p>
+      <UButton
+        class="w-full justify-center"
+        icon="i-lucide-network"
+        color="neutral"
+        variant="outline"
+        @click="emit('connect')"
+        >{{
+          t("ui.connectAFullTrawlInstance")
+        }}</UButton
+      >
+    </div>
     <div v-else class="panel-body text-sm muted">
       <p>{{ t("ui.trawlInstallsAndManagesItsOwnCamoufoxBrowsers") }}</p>
       <p v-if="desktop.status.running" class="mt-2 text-xs">

@@ -465,6 +465,12 @@ p {
   margin-bottom: 24px;
   background: #1a1a1d;
 }
+.desktop-shell[data-initializing="true"] {
+  visibility: hidden;
+}
+body:has(.desktop-shell[data-initializing="true"]) :is(.tour-spotlight, .tour-popover) {
+  visibility: hidden;
+}
 .panel-heading {
   flex-wrap: wrap;
   padding: 20px 24px;
@@ -1865,6 +1871,23 @@ nav * {
   gap: 8px;
   flex-wrap: wrap;
   min-width: 0;
+}
+.phone-layout .panel-heading.request-heading,
+.phone-layout .request-heading .actions {
+  flex-wrap: nowrap;
+}
+.phone-layout .request-heading .actions {
+  flex-shrink: 0;
+  gap: 4px;
+}
+.phone-layout .request-reset-label {
+  display: none;
+}
+.phone-layout .managed-storage {
+  padding-inline: 16px;
+}
+.phone-layout .managed-storage > div {
+  gap: 12px;
 }
 .phone-layout .browser-build-main,
 .phone-layout .connection-row {
