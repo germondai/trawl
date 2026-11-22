@@ -75,6 +75,7 @@ export class SessionCacheRecovery {
   private cache?: SessionCacheStore
   private retryTimer?: ReturnType<typeof setTimeout>
   private stopped = true
+  private generation = 0
 
   constructor(private readonly options: SessionCacheRecoveryOptions) {}
 
@@ -83,13 +84,17 @@ export class SessionCacheRecovery {
   }
 
   async start(): Promise<void> {
-    await this.stop()
+    const stopping = this.stop()
+    const generation = this.generation
+    await stopping
+    if (generation !== this.generation) return
     this.stopped = false
     await this.connect()
   }
 
   async stop(): Promise<void> {
     this.stopped = true
+    this.generation++
     if (this.retryTimer) clearTimeout(this.retryTimer)
     this.retryTimer = undefined
     this.cache?.close()
@@ -98,26 +103,37 @@ export class SessionCacheRecovery {
 
   private async connect(): Promise<void> {
     if (this.stopped) return
+    const generation = this.generation
     const candidate = this.options.createCache()
     try {
       await candidate.connect(this.options.connectTimeoutMs)
-      if (this.stopped) {
+      if (generation !== this.generation) {
         candidate.close()
         return
       }
       this.cache = candidate
+      candidate.onLost?.(() => {
+        if (this.cache !== candidate || generation !== this.generation) return
+        this.cache = undefined
+        candidate.close()
+        this.retry(new Error("Redis connection lost"))
+      })
       this.options.onConnected?.()
     } catch (error) {
       candidate.close()
-      if (this.stopped) return
-      this.options.onUnavailable?.(error)
-      if (this.options.retryDelayMs === 0) return
-      this.retryTimer = setTimeout(() => {
-        this.retryTimer = undefined
-        void this.connect()
-      }, this.options.retryDelayMs)
-      this.retryTimer.unref?.()
+      if (generation !== this.generation) return
+      this.retry(error)
     }
+  }
+
+  private retry(error: unknown): void {
+    this.options.onUnavailable?.(error)
+    if (this.stopped || this.options.retryDelayMs === 0) return
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = undefined
+      void this.connect()
+    }, this.options.retryDelayMs)
+    this.retryTimer.unref?.()
   }
 }
 
