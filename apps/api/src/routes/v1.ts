@@ -86,6 +86,10 @@ export function v1Route({
       const deps = orchestratorDeps()
       const scrapeReq = req as FlareSolverrScrapeRequest
       const sessionId = scrapeReq.session
+      if (!sessionId && !scrapeRequest.proxy && deps.proxyPool?.size) {
+        scrapeRequest.proxy = deps.proxyPool.next(new URL(scrapeRequest.url).hostname)
+        if (!scrapeRequest.proxy) throw new RequestValidationError("proxy-connection-failed", 503)
+      }
       if (sessionId) {
         const sessions = deps.sessions
         if (!sessions) throw new RequestValidationError("Browser sessions are unavailable", 503)
