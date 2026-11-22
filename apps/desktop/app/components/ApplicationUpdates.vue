@@ -70,9 +70,7 @@ function install() {
   <AppDialog
     v-model:open="confirm"
     :title="t('ui.updateTrawl')"
-    :description="
-      instance.mobile ? t('ui.androidUpdateOpenBrowser') : t('ui.downloadAndVerifyTheSignedUpdateThenStop')
-    "
+    :description="instance.mobile ? t('ui.androidUpdateOpenBrowser') : t('ui.downloadAndVerifyTheSignedUpdateThenStop')"
   >
     <template #footer
       ><UButton color="neutral" variant="outline" @click="confirm = false">{{ t("ui.cancel") }}</UButton
