@@ -1,6 +1,6 @@
-import type { PoolStats } from "@trawl/types"
+import type { PoolStats, SessionCacheHealth } from "@trawl/types"
 import { Elysia } from "elysia"
-import { getPool } from "../deps"
+import { getPool, getSessionCacheHealth } from "../deps"
 import { type MetricsStore, metrics, type WafTotals } from "../metrics"
 
 const CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"
@@ -96,9 +96,32 @@ export function renderMetrics(stats: PoolStats, waf?: WafTotals): string {
 export function metricsRoute(
   getStats = (): PoolStats | undefined => getPool()?.getStats(),
   store: MetricsStore = metrics,
+  getCache = getSessionCacheHealth,
 ) {
   return new Elysia().get("/metrics", ({ set }) => {
     set.headers["content-type"] = CONTENT_TYPE
-    return renderMetrics(getStats() ?? ZERO, store.wafTotals())
+    return renderMetrics(getStats() ?? ZERO, store.wafTotals()) + renderCacheMetrics(getCache())
   })
+}
+
+function renderCacheMetrics(cache: SessionCacheHealth): string {
+  const prefix = "trawl_session_cache_"
+  return [
+    `# HELP ${prefix}info Configured session cache driver`,
+    `# TYPE ${prefix}info gauge`,
+    `${prefix}info{driver="${cache.driver}"} 1`,
+    `# HELP ${prefix}up Whether the session cache is ready`,
+    `# TYPE ${prefix}up gauge`,
+    `${prefix}up ${Number(cache.connected)}`,
+    `# HELP ${prefix}connect_failures_total Failed session cache connection attempts since start`,
+    `# TYPE ${prefix}connect_failures_total counter`,
+    `${prefix}connect_failures_total ${cache.connectFailures}`,
+    `# HELP ${prefix}lookups_total Session cache lookups by result since start`,
+    `# TYPE ${prefix}lookups_total counter`,
+    ...Object.entries(cache.lookups).map(([result, count]) => `${prefix}lookups_total{result="${result}"} ${count}`),
+    `# HELP ${prefix}writes_total Session cache writes by result since start`,
+    `# TYPE ${prefix}writes_total counter`,
+    ...Object.entries(cache.writes).map(([result, count]) => `${prefix}writes_total{result="${result}"} ${count}`),
+    "",
+  ].join("\n")
 }
