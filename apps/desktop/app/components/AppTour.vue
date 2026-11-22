@@ -50,6 +50,7 @@ const target = shallowRef<TourRect>({ x: 16, y: 80, width: 32, height: 32 })
 const ready = shallowRef(false)
 const maskId = `tour-${useId().replace(/:/g, "")}`
 const anchor = shallowRef<HTMLElement>()
+let measuredRect: DOMRect | undefined
 let generation = 0
 let frame = 0
 let restoreScrollSpace: (smooth?: boolean) => void = () => {}
@@ -57,6 +58,7 @@ function measure() {
   bounds.value = collisionBounds()
   if (!anchor.value?.isConnected) return
   const r = anchor.value.getBoundingClientRect()
+  measuredRect = r
   const padding = 5
   const x = Math.max(4, r.x - padding),
     y = Math.max(4, r.y - padding)
@@ -67,6 +69,19 @@ function measure() {
     height: Math.max(0, Math.min(window.innerHeight - 4, r.bottom + padding) - y),
   }
 }
+// Content above the anchor can change without resizing or scrolling the anchor itself.
+useRafFn(() => {
+  if (!ready.value || !anchor.value?.isConnected) return
+  const rect = anchor.value.getBoundingClientRect()
+  if (
+    !measuredRect ||
+    rect.x !== measuredRect.x ||
+    rect.y !== measuredRect.y ||
+    rect.width !== measuredRect.width ||
+    rect.height !== measuredRect.height
+  )
+    measure()
+})
 function scheduleMeasure() {
   cancelAnimationFrame(frame)
   frame = requestAnimationFrame(measure)

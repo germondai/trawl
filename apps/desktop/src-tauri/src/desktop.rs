@@ -318,7 +318,11 @@ pub fn run() {
                     api.prevent_close();
                     let state = app.state::<Arc<AppState>>();
                     if !window_chrome::ready(app) {
-                        quit(app.clone());
+                        if state.close_behavior.load(Ordering::SeqCst) == 2 {
+                            quit(app.clone());
+                        } else {
+                            let _ = window.destroy();
+                        }
                         return;
                     }
                     let behavior = match state.close_behavior.load(Ordering::SeqCst) {

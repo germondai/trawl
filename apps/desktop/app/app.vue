@@ -12,6 +12,8 @@ import { type SettingTarget, settingNavigation } from "~/utils/setting-navigatio
 import { newWorkbenchDraft, replacesWorkbenchDraft } from "~/utils/workbench"
 
 const desktop = useDesktopStore()
+const initializing = shallowRef(desktop.native)
+let initialized = false
 const appUpdates = useAppUpdates()
 onMounted(() => {
   void appUpdates.start().catch(() => {})
@@ -268,7 +270,7 @@ const workspaceOverlays = computed(() => {
     tooltip: { content },
   }
 })
-useNativeShell(sidebarOpen)
+useNativeShell(sidebarOpen, initializing)
 const quitFeedback = shallowRef("")
 const quitArmed = shallowRef(false)
 let quitTimer: ReturnType<typeof setTimeout> | undefined
@@ -357,6 +359,8 @@ async function restart() {
 }
 const remember = shallowRef(true)
 const visible = useDocumentVisibility()
+let resumeGeneration = 0
+let disposed = false
 const unlisteners: UnlistenFn[] = []
 const { pause, resume } = useIntervalFn(
   () => {
@@ -365,48 +369,76 @@ const { pause, resume } = useIntervalFn(
   5000,
   { immediate: false },
 )
-watch(visible, (state) => {
-  if (state === "visible") {
-    resume()
-    void desktop.refresh()
-  } else pause()
-})
-let disposed = false
+async function foreground() {
+  const generation = ++resumeGeneration
+  if (!initialized) return
+  if (desktop.mobile) {
+    initializing.value = true
+    await desktop.refresh(true)
+    if (generation !== resumeGeneration || disposed || visible.value !== "visible") return
+    initializing.value = false
+  } else void desktop.refresh()
+  resume()
+}
+function background() {
+  pause()
+  if (desktop.mobile) {
+    resumeGeneration++
+    initializing.value = true
+  }
+}
+useEventListener(window, "trawl-background", background)
+useEventListener(window, "trawl-foreground", foreground)
+watch(visible, (state) => (state === "visible" ? foreground() : background()))
 onMounted(async () => {
   if (!desktop.native) return
-  const attach = async (event: string, handler: (payload: string) => void) => {
-    const unlisten = await listen<string>(event, (event) => handler(event.payload))
-    if (disposed) unlisten()
-    else unlisteners.push(unlisten)
+  const startupGeneration = resumeGeneration
+  try {
+    const attach = async (event: string, handler: (payload: string) => void) => {
+      const unlisten = await listen<string>(event, (event) => handler(event.payload))
+      if (disposed) unlisten()
+      else unlisteners.push(unlisten)
+    }
+    await Promise.all([
+      attach("runtime-error", (payload) => {
+        desktop.error = String(payload)
+      }),
+      attach("close-requested", requestClose),
+      attach("navigate-requested", (direction) => {
+        if (direction === "next-page" || direction === "previous-page")
+          navigate(cyclePage(page.value, direction === "next-page" ? 1 : -1))
+        else move(direction === "back" ? -1 : 1)
+      }),
+      attach("page-requested", () => {
+        void takePageRequest()
+      }),
+      attach("refresh-requested", refreshPage),
+      attach("quit-feedback", showQuitFeedback),
+      attach("instance-requested", () => {
+        void takeInstanceRequest()
+      }),
+    ])
+    if (disposed) return
+    await desktop.bootstrap()
+    await desktop.refresh(true)
+    if (!disposed) {
+      const instance = await invoke<string>("tray_instance", { id: null })
+      if (instance !== desktop.activeId) await desktop.select(instance)
+      await takeInstanceRequest()
+    }
+    if (!disposed) await takePageRequest()
+    if (!disposed && visible.value === "visible") resume()
+  } catch (cause) {
+    if (!disposed) desktop.setError(cause)
+  } finally {
+    await document.fonts.ready
+    initialized = true
+    // Desktop windows start hidden and can only be shown after initialization finishes.
+    if (!disposed && (!desktop.mobile || visible.value === "visible")) {
+      if (desktop.mobile && startupGeneration !== resumeGeneration) await foreground()
+      else initializing.value = false
+    }
   }
-  await Promise.all([
-    attach("runtime-error", (payload) => {
-      desktop.error = String(payload)
-    }),
-    attach("close-requested", requestClose),
-    attach("navigate-requested", (direction) => {
-      if (direction === "next-page" || direction === "previous-page")
-        navigate(cyclePage(page.value, direction === "next-page" ? 1 : -1))
-      else move(direction === "back" ? -1 : 1)
-    }),
-    attach("page-requested", () => {
-      void takePageRequest()
-    }),
-    attach("refresh-requested", refreshPage),
-    attach("quit-feedback", showQuitFeedback),
-    attach("instance-requested", () => {
-      void takeInstanceRequest()
-    }),
-  ])
-  if (disposed) return
-  await desktop.action(() => desktop.bootstrap())
-  if (!disposed) {
-    const instance = await invoke<string>("tray_instance", { id: null })
-    if (instance !== desktop.activeId) await desktop.select(instance)
-    await takeInstanceRequest()
-  }
-  if (!disposed) await takePageRequest()
-  if (!disposed && visible.value === "visible") resume()
 })
 async function takePageRequest() {
   const target = await invoke<string | null>("take_page_request")
@@ -442,6 +474,8 @@ async function close(behavior: "tray" | "quit", rememberChoice = false) {
         storage="local"
         storage-key="trawl-desktop"
         class="desktop-shell"
+        :data-initializing="initializing"
+        :aria-busy="initializing"
         data-native-window-chrome
         :class="{
           'native-mac': nativeMac,
@@ -638,7 +672,7 @@ async function close(behavior: "tray" | "quit", rememberChoice = false) {
           </UTheme>
         </main>
       </UDashboardGroup>
-      <AppOnboarding v-model:open="onboardingOpen" @navigate="tourNavigate" />
+      <AppOnboarding v-model:open="onboardingOpen" :ready="!initializing" @navigate="tourNavigate" />
       <ShellCommands
         v-model:open="commandsOpen"
         :page="page"

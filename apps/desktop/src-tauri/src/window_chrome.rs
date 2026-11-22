@@ -304,6 +304,7 @@ pub fn loaded(window: &WebviewWindow) {
                 let labels = serde_json::json!({"message": crate::i18n::text("native.windowRecovery"), "reload": crate::i18n::text("native.reload")});
                 let _ = window.eval(format!("(() => {{ const labels = {}; ", labels) + "if (!document.getElementById('native-recovery')) { const p=document.createElement('div'); p.id='native-recovery'; p.style.cssText='visibility:visible;position:fixed;inset:0;z-index:99999;background:#1c1c1e;color:#eee;padding:64px;font:16px system-ui'; p.textContent=labels.message+' '; const b=document.createElement('button'); b.textContent=labels.reload; b.onclick=()=>location.reload(); p.append(b); document.body.append(p); } })()");
                 session.shown.store(true, Ordering::SeqCst);
+                let _ = update(&window);
                 #[cfg(target_os = "macos")]
                 crate::runtime::window_dock_visibility(&app, true);
                 let _ = window.show();
@@ -399,8 +400,9 @@ fn position_controls(window: &WebviewWindow, session: &Session) {
             return;
         };
         for button in [&close, &minimize, &zoom] {
-            let hidden = !session.ready.load(Ordering::SeqCst)
-                || session
+            let ready = session.ready.load(Ordering::SeqCst);
+            let hidden = !ready && !session.shown.load(Ordering::SeqCst)
+                || ready && session
                     .position
                     .lock()
                     .unwrap()

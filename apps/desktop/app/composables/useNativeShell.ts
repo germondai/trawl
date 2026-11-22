@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { isNativeWindowDrag, nativeChromePosition } from "~/utils/native-window-drag"
 import { LocalizedError, nativeErrorMessage } from "../utils/localization"
 
-export function useNativeShell(sidebarOpen: Readonly<Ref<boolean>>) {
+export function useNativeShell(sidebarOpen: Readonly<Ref<boolean>>, initializing: Readonly<Ref<boolean>>) {
   const desktop = useDesktopStore()
   let disposed = false
   let observer: ResizeObserver | undefined
@@ -64,7 +64,7 @@ export function useNativeShell(sidebarOpen: Readonly<Ref<boolean>>) {
         }
         if (!clock || next.latest - next.earliest < clock.latest - clock.earliest) clock = next
       }
-      await until(() => desktop.preferencesReady).toBe(true)
+      await until(() => desktop.preferencesReady && !initializing.value).toBe(true)
       await document.fonts.ready
       const logo = document.querySelector<HTMLImageElement>(".brand img")
       if (logo) await logo.decode().catch(() => {})

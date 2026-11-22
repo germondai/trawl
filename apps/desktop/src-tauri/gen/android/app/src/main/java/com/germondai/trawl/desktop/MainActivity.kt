@@ -26,6 +26,7 @@ class MainActivity : TauriActivity() {
     com.germondai.trawl.mobile.RuntimePlugin.attach(this)
     com.germondai.trawl.mobile.RuntimeService.visible = true
     nativeResume()
+    appWebView?.evaluateJavascript("window.dispatchEvent(new Event('trawl-foreground'))", null)
   }
   override fun onPause() {
     appWebView?.evaluateJavascript("window.dispatchEvent(new Event('trawl-background'))", null)
