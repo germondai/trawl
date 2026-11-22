@@ -1,22 +1,23 @@
 //! Service calls must outlive the Activity. Tauri's mobile plugin dispatcher
 //! requires a live Wry Activity, so background work uses the retained JVM object.
 use jni::{
-    objects::{GlobalRef, JObject, JString, JValue},
-    JNIEnv, JavaVM,
+    objects::{JObject, JString, JValue},
+    refs::Global,
+    EnvUnowned, JavaVM,
 };
 use serde_json::Value;
 use std::{
     collections::HashMap,
     sync::{
         atomic::{AtomicI32, Ordering},
-        Mutex, OnceLock,
+        Arc, Mutex, OnceLock,
     },
 };
 use tokio::sync::oneshot;
 
 struct Bridge {
     vm: JavaVM,
-    plugin: Mutex<Option<GlobalRef>>,
+    plugin: Mutex<Option<Arc<Global<JObject<'static>>>>>,
 }
 type Reply = Result<Value, String>;
 static BRIDGE: OnceLock<Bridge> = OnceLock::new();
@@ -33,7 +34,7 @@ impl Drop for Pending {
     }
 }
 
-pub async fn call(method: &str, args: Value) -> Reply {
+fn dispatch(method: &str, args: &Value, id: i32) -> Result<(), String> {
     let background = matches!(
         method,
         "setState"
@@ -67,6 +68,24 @@ pub async fn call(method: &str, args: Value) -> Reply {
             .ok_or("Android service bridge is not ready")?;
         (bridge, plugin)
     };
+    bridge
+        .vm
+        .attach_current_thread(|env| -> jni::errors::Result<()> {
+            let method = env.new_string(method)?;
+            let data = env.new_string(args.to_string())?;
+            env.call_method(
+                plugin.as_ref(),
+                jni::jni_str!("dispatch"),
+                jni::jni_sig!("(ILjava/lang/String;Ljava/lang/String;)V"),
+                &[JValue::Int(id), (&method).into(), (&data).into()],
+            )?;
+            Ok(())
+        })
+        .map_err(|e| format!("Android service call failed: {e}"))?;
+    Ok(())
+}
+
+pub async fn call(method: &str, args: Value) -> Reply {
     let timeout = if method == "browser" {
         args["maxTimeout"].as_u64().unwrap_or(60000).min(180000) + 10000
     } else {
@@ -76,24 +95,7 @@ pub async fn call(method: &str, args: Value) -> Reply {
     let (tx, rx) = oneshot::channel();
     pending().lock().unwrap().insert(id, tx);
     let _pending = Pending(id);
-    {
-        let mut env = bridge
-            .vm
-            .attach_current_thread()
-            .map_err(|e| e.to_string())?;
-        env.with_local_frame(8, |env| -> jni::errors::Result<()> {
-            let method = env.new_string(method)?;
-            let data = env.new_string(args.to_string())?;
-            env.call_method(
-                plugin.as_obj(),
-                "dispatch",
-                "(ILjava/lang/String;Ljava/lang/String;)V",
-                &[JValue::Int(id), (&method).into(), (&data).into()],
-            )?;
-            Ok(())
-        })
-        .map_err(|e| format!("Android service call failed: {e}"))?;
-    }
+    dispatch(method, &args, id)?;
     tokio::time::timeout(std::time::Duration::from_millis(timeout), rx)
         .await
         .map_err(|_| "Android service reply timed out".to_string())?
@@ -103,65 +105,79 @@ pub async fn call(method: &str, args: Value) -> Reply {
 #[no_mangle]
 #[allow(non_snake_case)]
 pub extern "system" fn Java_com_germondai_trawl_mobile_RuntimePlugin_nativeReady(
-    env: JNIEnv,
+    mut env: EnvUnowned,
     plugin: JObject,
 ) {
-    if let (Ok(vm), Ok(plugin)) = (env.get_java_vm(), env.new_global_ref(plugin)) {
-        let bridge = BRIDGE.get_or_init(|| Bridge {
-            vm,
-            plugin: Mutex::new(None),
-        });
-        *bridge.plugin.lock().unwrap() = Some(plugin);
-    }
+    env.with_env(|env| -> jni::errors::Result<()> {
+        if let (Ok(vm), Ok(plugin)) = (env.get_java_vm(), env.new_global_ref(plugin)) {
+            let bridge = BRIDGE.get_or_init(|| Bridge {
+                vm,
+                plugin: Mutex::new(None),
+            });
+            *bridge.plugin.lock().unwrap() = Some(Arc::new(plugin));
+        }
+
+        Ok(())
+    })
+    .resolve::<jni::errors::LogErrorAndDefault>();
 }
 
 #[no_mangle]
 #[allow(non_snake_case)]
 pub extern "system" fn Java_com_germondai_trawl_mobile_RuntimePlugin_nativeReply(
-    mut env: JNIEnv,
+    mut env: EnvUnowned,
     _: JObject,
     id: i32,
     success: jni::sys::jboolean,
     data: JString,
 ) {
-    let reply = env
-        .get_string(&data)
-        .map(|s| s.to_string_lossy().into_owned())
-        .map_err(|e| e.to_string())
-        .and_then(|s| serde_json::from_str::<Value>(&s).map_err(|e| e.to_string()))
-        .and_then(|value| {
-            if success != 0 {
-                Ok(value)
-            } else {
-                Err(value["message"]
-                    .as_str()
-                    .unwrap_or("Android service call failed")
-                    .to_owned())
-            }
-        });
-    if let Some(tx) = pending().lock().unwrap().remove(&id) {
-        let _ = tx.send(reply);
-    }
+    env.with_env(|env| -> jni::errors::Result<()> {
+        let reply = data
+            .try_to_string(env)
+            .map_err(|e| e.to_string())
+            .and_then(|s| serde_json::from_str::<Value>(&s).map_err(|e| e.to_string()))
+            .and_then(|value| {
+                if success {
+                    Ok(value)
+                } else {
+                    Err(value["message"]
+                        .as_str()
+                        .unwrap_or("Android service call failed")
+                        .to_owned())
+                }
+            });
+        if let Some(tx) = pending().lock().unwrap().remove(&id) {
+            let _ = tx.send(reply);
+        }
+
+        Ok(())
+    })
+    .resolve::<jni::errors::LogErrorAndDefault>();
 }
 
 #[no_mangle]
 #[allow(non_snake_case)]
 pub extern "system" fn Java_com_germondai_trawl_mobile_RuntimeService_nativeReady(
-    env: JNIEnv,
+    mut env: EnvUnowned,
     service: JObject,
 ) {
-    if let (Ok(vm), Ok(service)) = (env.get_java_vm(), env.new_global_ref(service)) {
-        let bridge = SERVICE.get_or_init(|| Bridge {
-            vm,
-            plugin: Mutex::new(None),
-        });
-        *bridge.plugin.lock().unwrap() = Some(service);
-    }
+    env.with_env(|env| -> jni::errors::Result<()> {
+        if let (Ok(vm), Ok(service)) = (env.get_java_vm(), env.new_global_ref(service)) {
+            let bridge = SERVICE.get_or_init(|| Bridge {
+                vm,
+                plugin: Mutex::new(None),
+            });
+            *bridge.plugin.lock().unwrap() = Some(Arc::new(service));
+        }
+
+        Ok(())
+    })
+    .resolve::<jni::errors::LogErrorAndDefault>();
 }
 #[no_mangle]
 #[allow(non_snake_case)]
 pub extern "system" fn Java_com_germondai_trawl_mobile_RuntimeService_nativeRelease(
-    _: JNIEnv,
+    _: EnvUnowned,
     _: JObject,
 ) {
     if let Some(bridge) = SERVICE.get() {
@@ -171,7 +187,7 @@ pub extern "system" fn Java_com_germondai_trawl_mobile_RuntimeService_nativeRele
 #[no_mangle]
 #[allow(non_snake_case)]
 pub extern "system" fn Java_com_germondai_trawl_mobile_RuntimeService_nativeReply(
-    env: JNIEnv,
+    env: EnvUnowned,
     service: JObject,
     id: i32,
     success: jni::sys::jboolean,

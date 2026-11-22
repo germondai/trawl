@@ -404,7 +404,7 @@ mod tests {
                 quit_behavior: std::sync::atomic::AtomicU8::new(2),
                 #[cfg(target_os = "macos")]
                 app_visibility: std::sync::atomic::AtomicU8::new(0),
-                http: reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap(),
+                http: crate::http_client_builder().redirect(reqwest::redirect::Policy::none()).build().unwrap(),
                 streams: crate::streams::Streams::default(), operations: Operations::default(), browser_operations: Operations::default(), startup_error: Mutex::new(None),
             };
             let body = r#"{"url":"http://owned.fixture","method":"POST","headers":{"Content-Type":"application/json"},"body":"{\"hello\":true}"}"#;

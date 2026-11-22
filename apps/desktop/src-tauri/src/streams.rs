@@ -396,7 +396,7 @@ mod tests {
                 quit_behavior: std::sync::atomic::AtomicU8::new(2),
                 #[cfg(target_os = "macos")]
                 app_visibility: std::sync::atomic::AtomicU8::new(0),
-                http: reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap(),
+                http: crate::http_client_builder().redirect(reqwest::redirect::Policy::none()).build().unwrap(),
                 streams: Streams::default(), operations: crate::operations::Operations::default(), browser_operations: crate::operations::Operations::default(), startup_error: Mutex::new(None),
             });
             let served = tokio::spawn(async move {

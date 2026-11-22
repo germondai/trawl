@@ -536,7 +536,7 @@ impl Runtime {
             if !force {
                 let before = Instant::now();
                 let mut measured = MeasuredStage::new("tier", Some(1), &mut stages);
-                let mut client = reqwest::Client::builder().no_proxy();
+                let mut client = crate::http_client_builder().no_proxy();
                 if let Some(resolver) = &resolver { client = client.dns_resolver(resolver.clone()); }
                 let client = client
                     .redirect(reqwest::redirect::Policy::limited(10))
@@ -1126,7 +1126,7 @@ mod tests {
         let status = core.start(Some("[::1]:0".parse().unwrap())).await.unwrap();
         let base = status["baseURL"].as_str().unwrap();
         assert!(base.starts_with("http://[::1]:"));
-        let response = reqwest::Client::builder()
+        let response = crate::http_client_builder()
             .no_proxy()
             .build()
             .unwrap()
@@ -1249,4 +1249,11 @@ mod request_diagnostics_tests {
         assert_eq!(value["cause"], "network");
     }
 
+}
+
+// Keep the bundled Mozilla trust store when upgrading reqwest's default verifier.
+pub(crate) fn http_client_builder() -> reqwest::ClientBuilder {
+    reqwest::Client::builder().tls_certs_only(webpki_root_certs::TLS_SERVER_ROOT_CERTS.iter().map(
+        |cert| reqwest::Certificate::from_der(cert.as_ref()).expect("bundled root certificate"),
+    ))
 }

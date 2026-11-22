@@ -248,7 +248,7 @@ pub fn run() {
                 streams: streams::Streams::default(),
                 operations: operations::Operations::default(),
                 browser_operations: operations::Operations::default(),
-                http: reqwest::Client::builder()
+                http: crate::http_client_builder()
                     .redirect(reqwest::redirect::Policy::none())
                     .connect_timeout(std::time::Duration::from_secs(10))
                     .build()?,

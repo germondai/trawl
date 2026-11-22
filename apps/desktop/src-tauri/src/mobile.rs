@@ -76,20 +76,22 @@ fn start_sync(core: Arc<Runtime>) {
 #[no_mangle]
 #[allow(non_snake_case)]
 pub extern "system" fn Java_com_germondai_trawl_mobile_RuntimeService_nativeRestore(
-    mut env: jni::JNIEnv,
+    mut env: jni::EnvUnowned,
     _: jni::objects::JObject,
     home: jni::objects::JString,
     wanted: jni::sys::jboolean,
 ) {
-    let Ok(home) = env.get_string(&home) else {
+    let Some(home) = env
+        .with_env(|env| home.try_to_string(env).map(Some))
+        .resolve::<jni::errors::LogErrorAndDefault>()
+    else {
         return;
     };
-    let home: String = home.into();
     let core = core_for(home.into());
     tauri::async_runtime::spawn(async move {
         match core {
             Ok(core) => {
-                if wanted != 0 {
+                if wanted {
                     if let Err(error) = core.start(None).await {
                         let _ = bridge::call("runtimeFailure", json!({"message":error})).await;
                     }
@@ -221,15 +223,17 @@ async fn service_management(core: &Arc<Runtime>, request: Value) -> Result<Value
 #[no_mangle]
 #[allow(non_snake_case)]
 pub extern "system" fn Java_com_germondai_trawl_mobile_RuntimeService_nativeManagement(
-    mut env: jni::JNIEnv,
+    mut env: jni::EnvUnowned,
     _: jni::objects::JObject,
     id: i32,
     request: jni::objects::JString,
 ) {
-    let Ok(request) = env.get_string(&request) else {
+    let Some(request) = env
+        .with_env(|env| request.try_to_string(env).map(Some))
+        .resolve::<jni::errors::LogErrorAndDefault>()
+    else {
         return;
     };
-    let request: String = request.into();
     tauri::async_runtime::spawn(async move {
         let result = match serde_json::from_str::<Value>(&request) {
             Ok(request) => {
@@ -323,17 +327,19 @@ async fn enable_notifications(app: tauri::AppHandle) -> Result<(), String> {
 #[no_mangle]
 #[allow(non_snake_case)]
 pub extern "system" fn Java_com_germondai_trawl_mobile_RuntimeService_nativeAction(
-    mut env: jni::JNIEnv,
+    mut env: jni::EnvUnowned,
     _this: jni::objects::JObject,
     action: jni::objects::JString,
 ) -> jni::sys::jboolean {
     let Some(core) = CORE.lock().unwrap().clone() else {
-        return 0;
+        return false;
     };
-    let Ok(action) = env.get_string(&action) else {
-        return 0;
+    let Some(action) = env
+        .with_env(|env| action.try_to_string(env).map(Some))
+        .resolve::<jni::errors::LogErrorAndDefault>()
+    else {
+        return false;
     };
-    let action: String = action.into();
     tauri::async_runtime::spawn(async move {
         let result = match action.as_str() {
             "stop" => core.stop().await,
@@ -353,12 +359,12 @@ pub extern "system" fn Java_com_germondai_trawl_mobile_RuntimeService_nativeActi
         )
         .await;
     });
-    1
+    true
 }
 #[no_mangle]
 #[allow(non_snake_case)]
 pub extern "system" fn Java_com_germondai_trawl_desktop_MainActivity_nativeResume(
-    _env: jni::JNIEnv,
+    _env: jni::EnvUnowned,
     _this: jni::objects::JObject,
 ) {
     let Some(app) = APP.get().cloned() else {
@@ -387,7 +393,7 @@ pub fn run() {
             let home = app.path().app_data_dir()?;
             app.manage(Arc::new(AppState {
                 home,
-                http: reqwest::Client::builder()
+                http: crate::http_client_builder()
                     .redirect(reqwest::redirect::Policy::none())
                     .build()?,
                 operations: crate::operations::Operations::default(),

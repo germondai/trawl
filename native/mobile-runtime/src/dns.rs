@@ -65,7 +65,7 @@ impl Resolver {
         if provider.is_empty() || provider == "system" {
             return Ok(None);
         }
-        let mut client = reqwest::Client::builder()
+        let mut client = crate::http_client_builder()
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(3));
@@ -488,7 +488,7 @@ mod tests {
             cache: Arc::new(Mutex::new(HashMap::new())),
         });
         let target = format!("http://owned.fixture:{port}/");
-        let client = reqwest::Client::builder()
+        let client = crate::http_client_builder()
             .no_proxy()
             .dns_resolver(resolver.clone())
             .build()
@@ -505,7 +505,7 @@ mod tests {
             "scoped resolver"
         );
         let proxy = Proxy::start(resolver).await.unwrap();
-        let client = reqwest::Client::builder()
+        let client = crate::http_client_builder()
             .proxy(
                 reqwest::Proxy::http(format!("http://127.0.0.1:{}", proxy.port))
                     .unwrap()
@@ -524,7 +524,7 @@ mod tests {
                 .unwrap(),
             "scoped resolver"
         );
-        let unauthenticated = reqwest::Client::builder()
+        let unauthenticated = crate::http_client_builder()
             .proxy(reqwest::Proxy::http(format!("http://127.0.0.1:{}", proxy.port)).unwrap())
             .build()
             .unwrap();

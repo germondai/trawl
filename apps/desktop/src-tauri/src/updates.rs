@@ -100,7 +100,7 @@ pub async fn install_app_update(app: tauri::AppHandle) -> Result<Value, String> 
         .ok_or("native.checkUpdateFirst".to_owned())?;
     let progress = app.clone();
     let mut reported = None::<std::time::Instant>;
-    let client = reqwest::Client::builder()
+    let client = crate::http_client_builder()
         .https_only(true)
         .connect_timeout(Duration::from_secs(10))
         .read_timeout(Duration::from_secs(30))
@@ -148,7 +148,7 @@ pub async fn install_app_update(app: tauri::AppHandle) -> Result<Value, String> 
 #[tauri::command]
 pub async fn check_app_update(app: tauri::AppHandle) -> Result<Value, String> {
     let current = app.package_info().version.clone();
-    let client = reqwest::Client::builder()
+    let client = crate::http_client_builder()
         .https_only(true)
         .connect_timeout(Duration::from_secs(4))
         .read_timeout(Duration::from_secs(5))
@@ -278,7 +278,7 @@ mod tests {
                 let (mut socket,_)=listener.accept().await.unwrap();let mut request=[0;1024];let _=socket.read(&mut request).await.unwrap();socket.write_all(response.as_bytes()).await.unwrap();
             }
         });
-        let client = reqwest::Client::builder()
+        let client = crate::http_client_builder()
             .no_proxy()
             .timeout(Duration::from_secs(2))
             .build()

@@ -112,3 +112,10 @@ async fn app_locale(app: tauri::AppHandle) -> Result<String, String> {
 #[cfg(not(target_os = "android"))]
 mod setting_paths;
 mod updates;
+
+// Keep the bundled Mozilla trust store when upgrading reqwest's default verifier.
+pub(crate) fn http_client_builder() -> reqwest::ClientBuilder {
+    reqwest::Client::builder().tls_certs_only(webpki_root_certs::TLS_SERVER_ROOT_CERTS.iter().map(
+        |cert| reqwest::Certificate::from_der(cert.as_ref()).expect("bundled root certificate"),
+    ))
+}
