@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { PoolExhaustedError } from "@trawl/browser"
 import { ScrapeError, sanitizeWafDetails } from "@trawl/tiers"
-import type { TierResult, WafDetection } from "@trawl/types"
+import type { CaptchaOutcome, TierResult, WafDetection } from "@trawl/types"
 import { METRICS_DASHBOARD_ENABLED, METRICS_DASHBOARD_TOKEN } from "./config"
 import type { ScrapeSource } from "./requestLogging"
 
@@ -84,6 +84,26 @@ function domainOf(url: string): string {
   }
 }
 
+const MAX_CAPTCHAS_PER_EVENT = 16
+const CAPTCHA_KIND = /^[a-z0-9][a-z0-9:_.-]{0,63}$/i
+
+// Solver kinds come from this codebase, but they are stored and rendered, so anything that does
+// not look like one is folded into "other" rather than trusted.
+function captchaOutcomes(attempts: TierResult[]): CaptchaOutcome[] {
+  const outcomes: CaptchaOutcome[] = []
+  for (const attempt of attempts) {
+    for (const captcha of attempt.captchas ?? []) {
+      if (outcomes.length >= MAX_CAPTCHAS_PER_EVENT) return outcomes
+      outcomes.push({
+        kind:
+          typeof captcha.kind === "string" && CAPTCHA_KIND.test(captcha.kind) ? captcha.kind.toLowerCase() : "other",
+        outcome: captcha.outcome === "solved" ? "solved" : "failed",
+      })
+    }
+  }
+  return outcomes
+}
+
 function failureKind(
   error: unknown,
   attempts: TierResult[],
@@ -141,12 +161,18 @@ export class MetricsStore {
       id INTEGER PRIMARY KEY, at INTEGER NOT NULL, event_id INTEGER REFERENCES events(id) ON DELETE CASCADE,
       tier INTEGER NOT NULL
     )`)
+    this.db.run(`CREATE TABLE IF NOT EXISTS captcha_attempts (
+      id INTEGER PRIMARY KEY, at INTEGER NOT NULL, event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL, solved INTEGER NOT NULL
+    )`)
     this.db.run("CREATE INDEX IF NOT EXISTS events_at ON events(at)")
     this.db.run(
       "CREATE INDEX IF NOT EXISTS events_summary ON events(at, source, tier, success, category, severity, duration_ms)",
     )
     this.db.run("CREATE INDEX IF NOT EXISTS events_domain_summary ON events(domain, at, success)")
     this.db.run("CREATE INDEX IF NOT EXISTS attempts_at ON tier_attempts(at)")
+    this.db.run("CREATE INDEX IF NOT EXISTS captcha_attempts_at ON captcha_attempts(at, kind, solved)")
+    this.db.run("CREATE INDEX IF NOT EXISTS captcha_attempts_event ON captcha_attempts(event_id)")
     this.prune()
   }
 
@@ -196,6 +222,7 @@ export class MetricsStore {
     const db = this.db
     if (!db) return
     const cutoff = Date.now() - RETENTION_MS
+    db.query("DELETE FROM captcha_attempts WHERE at < ?").run(cutoff)
     db.query("DELETE FROM events WHERE at < ?").run(cutoff)
     db.query("DELETE FROM events WHERE id NOT IN (SELECT id FROM events ORDER BY id DESC LIMIT ?)").run(MAX_EVENTS)
     db.query(
@@ -244,6 +271,14 @@ export class MetricsStore {
             failure?.severity ?? null,
             waf ? JSON.stringify(waf) : null,
           )
+        for (const captcha of captchaOutcomes(attempts)) {
+          db.query("INSERT INTO captcha_attempts(at, event_id, kind, solved) VALUES (?, ?, ?, ?)").run(
+            at,
+            inserted.lastInsertRowid,
+            captcha.kind,
+            Number(captcha.outcome === "solved"),
+          )
+        }
         for (const attempt of attempts) {
           if (attempt.status !== "skipped") {
             db.query("INSERT INTO tier_attempts(at, event_id, tier) VALUES (?, ?, ?)").run(
@@ -325,6 +360,36 @@ export class MetricsStore {
           GROUP BY p.value ORDER BY requests DESC, product LIMIT 256`)
           .all(from) as WafTotals["providers"])
       : []
+    const captchaRows = db
+      ? (db
+          .query(`SELECT kind, COUNT(*) AS attempts, SUM(solved) AS solved FROM captcha_attempts
+          WHERE at >= ? GROUP BY kind ORDER BY attempts DESC, kind LIMIT 32`)
+          .all(from) as { kind: string; attempts: number; solved: number }[])
+      : []
+    const captchaKinds = captchaRows.map((row) => ({
+      kind: row.kind,
+      attempts: row.attempts,
+      solved: row.solved,
+      failed: row.attempts - row.solved,
+    }))
+    const captchaByEvent = new Map<number, CaptchaOutcome[]>()
+    const eventIds = [...new Set([...events, ...failures].map((row) => row.id))]
+    if (db && eventIds.length) {
+      const rows = db
+        .query(
+          `SELECT event_id, kind, solved FROM captcha_attempts WHERE event_id IN (${eventIds.map(() => "?").join(",")}) ORDER BY id`,
+        )
+        .all(...eventIds) as { event_id: number; kind: string; solved: number }[]
+      for (const row of rows) {
+        const list = captchaByEvent.get(row.event_id) ?? []
+        list.push({ kind: row.kind, outcome: row.solved ? "solved" : "failed" })
+        captchaByEvent.set(row.event_id, list)
+      }
+    }
+    const captchasOf = (row: StoredEvent) => {
+      const list = captchaByEvent.get(row.id)
+      return list ? { captchas: list } : {}
+    }
     const wafStates: WafTotals["states"] = { complete: 0, incomplete: 0, unavailable: 0 }
     const wafUnavailable: WafTotals["unavailable"] = {}
     let wafDuration = 0
@@ -418,6 +483,12 @@ export class MetricsStore {
         averageMs: wafTimed ? Math.round((wafDuration / wafTimed) * 100) / 100 : 0,
         providers,
       },
+      captchas: {
+        attempts: captchaKinds.reduce((sum, row) => sum + row.attempts, 0),
+        solved: captchaKinds.reduce((sum, row) => sum + row.solved, 0),
+        failed: captchaKinds.reduce((sum, row) => sum + row.failed, 0),
+        kinds: captchaKinds,
+      },
       bucketMs: step,
       timeline,
       lastHour: timeline,
@@ -433,6 +504,7 @@ export class MetricsStore {
         statusCode: row.status_code,
         category: row.category,
         severity: row.severity,
+        ...captchasOf(row),
         ...(row.waf_json ? { waf: readWaf(row.waf_json) } : {}),
       })),
       recentFailures: failures.map((row) => ({
@@ -444,6 +516,7 @@ export class MetricsStore {
         statusCode: row.status_code,
         category: row.category,
         severity: row.severity,
+        ...captchasOf(row),
         ...(row.waf_json ? { waf: readWaf(row.waf_json) } : {}),
       })),
     }
