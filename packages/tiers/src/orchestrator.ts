@@ -257,6 +257,7 @@ async function scrapeWithinBudget(
   const timings: TierResult[] = []
   const domain = extractDomain(req.url)
   const explicitProxy = req.proxy
+  const callerProxy = deps.proxyFromPool ? undefined : explicitProxy
   const tier1Proxy = explicitProxy && /^https?:\/\//i.test(explicitProxy) ? explicitProxy : undefined
   const trustedProxyCa = explicitProxy ? await deps.trustedProxyCa?.(explicitProxy) : undefined
   const skipTier1ForProxy = Boolean(explicitProxy && !tier1Proxy)
@@ -755,7 +756,7 @@ async function scrapeWithinBudget(
       // fallback candidate, so it's tried exactly once.
       let proxy3 = req.proxy ?? deps.proxyPool?.next(domain) ?? undefined
       const tier3Capture =
-        maxTier >= 4 && !explicitProxy && deps.residentialProxyPool?.hasAvailable()
+        maxTier >= 4 && !callerProxy && deps.residentialProxyPool?.hasAvailable()
           ? { ...capture, cloudflareDeadline: budget.deadline - Math.min(30_000, Math.floor(budget.remaining() / 3)) }
           : capture
       let t3: Awaited<ReturnType<typeof runTier3>>
@@ -864,7 +865,7 @@ async function scrapeWithinBudget(
 
     // Tier 4: residential proxy escalation - requires at least one residential proxy,
     // supplied either per-request (req.proxy) or via the configured residential pool.
-    let proxy4 = forcedTier4Proxy ?? req.proxy ?? deps.residentialProxyPool?.next(domain)
+    let proxy4 = forcedTier4Proxy ?? callerProxy ?? deps.residentialProxyPool?.next(domain) ?? explicitProxy
     if (!proxy4) {
       throw failure(
         tier3Failure
@@ -917,7 +918,7 @@ async function scrapeWithinBudget(
         continue
       }
       const pool = deps.residentialProxyPool
-      if (t4.status !== "blocked" || req.proxy || !pool || attempt + 1 >= MAX_PROXY_ATTEMPTS) break
+      if (t4.status !== "blocked" || callerProxy || !pool || attempt + 1 >= MAX_PROXY_ATTEMPTS) break
       await checkPostReplay(t4)
       pool.markBad(proxy4)
       const next = pool.next(domain)
