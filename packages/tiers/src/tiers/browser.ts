@@ -6,6 +6,7 @@ import { solvePageCaptchas } from "../solvers"
 import { reportBlocked } from "../utils/blockedEvidence"
 import { captureBrowserDocument, waitForBrowserLoad } from "../utils/browserCapture"
 import { persistentBrowserWall } from "../utils/browserWall"
+import { widgetOutcomes } from "../utils/captchaOutcomes"
 import { attachPageCapture, type CaptureOptions } from "../utils/capture"
 import { routeChallengeWait } from "../utils/challengeRouter"
 import { normalizeInputCookies, snapshotChallengeCookies, toCookies } from "../utils/cookies"
@@ -181,6 +182,7 @@ async function runBrowserTierTask<T extends 3 | 4>(
       capture.externalCaptcha,
       proxyUrl,
       budget.signal,
+      capture.captchaOutcomes,
     )
 
     if (resolution === "browser-closed") {
@@ -249,6 +251,7 @@ async function runBrowserTierTask<T extends 3 | 4>(
         solved: [],
       }))
       captchasSolved = [...new Set([...captchasSolved, ...solveResult.solved])]
+      capture.captchaOutcomes?.(widgetOutcomes(solveResult.attempted, solveResult.solved))
     }
 
     if (overlapWidgetSettling) await sleep(Math.max(0, settleUntil - Date.now()), budget.signal)

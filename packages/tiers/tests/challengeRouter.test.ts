@@ -476,23 +476,45 @@ test("keeps Turnstile on an active Cloudflare wall in the wall waiter", async ()
 test("a configured WAF profile must clear the challenge after applying its response", async () => {
   let solves = 0
   let cleared = false
+  const outcomes: unknown[] = []
   const external = {
     discover: async () => ["profile:0"],
     canSolve: async () => true,
     localBudget: () => 10,
-    solveProfiles: async () => {
+    solveProfiles: async (_page, _remaining, _signal, _proxy, onAttempt) => {
       solves++
+      onAttempt?.("turnstile:2captcha", false)
       return ["datadome:2captcha"]
     },
-  } as unknown as ExternalCaptchaSession
+  } satisfies Pick<ExternalCaptchaSession, "discover" | "canSolve" | "localBudget" | "solveProfiles">
   const page = { content: async () => (cleared ? "<html><body>Owned content</body></html>" : DATADOME_CAPTCHA) } as Page
   const waiters = { cloudflare: async () => "ok" as const } as unknown as Parameters<typeof routeChallengeWait>[5]
   const run = () =>
-    routeChallengeWait(page, DATADOME_CAPTCHA, {}, 10000, undefined, waiters, 403, undefined, () => ({}), external)
+    routeChallengeWait(
+      page,
+      DATADOME_CAPTCHA,
+      {},
+      10000,
+      undefined,
+      waiters,
+      403,
+      undefined,
+      () => ({}),
+      external as unknown as ExternalCaptchaSession,
+      undefined,
+      undefined,
+      (items) => outcomes.push(...items),
+    )
   expect(await run()).toEqual({ challengeType: "datadome", resolution: "captcha-required" })
   cleared = true
   expect(await run()).toEqual({ challengeType: "none", resolution: "ok", captchasSolved: ["datadome:2captcha"] })
   expect(solves).toBe(2)
+  expect(outcomes).toEqual([
+    { kind: "turnstile:2captcha", outcome: "failed" },
+    { kind: "datadome:2captcha", outcome: "failed" },
+    { kind: "turnstile:2captcha", outcome: "failed" },
+    { kind: "datadome:2captcha", outcome: "solved" },
+  ])
 })
 
 test("DataDome IP blocks do not create paid profile tasks", async () => {
