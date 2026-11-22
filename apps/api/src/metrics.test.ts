@@ -106,7 +106,7 @@ describe("local metrics", () => {
     store.close()
   })
 
-  test("migrates existing history without dropping events and persists WAF metadata", () => {
+  test("migrates existing history without dropping events and persists WAF and CAPTCHA data", () => {
     const dir = mkdtempSync(join(tmpdir(), "trawl-waf-migration-"))
     const path = join(dir, "events.sqlite")
     try {
@@ -119,10 +119,19 @@ describe("local metrics", () => {
         .run(Date.now(), "old.example", "native", 1, 1, 1, 200)
       old.close()
       const first = new MetricsStore(true, path)
-      first.record({ source: "native", url: "https://new.example", statusCode: 200, durationMs: 4, waf })
+      first.record({
+        source: "native",
+        url: "https://new.example",
+        statusCode: 200,
+        durationMs: 4,
+        waf,
+        attempts: [{ tier: 3, status: "success", durationMs: 4, captchas: [{ kind: "altcha", outcome: "solved" }] }],
+      })
       first.close()
       const reopened = new MetricsStore(true, path)
       expect(reopened.snapshot().requests).toBe(2)
+      expect(reopened.snapshot().captchas).toMatchObject({ attempts: 1, solved: 1, failed: 0 })
+      expect(reopened.snapshot().recentEvents.find(({ domain }) => domain === "old.example")?.captchas).toBeUndefined()
       expect(reopened.snapshot().waf.providers).toEqual([{ product: "Cloudflare", requests: 1, failures: 0 }])
       expect(reopened.snapshot().recentEvents[0]?.waf).toMatchObject({ products: ["Cloudflare"] })
       expect(reopened.snapshot().recentEvents[0]?.waf).toMatchObject({
@@ -295,6 +304,26 @@ describe("CAPTCHA metrics", () => {
           { kind: "turnstile:2captcha", attempts: 1, solved: 1, failed: 0 },
         ],
       })
+    } finally {
+      store.close()
+    }
+  })
+
+  test("includes attempts outside the displayed solver rows in aggregate totals", () => {
+    const store = new MetricsStore()
+    try {
+      for (let i = 0; i < 33; i++) {
+        store.record({
+          source: "native",
+          url: "https://example.test/",
+          statusCode: 200,
+          durationMs: 10,
+          attempts: [attempt([{ kind: `solver-${i}`, outcome: i === 9 ? "failed" : "solved" }])],
+        })
+      }
+      const { captchas } = store.snapshot(60)
+      expect(captchas.kinds).toHaveLength(32)
+      expect(captchas).toMatchObject({ attempts: 33, solved: 32, failed: 1 })
     } finally {
       store.close()
     }

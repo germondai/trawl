@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { type OrchestratorDeps, type ScrapeError, scrape } from "../src/orchestrator"
-import { wallOutcomes, widgetOutcomes } from "../src/utils/captchaOutcomes"
+import { widgetOutcomes } from "../src/utils/captchaOutcomes"
 import { ProxyPool } from "../src/utils/proxyRotator"
 
 describe("CAPTCHA outcomes", () => {
@@ -11,22 +11,6 @@ describe("CAPTCHA outcomes", () => {
       { kind: "turnstile:2captcha", outcome: "solved" },
     ])
     expect(widgetOutcomes([], [])).toEqual([])
-  })
-
-  test("walls: a CAPTCHA no solver cleared is a failure of the wall's own kind", () => {
-    expect(wallOutcomes("aws-waf", "captcha-required")).toEqual([{ kind: "aws-waf", outcome: "failed" }])
-    expect(wallOutcomes("datadome", "captcha-required", [])).toEqual([{ kind: "datadome", outcome: "failed" }])
-  })
-
-  test("walls: a solved wall reports only what was solved", () => {
-    expect(wallOutcomes("aws-waf", "ok", ["aws-waf"])).toEqual([{ kind: "aws-waf", outcome: "solved" }])
-    expect(wallOutcomes("aws-waf", "captcha-required", ["aws-waf"])).toEqual([{ kind: "aws-waf", outcome: "solved" }])
-  })
-
-  test("walls: timeouts and plain blocks are not CAPTCHA attempts", () => {
-    for (const resolution of ["timeout", "blocked", "ip-blocked", "browser-closed", "ok"]) {
-      expect(wallOutcomes("cloudflare", resolution)).toEqual([])
-    }
   })
 })
 

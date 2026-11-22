@@ -238,8 +238,8 @@ The **CAPTCHA solvers** panel counts every CAPTCHA a request tried to clear, per
 `geetest-slide`, `aws-waf`, ...), with attempts, solved, failed and success rate. An
 external-solver fallback shows as its own row (for example `turnstile (2captcha)`) and counts as a
 separate attempt, so a CAPTCHA the local solver missed and the fallback cleared appears as one failure
-and one solve. A wall that stops at a CAPTCHA no solver could clear counts as a failure of that wall's
-kind. Timeouts and plain blocks are not CAPTCHA attempts. The activity and failure tables add a
+and one solve. Detecting a wall without running a solver adds no attempt. Summary counts include all
+recorded kinds even when the table only shows the 32 most frequent. The activity and failure tables add a
 CAPTCHA column with each request's outcomes, and the failure filter matches them. Each tier attempt in
 the scrape result's `timings` carries a `captchas` array of `{ kind, outcome }` only when it tried one.
 Counts start with the first request recorded after upgrading; older history has no CAPTCHA data.

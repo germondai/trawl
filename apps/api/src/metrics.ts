@@ -372,6 +372,9 @@ export class MetricsStore {
       solved: row.solved,
       failed: row.attempts - row.solved,
     }))
+    const captchaTotals = db
+      ?.query("SELECT COUNT(*) AS attempts, COALESCE(SUM(solved), 0) AS solved FROM captcha_attempts WHERE at >= ?")
+      .get(from) as { attempts: number; solved: number } | undefined
     const captchaByEvent = new Map<number, CaptchaOutcome[]>()
     const eventIds = [...new Set([...events, ...failures].map((row) => row.id))]
     if (db && eventIds.length) {
@@ -484,9 +487,9 @@ export class MetricsStore {
         providers,
       },
       captchas: {
-        attempts: captchaKinds.reduce((sum, row) => sum + row.attempts, 0),
-        solved: captchaKinds.reduce((sum, row) => sum + row.solved, 0),
-        failed: captchaKinds.reduce((sum, row) => sum + row.failed, 0),
+        attempts: captchaTotals?.attempts ?? 0,
+        solved: captchaTotals?.solved ?? 0,
+        failed: captchaTotals ? captchaTotals.attempts - captchaTotals.solved : 0,
         kinds: captchaKinds,
       },
       bucketMs: step,
