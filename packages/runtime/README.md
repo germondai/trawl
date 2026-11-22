@@ -6,7 +6,7 @@ Private build and lifecycle package for the CLI and desktop. It packages the exi
 bun --cwd packages/runtime build
 ```
 
-Output: `.artifacts/v2/runtime`. Build on the target OS/architecture with Bun 1.4.4, Rust and Go (the version in `tools/wafmeow/go.mod`). The launcher runs a bundled private Bun executable; end users do not need Bun, Python or Docker. The browser is installed separately on first setup:
+Output: `.artifacts/v2/runtime`. Build on the target OS/architecture with Bun 1.4.5, Rust and Go (the version in `tools/wafmeow/go.mod`). The launcher runs a bundled private Bun executable; end users do not need Bun, Python or Docker. The browser is installed separately on first setup:
 
 ```sh
 ./trawl-server setup

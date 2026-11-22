@@ -81,6 +81,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Refresh Bun, frontend, cryptography, Tauri, native HTTP/parser, Go and Android dependencies with their lockfiles. Use Bun 1.4.5, Rust 1.100.0 and nginx 1.31.9; retain browser/compiler and Android toolchain compatibility pins and preserve Mozilla certificate trust during the Reqwest migration.
 - Label the default verified browser Recommended and the latest supported platform build Latest. Replace browser storage navigation with cache-retention information and confirmed download-cache cleanup that keeps installed browsers and works while the server runs.
 - Keep Escape-cancelled Quit holds cancelled until shortcut release, including repeated delivery of the held quit key.
 
@@ -99,6 +100,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Include the shared configuration catalog in both Docker API runtime variants so the server can initialize DNS and instance settings.
 - Respect Android system bars, display cutouts and keyboard insets, and let Back dismiss the keyboard first. Keep foreground services independent of the recent-app task, restore controls when reopening it, expose Android background/battery settings, and inset the transparent launcher mark on a dark adaptive background.
 - Close mobile navigation menus on Back without reopening them when returning to an earlier page.
 

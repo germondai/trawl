@@ -19,7 +19,7 @@ For security issues, **do not open a public issue** - see [SECURITY.md](SECURITY
 
 Requirements depend on the workspace:
 
-- **API and shared packages:** Bun 1.4.4 is the runtime and package manager.
+- **API and shared packages:** Bun 1.4.5 is the runtime and package manager.
 - **Web and docs:** Node.js 26.13.1 runs the Nuxt and VitePress build tools; Bun installs dependencies.
 - **Integration tests:** Docker provides Redis and the Linux browser environment.
 - **Native preview:** Rust and Go build the standalone runtime; Tauri additionally needs the platform's WebView development libraries. See [native development](packages/runtime/README.md) and [desktop setup](apps/desktop/README.md).
@@ -29,16 +29,32 @@ The scraper service runs on Bun. Its Docker runtime does not require Node.js.
 Camoufox stays at 152.0.4-beta.30, the newest browser supported by camoufox-js
 0.13.0. The API images backport the eMudhra OneCRL revocations and their startup
 import until a compatible upstream browser includes both fixes. Playwright Core
-stays at 1.62.1 to satisfy its peer constraint. Bundled uBlock Origin stays at
-1.75.0: versions 1.75.2 and 1.75.4 failed proxied browser readiness checks with
-this Camoufox build. The web workspace uses TypeScript 6.0.3 because vue-tsc
+stays at 1.62.1 to satisfy its peer constraint. Bundled uBlock Origin uses
+1.76.6 with a verified archive checksum. Recheck direct and proxied browser
+readiness when updating it: versions 1.75.2 and 1.75.4 failed these checks with
+this Camoufox build. Web and desktop workspaces use TypeScript 6.0.3 because vue-tsc
 needs its JavaScript compiler API; the API and shared packages use TypeScript 7.
 
-Docker builds the native PoW solver with Rust 1.99.1 and checks its protocol vectors
+Docker builds the native PoW solver with Rust 1.100.0 and checks its protocol vectors
 and runtime ABI. It builds the offline WAF worker with Go 1.27.4. Rod requires `got/lib/lcs`,
 removed in `got` 0.43.0, and the constructor API removed in `fetchup` 0.4.0; keep
 `got` at 0.42.4 and `fetchup` at 0.3.0. The module retains Go 1.26 as its minimum
 language version.
+
+Native dependency maintenance also covers the four Cargo lockfiles and Android's
+Gradle dependencies. The current native toolchain is Rust 1.100.0. Reqwest 0.13
+keeps the bundled Mozilla root certificates through an explicit client builder;
+it does not switch API, update or DNS requests to platform certificate trust.
+JNI 0.22 callbacks borrow their environment explicitly and retain global Java
+references behind `Arc` while background calls are pending.
+
+Android uses Kotlin 2.4.21, Gradle 9.7.0 and AGP 9.3.1. Keep the Tauri 2 legacy
+DSL opt-outs until its Android template supports the replacement DSL. Newer
+AGP 9.5.2 and Gradle 9.9.2 are outside Kotlin 2.4.21's fully supported range;
+see the [Kotlin compatibility matrix](https://kotlinlang.org/docs/gradle-configure-project.html).
+The Android Jackson BOM aligns the mapper and Tauri's JSON-org module on the
+latest 2.x line. Tauri's `Invoke` constructor exposes the `com.fasterxml.jackson`
+mapper type; Jackson 3 uses a different package and is not a drop-in replacement.
 
 ```bash
 git clone https://github.com/germondai/trawl.git
