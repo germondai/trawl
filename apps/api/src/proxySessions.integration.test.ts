@@ -1,4 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
+import { once } from "node:events"
+import { mkdtempSync, rmSync } from "node:fs"
+import net from "node:net"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import type { BrowserHandle } from "@trawl/browser"
 import { MemorySessionCache } from "@trawl/browser"
 import { type OrchestratorDeps, ProxyPool } from "@trawl/tiers"
@@ -7,6 +12,7 @@ import { Elysia } from "elysia"
 import { parseHTML } from "linkedom"
 import { launchAnubisBrowser } from "../../../packages/browser/tests/helpers/anubisBrowser"
 import { MetricsStore } from "./metrics"
+import { shutdownMitmProxy, startMitmProxy } from "./proxy/server"
 import { scrapeRoute } from "./routes/scrape"
 import { v1Route } from "./routes/v1"
 
@@ -244,6 +250,73 @@ describe.skipIf(process.env.TRAWL_PROXY_SESSION_TESTS !== "1")("Camoufox proxy s
     expect(temporaryContexts).toBe(before)
     expect(browser.contexts()).toHaveLength(1)
   }, 30000)
+
+  test("releases an actual browser context when the proxy client disconnects during navigation", async () => {
+    const peers = new Set<net.Socket>()
+    let started!: () => void
+    let released!: () => void
+    const navigating = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    const release = new Promise<void>((resolve) => {
+      released = resolve
+    })
+    const pendingOrigin = net.createServer((socket) => {
+      peers.add(socket)
+      socket.on("error", () => {})
+      socket.once("close", () => peers.delete(socket))
+      socket.once("data", () => {
+        socket.write("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nTransfer-Encoding: chunked\r\n\r\n1\r\nx\r\n")
+        started()
+      })
+    })
+    pendingOrigin.listen(0, "127.0.0.1")
+    await once(pendingOrigin, "listening")
+    const caDir = mkdtempSync(join(tmpdir(), "trawl-browser-cancel-"))
+    let releases = 0
+    const mitm = startMitmProxy({
+      host: "127.0.0.1",
+      port: 0,
+      caDir,
+      alwaysScrape: true,
+      maxTimeout: 30000,
+      deps: {
+        ...deps,
+        minTier: 3,
+        proxyPool: undefined,
+        loadSession: async () => undefined,
+        releaseBrowser() {
+          releases++
+          released()
+        },
+      },
+    })
+    let client: net.Socket | undefined
+    try {
+      if (!mitm.server.listening) await once(mitm.server, "listening")
+      client = net.connect((mitm.server.address() as net.AddressInfo).port, "127.0.0.1")
+      client.on("error", () => {})
+      await once(client, "connect")
+      const port = (pendingOrigin.address() as net.AddressInfo).port
+      client.write(`GET http://127.0.0.1:${port}/ HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n\r\n`)
+      await navigating
+      client.destroy()
+      await Promise.race([
+        release,
+        Bun.sleep(1500).then(() => {
+          throw new Error("Browser lease survived client disconnect")
+        }),
+      ])
+      expect(releases).toBe(1)
+      expect(browser.contexts()).toHaveLength(1)
+    } finally {
+      client?.destroy()
+      for (const peer of peers) peer.destroy()
+      await shutdownMitmProxy(mitm, 100)
+      await new Promise<void>((resolve) => pendingOrigin.close(() => resolve()))
+      rmSync(caDir, { recursive: true, force: true })
+    }
+  }, 10000)
 
   test("retains the browser proxy in an external CAPTCHA task during cached reuse", async () => {
     deps.proxyPool = new ProxyPool([`http://127.0.0.1:${proxy.port}`])
