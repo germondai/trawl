@@ -59,6 +59,7 @@ test("private management progress reaches the parent while stdin stays open", as
       new Response(child.stderr).text(),
       child.exited,
     ])
+    if (exit !== 0) throw new Error(`Fixture management exited with ${exit}: ${stdout.slice(0, 500)}`)
     expect(exit).toBe(0)
     expect(JSON.parse(stdout).ok).toBe(true)
     const steps = stderr

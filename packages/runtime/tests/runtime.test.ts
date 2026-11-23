@@ -87,7 +87,12 @@ describe("managed runtime", () => {
     try {
       const deadline = Date.now() + (process.platform === "win32" ? 15000 : 5000)
       while (!(await Bun.file(loaded).exists()) && Date.now() < deadline) await Bun.sleep(10)
-      expect(await Bun.file(loaded).exists()).toBe(true)
+      if (!(await Bun.file(loaded).exists())) {
+        if (child.exitCode === null) child.kill()
+        await child.exited
+        const stderr = await new Response(child.stderr).text()
+        throw new Error(`Fixture API did not load: ${stderr.slice(0, 500) || "no startup error reported"}`)
+      }
       expect(await control("status", paths)).toMatchObject({ running: true, ready: false })
       await writeFile(release, "ready")
       let status = await control("status", paths)
