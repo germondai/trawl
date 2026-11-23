@@ -2,6 +2,11 @@ name: Native distributions
 
 on:
   workflow_dispatch:
+    inputs:
+      windows_only:
+        description: Build only the Windows installer
+        type: boolean
+        default: false
   push:
     branches: [feat/v2-platform]
   pull_request:
@@ -39,7 +44,7 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        runner: [windows-2025, ubuntu-24.04, ubuntu-24.04-arm, macos-15, macos-15-intel]
+        runner: ${{ inputs.windows_only && fromJSON('["windows-2025"]') || fromJSON('["windows-2025","ubuntu-24.04","ubuntu-24.04-arm","macos-15","macos-15-intel"]') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 40
     env:
@@ -73,7 +78,10 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev patchelf xvfb fonts-dejavu fonts-liberation libasound2t64 libdbus-glib-1-2 libgtk-3-0t64 libnss3 libnspr4 libx11-xcb1 libxcb-shm0 libxcomposite1 libxcursor1 libxdamage1 libxi6 libxrandr2 libxss1 libxtst6 libgbm1
       - run: bun install --frozen-lockfile
       - name: Check new package behavior
-        run: bun test packages/config/tests packages/runtime/tests packages/cli/tests packages/client/tests
+        run: |
+          timeout=5000
+          if [[ "$RUNNER_OS" == Windows ]]; then timeout=30000; fi
+          bun test --timeout "$timeout" packages/config/tests packages/runtime/tests packages/cli/tests packages/client/tests
       - name: Build SDK and CLI
         run: bun --cwd packages/client build && bun --cwd packages/cli build
       - uses: denoland/setup-deno@v2

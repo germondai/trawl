@@ -30,7 +30,13 @@ Set-Acl -LiteralPath $env:TRAWL_PERMISSION_PATH -AclObject $acl
         env: { ...process.env, TRAWL_PERMISSION_PATH: path, TRAWL_PERMISSION_KIND: directory ? "directory" : "file" },
       },
     )
-  } catch {
-    throw new Error("Cannot protect local storage permissions; use a private NTFS user directory")
+  } catch (error) {
+    const failure = error as { code?: unknown; killed?: boolean }
+    const detail = failure.killed
+      ? "PowerShell timed out"
+      : typeof failure.code === "number"
+        ? `PowerShell exit code ${failure.code}`
+        : "PowerShell could not be started"
+    throw new Error(`Cannot protect local storage permissions; use a private NTFS user directory (${detail})`)
   }
 }
