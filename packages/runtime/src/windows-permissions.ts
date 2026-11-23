@@ -11,16 +11,20 @@ $ErrorActionPreference = 'Stop'
 [Console]::Error.WriteLine('TRAWL_ACL_STARTED')
 $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $directory = $env:TRAWL_PERMISSION_KIND -eq 'directory'
-$acl = if ($directory) { New-Object System.Security.AccessControl.DirectorySecurity } else { New-Object System.Security.AccessControl.FileSecurity }
+$acl = if ($directory) { [System.Security.AccessControl.DirectorySecurity]::new() } else { [System.Security.AccessControl.FileSecurity]::new() }
 $acl.SetOwner($sid)
 $acl.SetAccessRuleProtection($true, $false)
 $inherit = if ($directory) { [System.Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit' } else { [System.Security.AccessControl.InheritanceFlags]::None }
 foreach ($identity in @($sid, [System.Security.Principal.SecurityIdentifier]'S-1-5-18')) {
-  $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($identity, 'FullControl', $inherit, 'None', 'Allow')
+  $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($identity, 'FullControl', $inherit, 'None', 'Allow')
   $acl.AddAccessRule($rule)
 }
 [Console]::Error.WriteLine('TRAWL_ACL_APPLYING')
-Set-Acl -LiteralPath $env:TRAWL_PERMISSION_PATH -AclObject $acl
+if ($directory) {
+  [System.IO.Directory]::SetAccessControl($env:TRAWL_PERMISSION_PATH, $acl)
+} else {
+  [System.IO.File]::SetAccessControl($env:TRAWL_PERMISSION_PATH, $acl)
+}
 [Console]::Error.WriteLine('TRAWL_ACL_APPLIED')
 `
   try {
