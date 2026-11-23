@@ -104,7 +104,36 @@ jobs:
           codesign --verify --deep --strict apps/desktop/src-tauri/target/release/bundle/macos/TRAWL.app
           bun -e 'import { verifyRuntime } from "./packages/runtime/src/assets.ts"; await verifyRuntime("./apps/desktop/src-tauri/target/release/bundle/macos/TRAWL.app/Contents/Resources/runtime"); console.log("Packaged runtime integrity verified")'
       - name: Check native lifecycle helpers
+        if: runner.os != 'Windows'
         run: cargo test --release --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --lib
+      - name: Check native lifecycle helpers on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: apps/desktop/src-tauri
+        run: |
+          $messages = cargo test --release --locked --lib --no-run --message-format=json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $harness = @($messages | ForEach-Object { ConvertFrom-Json -InputObject $_ } |
+            Where-Object { $_.reason -eq 'compiler-artifact' -and $_.profile.test -and $_.executable })
+          if ($harness.Count -ne 1) { throw 'Expected one native Rust test executable' }
+          $mt = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\mt.exe" |
+            Sort-Object { [version]$_.Directory.Parent.Name } -Descending | Select-Object -First 1
+          if (!$mt) { throw 'Windows SDK manifest tool was not found' }
+          $manifest = Join-Path $env:RUNNER_TEMP 'trawl-rust-tests.manifest'
+          @'
+          <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+            <dependency><dependentAssembly>
+              <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls"
+                version="6.0.0.0" processorArchitecture="*" publicKeyToken="6595b64144ccf1df" language="*"/>
+            </dependentAssembly></dependency>
+          </assembly>
+          '@ | Set-Content -LiteralPath $manifest -Encoding utf8
+          # Tauri embeds this dependency in the application executable, but not the Rust test harness.
+          & $mt.FullName -nologo -manifest $manifest "-outputresource:$($harness[0].executable);#1"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $harness[0].executable
+          exit $LASTEXITCODE
       - name: Package desktop installer
         if: github.event_name == 'workflow_dispatch'
         run: |
