@@ -8,6 +8,7 @@ export async function protectWindowsStorage(path: string, directory: boolean) {
   if (process.platform !== "win32") return
   const script = `
 $ErrorActionPreference = 'Stop'
+[Console]::Error.WriteLine('TRAWL_ACL_STARTED')
 $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $directory = $env:TRAWL_PERMISSION_KIND -eq 'directory'
 $acl = if ($directory) { New-Object System.Security.AccessControl.DirectorySecurity } else { New-Object System.Security.AccessControl.FileSecurity }
@@ -18,7 +19,9 @@ foreach ($identity in @($sid, [System.Security.Principal.SecurityIdentifier]'S-1
   $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($identity, 'FullControl', $inherit, 'None', 'Allow')
   $acl.AddAccessRule($rule)
 }
+[Console]::Error.WriteLine('TRAWL_ACL_APPLYING')
 Set-Acl -LiteralPath $env:TRAWL_PERMISSION_PATH -AclObject $acl
+[Console]::Error.WriteLine('TRAWL_ACL_APPLIED')
 `
   try {
     await exec(
@@ -31,12 +34,15 @@ Set-Acl -LiteralPath $env:TRAWL_PERMISSION_PATH -AclObject $acl
       },
     )
   } catch (error) {
-    const failure = error as { code?: unknown; killed?: boolean }
+    const failure = error as { code?: unknown; killed?: boolean; stderr?: unknown }
     const detail = failure.killed
       ? "PowerShell timed out"
       : typeof failure.code === "number"
         ? `PowerShell exit code ${failure.code}`
         : "PowerShell could not be started"
-    throw new Error(`Cannot protect local storage permissions; use a private NTFS user directory (${detail})`)
+    const markers =
+      typeof failure.stderr === "string" ? failure.stderr.match(/TRAWL_ACL_(STARTED|APPLYING|APPLIED)/g) : null
+    const stage = markers?.at(-1) ?? "no script output"
+    throw new Error(`Cannot protect local storage permissions; use a private NTFS user directory (${detail}, ${stage})`)
   }
 }
