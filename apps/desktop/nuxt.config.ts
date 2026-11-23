@@ -50,6 +50,7 @@ export default defineNuxtConfig({
         "lucide:file",
         "lucide:trash-2",
         "lucide:x",
+        "lucide:minus",
         "lucide:menu",
         "lucide:moon",
         "lucide:sun",

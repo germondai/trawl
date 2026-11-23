@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { getCurrentWindow } from "@tauri-apps/api/window"
 import { t } from "~/utils/localization"
 import { type Page, pages } from "~/utils/page-history"
 
@@ -13,6 +14,14 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ back: []; forward: []; restart: []; refresh: []; sidebar: []; search: [] }>()
 const desktop = useDesktopStore()
+const windows = desktop.native && /^Win/.test(navigator.platform)
+async function windowAction(action: "minimize" | "toggleMaximize" | "close") {
+  try {
+    await getCurrentWindow()[action]()
+  } catch (error) {
+    desktop.setError(error)
+  }
+}
 const current = computed(() => pages.find(({ id }) => id === props.page) ?? pages[0])
 const kbds = useShortcutKeys()
 const local = computed(() => desktop.activeId === "local")
@@ -43,7 +52,8 @@ const overflow = computed(() => [
     as="header"
     :toggle="false"
     class="workspace-navbar"
-    :class="{ 'native-mac': nativeMac }"
+    :class="{ 'native-mac': nativeMac, 'native-windows': windows }"
+    :data-tauri-drag-region="windows ? true : undefined"
     :ui="{ left: 'min-w-0 gap-3', center: 'header-center', right: 'shrink-0 gap-1 ms-auto' }"
   >
     <template #left>
@@ -92,7 +102,7 @@ const overflow = computed(() => [
       </div>
     </template>
     <template #default>
-      <span class="header-title" data-tour="page-title"
+      <span class="header-title" :data-tauri-drag-region="windows ? true : undefined" data-tour="page-title"
         ><UIcon :name="current.icon" class="size-4 shrink-0 text-muted" /><span>{{ current.label }}</span></span
       >
     </template>
@@ -145,7 +155,30 @@ const overflow = computed(() => [
             /></AppTooltip
           ></UDropdownMenu
         >
-      </div></template
-    >
+      </div>
+      <div v-if="windows" class="flex items-center gap-1 border-s border-default ps-1">
+        <UButton
+          icon="i-lucide-minus"
+          color="neutral"
+          variant="ghost"
+          :aria-label="t('menu.minimize')"
+          @click="windowAction('minimize')"
+        />
+        <UButton
+          icon="i-lucide-square"
+          color="neutral"
+          variant="ghost"
+          :aria-label="t('menu.zoom')"
+          @click="windowAction('toggleMaximize')"
+        />
+        <UButton
+          icon="i-lucide-x"
+          color="neutral"
+          variant="ghost"
+          :aria-label="t('native.closeWindow')"
+          @click="windowAction('close')"
+        />
+      </div>
+    </template>
   </UDashboardNavbar>
 </template>

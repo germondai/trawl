@@ -266,6 +266,10 @@ pub fn setup(window: &WebviewWindow) -> tauri::Result<()> {
         crate::window_state::setup(window)?;
         #[cfg(target_os = "macos")]
         crate::history_gesture::setup(window)?;
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        window.hide_menu()?;
+        #[cfg(target_os = "windows")]
+        window.set_decorations(false)?;
         update(window)?;
         loaded(window);
     }

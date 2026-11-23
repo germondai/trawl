@@ -81,6 +81,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Hide the native menu bar on Linux and Windows and integrate Windows window controls into the TRAWL workspace header.
+
 - Open verified Android update links in the browser and remove the in-app APK installer permission.
 
 - Refresh Bun, frontend, cryptography, Tauri, native HTTP/parser, Go and Android dependencies with their lockfiles. Use Bun 1.4.5, Rust 1.100.0 and nginx 1.31.9; retain browser/compiler and Android toolchain compatibility pins and preserve Mozilla certificate trust during the Reqwest migration.
@@ -101,6 +103,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Increase the default browser acquisition wait from 15 to 30 seconds so bursts can wait longer for a free browser. Keep explicit `BROWSER_ACQUIRE_TIMEOUT_MS` overrides and the request's overall deadline.
 
 ### Fixed
+
+- Start the Linux desktop shell when WebKitGTK advertises Android compatibility in its user agent.
 
 - Finish macOS startup while its window is hidden, avoiding a visibility/readiness deadlock, keep native controls available on the recovery screen, and preserve the tray when closing an unprepared window unless quitting is configured.
 - Keep the app tour aligned when asynchronous content moves its target, preserve its step across Android backgrounding, and reveal the workspace after a fresh startup/resume snapshot instead of intermediate server and metrics states.

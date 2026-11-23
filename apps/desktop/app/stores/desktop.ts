@@ -11,6 +11,7 @@ import { type AppLocale, appLocales } from "@trawl/config/i18n"
 import { defineStore } from "pinia"
 import { computed, ref, shallowRef } from "vue"
 import { useErrorMessage } from "../composables/useErrorMessage"
+import { isAndroidUserAgent } from "../utils/android-user-agent"
 import { mergeConfigChanges } from "../utils/config-changes"
 import { createInstanceFetch } from "../utils/instance-fetch"
 import { appLocale, applyAppLanguage, LocalizedError, t } from "../utils/localization"
@@ -70,7 +71,7 @@ export interface InstallationProgress {
 }
 export const useDesktopStore = defineStore("desktop", () => {
   const native = isTauri()
-  const mobile = native && typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent)
+  const mobile = native && typeof navigator !== "undefined" && isAndroidUserAgent(navigator.userAgent)
   const loaded = shallowRef(false)
   const preferencesReady = shallowRef(!native)
   const config = ref<UserConfig>(emptyConfig())

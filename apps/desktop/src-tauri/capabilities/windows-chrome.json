@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "windows-chrome",
+  "description": "Window controls in the Windows desktop header.",
+  "platforms": ["windows"],
+  "windows": ["main"],
+  "permissions": ["core:window:allow-minimize", "core:window:allow-toggle-maximize", "core:window:allow-close"]
+}

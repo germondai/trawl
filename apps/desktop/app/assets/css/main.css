@@ -278,6 +278,10 @@ button:disabled,
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
 }
+.workspace-navbar.native-windows {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  padding-inline-end: 8px;
+}
 .workspace-scroll {
   padding-top: 64px;
   scroll-padding-top: 80px;
