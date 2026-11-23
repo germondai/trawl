@@ -18,20 +18,45 @@ import { runFfmpeg } from "./subprocess"
 
 const STT_URL = process.env.STT_URL?.trim() ?? ""
 const STT_KEY = process.env.STT_API_KEY ?? ""
+// Model name sent to STT_URL. OpenAI-compatible servers that expose several recognisers
+// choose one by this field, so it must be configurable rather than fixed at whisper-1.
+const STT_MODEL = process.env.STT_MODEL?.trim() || "whisper-1"
 // FFMPEG_PATH: full path to ffmpeg binary. Docker installs 'ffmpeg' via apt.
 // On macOS with Playwright's bundled binary it's named 'ffmpeg-mac'; set this
 // env var or create a symlink to make 'ffmpeg' resolve.
 
 // Google's public Speech API key - used in Google's own demos and the Buster extension.
 // Has been public since 2013. Google can't revoke it without breaking their own accessibility tooling.
-const GOOGLE_STT =
-  "https://www.google.com/speech-api/v2/recognize?output=json&lang=en-US&key=AIzaSyBOti4mM-6x9WDnZIjIeyEU21OpBXqWBgw"
+const GOOGLE_STT_KEY = "AIzaSyBOti4mM-6x9WDnZIjIeyEU21OpBXqWBgw"
+
+// Challenges are read in the page's language, so the recogniser must be told which one.
+// Callers pass an ISO 639-1 code (Whisper takes it as is); Google's endpoint wants a locale.
+const GOOGLE_LOCALES: Record<string, string> = {
+  en: "en-US",
+  pt: "pt-BR",
+  es: "es-ES",
+  fr: "fr-FR",
+  de: "de-DE",
+  it: "it-IT",
+  nl: "nl-NL",
+}
+
+function languageCode(language: string): string {
+  return /^[a-z]{2}/i.exec(language.trim())?.[0].toLowerCase() ?? "en"
+}
+
+function googleUrl(language: string): string {
+  const code = languageCode(language)
+  const lang = GOOGLE_LOCALES[code] ?? code
+  return `https://www.google.com/speech-api/v2/recognize?output=json&lang=${lang}&key=${GOOGLE_STT_KEY}`
+}
 
 export async function transcribeAudio(
   audioUrl: string,
   signal: AbortSignal | undefined,
   page: Page,
   timeoutMs: number,
+  language = "en",
 ): Promise<string | undefined> {
   // Audio URLs come from page markup; use the context's egress instead of a server-side fetch.
   const download = async (headers: Record<string, string>) => {
@@ -47,20 +72,42 @@ export async function transcribeAudio(
       await response.dispose()
     }
   }
-  return STT_URL ? transcribeWhisper(download, signal) : transcribeGoogle(download, signal)
+  return STT_URL
+    ? transcribeWhisper(download, signal, undefined, language)
+    : transcribeGoogle(download, signal, language)
+}
+
+// For audio the page already delivered in memory (for example AWS WAF embeds it in the
+// challenge JSON), so there is no URL to fetch. The extension of `filename` tells servers
+// that sniff by name which container to expect.
+export async function transcribeAudioBytes(
+  bytes: Uint8Array,
+  signal?: AbortSignal,
+  filename = "audio.aac",
+  language = "en",
+): Promise<string | undefined> {
+  const download = async () => new Response(new Uint8Array(bytes))
+  return STT_URL
+    ? transcribeWhisper(download, signal, filename, language)
+    : transcribeGoogle(download, signal, language)
 }
 
 type AudioDownload = (headers: Record<string, string>) => Promise<Response>
 
-async function transcribeWhisper(download: AudioDownload, signal?: AbortSignal): Promise<string | undefined> {
+async function transcribeWhisper(
+  download: AudioDownload,
+  signal?: AbortSignal,
+  filename = "audio.mp3",
+  language = "en",
+): Promise<string | undefined> {
   try {
     const res = await download({ "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/149" })
     if (!res.ok) return
 
     const form = new FormData()
-    form.append("file", await res.blob(), "audio.mp3")
-    form.append("model", "whisper-1")
-    form.append("language", "en")
+    form.append("file", await res.blob(), filename)
+    form.append("model", STT_MODEL)
+    form.append("language", languageCode(language))
     form.append("response_format", "text")
 
     const headers: Record<string, string> = {}
@@ -76,7 +123,11 @@ async function transcribeWhisper(download: AudioDownload, signal?: AbortSignal):
 
 // Converts MP3 → FLAC via ffmpeg, sends to Google's free Speech API.
 // Tries 8000 Hz first (reCAPTCHA audio is typically low-bitrate), then 16000 Hz.
-async function transcribeGoogle(download: AudioDownload, signal?: AbortSignal): Promise<string | undefined> {
+async function transcribeGoogle(
+  download: AudioDownload,
+  signal?: AbortSignal,
+  language = "en",
+): Promise<string | undefined> {
   const id = randomUUID().slice(0, 8)
   const mp3 = `/tmp/trawl-${id}.mp3`
   const flac8 = `/tmp/trawl-${id}-8k.flac`
@@ -118,7 +169,7 @@ async function transcribeGoogle(download: AudioDownload, signal?: AbortSignal): 
       console.log(`[stt] flac@${rate}Hz size:`, flacData.byteLength, "bytes")
       if (flacData.byteLength < 500) continue
 
-      const sttRes = await fetch(`${GOOGLE_STT}`, {
+      const sttRes = await fetch(googleUrl(language), {
         method: "POST",
         headers: { "Content-Type": `audio/x-flac; rate=${rate}` },
         body: flacData,

@@ -29,8 +29,6 @@ import { responseFromBlockedEvidence, responseFromScrapeResult } from "./respons
 
 const MAX_HEADER_BYTES = 64 * 1024
 
-const challengeCache = new ChallengeCache({ ttlMs: 5 * 60 * 1000 })
-
 export const shouldBypassTier0 = (alwaysScrape: boolean | undefined, cachedMode: ChallengeMode | undefined): boolean =>
   alwaysScrape === true || cachedMode === "cf"
 
@@ -53,7 +51,10 @@ export interface MitmProxyHandle {
   unregisterTrust: () => void
 }
 
-export function startMitmProxy(opts: MitmProxyOptions): MitmProxyHandle {
+type ProxyOptions = MitmProxyOptions & { challengeCache: ChallengeCache }
+
+export function startMitmProxy(options: MitmProxyOptions): MitmProxyHandle {
+  const opts: ProxyOptions = { ...options, challengeCache: new ChallengeCache({ ttlMs: 5 * 60 * 1000 }) }
   const ca = new MitmCa(opts.caDir)
 
   // Per-host loopback TLS terminators. We know the target host from the CONNECT line, so
@@ -179,7 +180,7 @@ async function handleConnect(
     upstream.on("error", () => clientSocket.destroy())
     clientSocket.on("error", () => upstream.destroy())
     clientSocket.once("close", () => upstream.destroy())
-    upstream.once("close", () => clientSocket.destroy())
+    upstream.once("close", () => clientSocket.end())
   })
 }
 
@@ -187,7 +188,7 @@ async function handleConnect(
 // and write the solved response back. We answer one request per TLS connection and close
 // (Connection: close) - clients open a fresh CONNECT per request, which keeps parsing
 // trivial and lets each request pick up the freshest cached session.
-function serveRequests(stream: tls.TLSSocket, host: string, opts: MitmProxyOptions): void {
+function serveRequests(stream: tls.TLSSocket, host: string, opts: ProxyOptions): void {
   const chunks: Buffer[] = []
   let total = 0
 
@@ -342,8 +343,9 @@ async function proxyRequest(
   method: string,
   clientHeaders: Record<string, string>,
   body: Buffer | undefined,
-  opts: MitmProxyOptions,
+  opts: ProxyOptions,
 ): Promise<void> {
+  const { challengeCache } = opts
   if (stream.destroyed) return
   let domain: string
   try {
@@ -510,6 +512,17 @@ export async function serveViaScrape(
   opts: MitmProxyOptions,
   rateLimitResponse?: ForwardResultBuffered | ForwardResultStream,
 ): Promise<void> {
+  if (stream.destroyed) {
+    if (rateLimitResponse?.mode === "stream") rateLimitResponse.socket.destroy()
+    return
+  }
+  const controller = new AbortController()
+  const signal = opts.deps.signal ? AbortSignal.any([controller.signal, opts.deps.signal]) : controller.signal
+  const disconnect = () => {
+    controller.abort(new DOMException("Proxy client disconnected", "AbortError"))
+    if (rateLimitResponse?.mode === "stream") rateLimitResponse.socket.destroy()
+  }
+  stream.once("close", disconnect)
   try {
     if (!isValidMethod(method)) {
       writeResponse(stream, 400, Buffer.from(`unsupported method: ${method}`), "text/plain; charset=utf-8")
@@ -526,9 +539,14 @@ export async function serveViaScrape(
         maxTimeout: opts.maxTimeout,
         blockedEvidence: true,
       },
-      { ...opts.deps, trustedProxyHeaders: true },
+      { ...opts.deps, signal, trustedProxyHeaders: true },
       scrape,
     )
+    if (signal.aborted || stream.destroyed) {
+      if (rateLimitResponse?.mode === "stream") rateLimitResponse.socket.destroy()
+      stream.destroy()
+      return
+    }
     if (rateLimitResponse && scrapeResult.statusCode >= 400) {
       writeOriginalResponse(stream, rateLimitResponse, body?.length ?? 0, method)
       return
@@ -563,6 +581,11 @@ export async function serveViaScrape(
       method,
     )
   } catch (err) {
+    if (signal.aborted || stream.destroyed) {
+      if (rateLimitResponse?.mode === "stream") rateLimitResponse.socket.destroy()
+      stream.destroy()
+      return
+    }
     if (rateLimitResponse) {
       if (opts.debug)
         console.log(`[proxy] HTTP 429 fallback failed for ${safeUrl(url)} -> preserving original response`)
@@ -597,11 +620,13 @@ export async function serveViaScrape(
       "text/plain; charset=utf-8",
       method,
     )
+  } finally {
+    stream.off("close", disconnect)
   }
 }
 
 // Minimal plain-HTTP (non-TLS) proxy support, mainly for completeness / http:// targets.
-async function handlePlainHttp(clientSocket: net.Socket, first: Buffer, opts: MitmProxyOptions): Promise<void> {
+async function handlePlainHttp(clientSocket: net.Socket, first: Buffer, opts: ProxyOptions): Promise<void> {
   // Accumulate full HTTP headers before dispatching - needed to detect Upgrade: websocket
   // and to know where the body starts. The first chunk from the main listener is already
   // a complete request in most cases (curl/Chromium send headers + small body in one packet),

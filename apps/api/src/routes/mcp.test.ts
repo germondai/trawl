@@ -153,6 +153,7 @@ describe("MCP route", () => {
       tier: 2,
       contentType: "text/html; charset=utf-8",
       totalMs: 12,
+      html: body.result.content[0].text,
       truncated: true,
       sessionCached: true,
       timings: baseResult.timings,
@@ -183,6 +184,7 @@ describe("MCP route", () => {
     expect(result.content[0].text).toContain("Useful title")
     expect(result.content[0].text.length).toBe(80)
     expect(result.structuredContent).toMatchObject({ format: "markdown", characters: 80, truncated: true })
+    expect(result.structuredContent.content).toBe(result.content[0].text)
   })
 
   test("passes plain-text documents through untouched instead of readability-parsing them", async () => {

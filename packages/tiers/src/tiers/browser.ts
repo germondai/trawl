@@ -3,9 +3,12 @@ import { closeTemporaryContext, FINGERPRINT, newFreshContext } from "@trawl/brow
 import type { Cookie } from "@trawl/types"
 import { capturePageFavicons } from "../favicons"
 import { solvePageCaptchas } from "../solvers"
+import { hasBaxiaNcWidget, solveBaxiaNc } from "../solvers/baxiaNc"
+import { waitForBaxiaNavigation } from "../utils/baxiaWait"
 import { reportBlocked } from "../utils/blockedEvidence"
 import { captureBrowserDocument, waitForBrowserLoad } from "../utils/browserCapture"
 import { persistentBrowserWall } from "../utils/browserWall"
+import { widgetOutcomes } from "../utils/captchaOutcomes"
 import { attachPageCapture, type CaptureOptions } from "../utils/capture"
 import { routeChallengeWait } from "../utils/challengeRouter"
 import { normalizeInputCookies, snapshotChallengeCookies, toCookies } from "../utils/cookies"
@@ -181,6 +184,8 @@ async function runBrowserTierTask<T extends 3 | 4>(
       capture.externalCaptcha,
       proxyUrl,
       budget.signal,
+      capture.captchaOutcomes,
+      () => mainResponse.status,
     )
 
     if (resolution === "browser-closed") {
@@ -249,14 +254,42 @@ async function runBrowserTierTask<T extends 3 | 4>(
         solved: [],
       }))
       captchasSolved = [...new Set([...captchasSolved, ...solveResult.solved])]
+      capture.captchaOutcomes?.(widgetOutcomes(solveResult.attempted, solveResult.solved))
+    } else if (
+      capture.solveEmbeddedCaptchas === false &&
+      budget.remaining() > 5000 &&
+      (challengeType === "baxia" || /\/_____tmd_____\/punish/.test(page.url())) &&
+      (await hasBaxiaNcWidget(page, Math.min(5000, solveRemaining), budget.signal)) &&
+      persistentBrowserWall(
+        await page.content().catch(() => ""),
+        page.url(),
+        mainResponse.headers,
+        mainResponse.status,
+        challengeType,
+      )?.reason === "baxia-persistent"
+    ) {
+      // Access walls must clear even when application CAPTCHA solving is disabled.
+      budget.check()
+      const solved = await solveBaxiaNc(page, Math.max(0, budget.remaining() - 2000), budget.signal).catch(() => false)
+      if (solved) captchasSolved.push("baxia-nc")
+      capture.captchaOutcomes?.([{ kind: "baxia-nc", outcome: solved ? "solved" : "failed" }])
     }
 
+    if (captchasSolved.includes("baxia-nc"))
+      await waitForBaxiaNavigation(page, Math.min(2000, budget.remaining()), budget.signal, () => mainResponse.headers)
     if (overlapWidgetSettling) await sleep(Math.max(0, settleUntil - Date.now()), budget.signal)
 
     const { html, shot, evidence } = await captureBrowserDocument(page, capture, pageCapture, budget, screenshot)
     let captured: CapturedResponse | undefined
 
-    const wall = persistentBrowserWall(html, page.url(), mainResponse.headers, mainResponse.status, challengeType)
+    const wall = persistentBrowserWall(
+      html,
+      page.url(),
+      mainResponse.headers,
+      mainResponse.status,
+      challengeType,
+      captchasSolved,
+    )
     // Anubis verification URLs and Google's sorry URL identify a wall even when
     // the document is empty. Other providers follow the network-error checks.
     if (wall?.reason !== "anubis-persistent" && wall?.reason !== "google-sorry-persistent") {

@@ -1,5 +1,5 @@
 import { dlopen, FFIType } from "bun:ffi"
-import { blake2b } from "@noble/hashes/blake2b"
+import { blake2b } from "@noble/hashes/blake2.js"
 import { runPowProcess } from "../utils/powProcess"
 
 export interface FriendlyCaptchaSolution {

@@ -19,7 +19,7 @@ For security issues, **do not open a public issue** - see [SECURITY.md](SECURITY
 
 Requirements depend on the workspace:
 
-- **API and shared packages:** Bun 1.4.4 is the runtime and package manager.
+- **API and shared packages:** Bun 1.4.5 is the runtime and package manager.
 - **Web and docs:** Node.js 26.13.1 runs the Nuxt and VitePress build tools; Bun installs dependencies.
 - **Integration tests:** Docker provides Redis and the Linux browser environment.
 
@@ -33,7 +33,7 @@ stays at 1.62.1 to satisfy its peer constraint. Bundled uBlock Origin stays at
 this Camoufox build. The web workspace uses TypeScript 6.0.3 because vue-tsc
 needs its JavaScript compiler API; the API and shared packages use TypeScript 7.
 
-Docker builds the native PoW solver with Rust 1.99.1 and checks its protocol vectors
+Docker builds the native PoW solver with Rust 1.100.0 and checks its protocol vectors
 and runtime ABI. It builds the offline WAF worker with Go 1.27.4. Rod requires `got/lib/lcs`,
 removed in `got` 0.43.0, and the constructor API removed in `fetchup` 0.4.0; keep
 `got` at 0.42.4 and `fetchup` at 0.3.0. The module retains Go 1.26 as its minimum
@@ -126,6 +126,24 @@ image limits and both API routes with direct and proxied browser requests:
 
 ```bash
 TRAWL_SHUMEI_TESTS=1 CAMOUFOX_INSTALL_DIR=/path/to/camoufox bun test apps/api/src/shumei.integration.test.ts
+```
+
+DataDome browser tests use a local audio widget and an independent answer check, plus
+both API routes with ordinary content, persistent CAPTCHA walls and hard blocks:
+
+```bash
+TRAWL_DATADOME_TESTS=1 CAMOUFOX_INSTALL_DIR=/path/to/camoufox bun test apps/api/src/datadome.integration.test.ts
+```
+
+The fixture injects transcription and audio bytes; it does not measure live STT or
+DataDome acceptance. No fixture requests reach external services.
+
+Baxia tests use a local NC slider with independent server verification through both
+API routes. They cover fresh and cached sessions, rejected or missing widgets,
+and the embedded CAPTCHA opt-out:
+
+```bash
+TRAWL_BAXIA_TESTS=1 CAMOUFOX_INSTALL_DIR=/path/to/camoufox bun test apps/api/src/baxia.integration.test.ts
 ```
 
 Raw text browser integration tests use owned HTTP fixtures and a local forward proxy:

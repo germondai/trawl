@@ -5,8 +5,11 @@ import { capturePageFavicons } from "../favicons"
 import { solvePageCaptchas } from "../solvers"
 import { isAnubisVerificationUrl } from "../utils/anubis"
 import { waitForAnubisResolution } from "../utils/anubisWait"
+import { waitForBaxiaNavigation } from "../utils/baxiaWait"
 import { reportBlocked } from "../utils/blockedEvidence"
 import { captureBrowserDocument, waitForBrowserLoad } from "../utils/browserCapture"
+import { persistentBrowserWall } from "../utils/browserWall"
+import { widgetOutcomes } from "../utils/captchaOutcomes"
 import { attachPageCapture, type CaptureOptions } from "../utils/capture"
 import { normalizeSameSite, toCookies } from "../utils/cookies"
 import { DeadlineError, RequestBudget } from "../utils/deadline"
@@ -245,7 +248,11 @@ async function runTier2Task(
         solved: [],
       }))
       captchasSolved = result.solved
+      capture.captchaOutcomes?.(widgetOutcomes(result.attempted, result.solved))
     }
+
+    if (captchasSolved.includes("baxia-nc"))
+      await waitForBaxiaNavigation(page, Math.min(2000, budget.remaining()), budget.signal, () => mainResponse.headers)
 
     const {
       html: finalHtml,
@@ -294,6 +301,31 @@ async function runTier2Task(
         budget.remaining(),
       )
       return { tier: 2, status: "blocked", durationMs: Date.now() - start, reason: "session-expired" }
+    }
+
+    const wall = persistentBrowserWall(
+      finalHtml,
+      page.url(),
+      mainResponse.headers,
+      mainResponse.status,
+      "none",
+      captchasSolved,
+    )
+    if (wall?.reason === "baxia-persistent") {
+      await reportBlocked(
+        page,
+        capture.blockedEvidence,
+        {
+          tier: 2,
+          status: "blocked",
+          reason: wall.reason,
+          statusCode: mainResponse.status,
+          html: finalHtml,
+          screenshot: shot,
+        },
+        budget.remaining(),
+      )
+      return { tier: 2, status: "blocked", durationMs: Date.now() - start, ...wall }
     }
 
     // After the capture is drained, so these fetches never land in the captured

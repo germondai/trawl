@@ -14,9 +14,9 @@ export class RequestBudget {
   private cleanups = new Set<() => Promise<void>>()
   private cleaning?: Promise<void>
 
-  constructor(ms: number) {
+  constructor(ms: number, signal?: AbortSignal) {
     this.deadline = Date.now() + Math.max(0, ms)
-    this.signal = this.controller.signal
+    this.signal = signal ? AbortSignal.any([this.controller.signal, signal]) : this.controller.signal
     this.timer = setTimeout(() => this.controller.abort(new DeadlineError()), Math.max(0, ms))
   }
 
@@ -25,10 +25,8 @@ export class RequestBudget {
   }
 
   check(): void {
-    if (this.signal.aborted || this.remaining() <= 0) {
-      this.controller.abort(new DeadlineError())
-      throw new DeadlineError()
-    }
+    if (this.remaining() <= 0) this.controller.abort(new DeadlineError())
+    this.signal.throwIfAborted()
   }
 
   own(cleanup: () => Promise<void>): () => void {
@@ -55,7 +53,7 @@ export class RequestBudget {
             async (result) => {
               if (this.signal.aborted) {
                 await this.drain()
-                throw new DeadlineError()
+                throw this.signal.reason
               }
               this.check()
               return result
@@ -64,14 +62,14 @@ export class RequestBudget {
               if (this.signal.aborted || this.remaining() <= 0) {
                 this.controller.abort(new DeadlineError())
                 await this.drain()
-                throw new DeadlineError()
+                throw this.signal.reason
               }
               throw error
             },
           ),
         new Promise<never>((_, reject) => {
           abort = () => {
-            void this.drain().then(() => reject(new DeadlineError()))
+            void this.drain().then(() => reject(this.signal.reason))
           }
           this.signal.addEventListener("abort", abort, { once: true })
           if (this.signal.aborted) abort()

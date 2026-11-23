@@ -226,6 +226,52 @@ describe("session cache recovery", () => {
     expect(recovery.current()).toBeUndefined()
   })
 
+  test("removes a lost cache and reconnects without reusing the old client", async () => {
+    let loseConnection: (() => void) | undefined
+    let closed = 0
+    let reconnected!: () => void
+    const ready = new Promise<void>((resolve) => {
+      reconnected = resolve
+    })
+    const recovery = new SessionCacheRecovery({
+      createCache: () => ({
+        connect: async () => {},
+        close: () => closed++,
+        onLost: (listener) => {
+          loseConnection = listener
+        },
+        load: async () => undefined,
+        save: async () => {},
+        invalidate: async () => {},
+      }),
+      connectTimeoutMs: 10,
+      retryDelayMs: 5,
+      onConnected: () => {
+        if (closed === 1) reconnected()
+      },
+    })
+    await recovery.start()
+    try {
+      const oldCache = recovery.current()
+      const notifyLost = loseConnection
+      expect(notifyLost).toBeDefined()
+      notifyLost?.()
+      expect(recovery.current()).toBeUndefined()
+      expect(recovery.health("redis")).toMatchObject({ state: "unavailable", connected: false })
+      expect(closed).toBe(1)
+      await ready
+      const current = recovery.current()
+      expect(current).toBeDefined()
+      expect(current).not.toBe(oldCache)
+      await recovery.load("example.test")
+      expect(recovery.health("redis")).toMatchObject({ state: "connected", connected: true, lookups: { miss: 1 } })
+      notifyLost?.()
+      expect(recovery.current()).toBe(current)
+    } finally {
+      await recovery.stop()
+    }
+  })
+
   test("supports intentionally cacheless deployments without a retry loop", async () => {
     let attempts = 0
     const recovery = new SessionCacheRecovery({

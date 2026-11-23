@@ -17,7 +17,7 @@ The HTTP tier can clear supported ALTCHA and Friendly Captcha v1 access forms wi
 
 ## Features
 
-- **Challenge handling:** Cloudflare, Anubis, NCBI proof of work, Akamai, Imperva, DDoS-Guard and supported AWS WAF and DataDome flows. Built-in CAPTCHA paths include Turnstile, reCAPTCHA v2, hCaptcha, GeeTest Slide, ALTCHA, Friendly Captcha, CAP and supported Shumei spatial puzzles. [Coverage and limits](apps/docs/getting-started/challenge-support.md).
+- **Challenge handling:** Cloudflare, Anubis, NCBI proof of work, Akamai, Imperva, DDoS-Guard and supported AWS WAF and DataDome flows. Built-in CAPTCHA paths include Turnstile, reCAPTCHA v2, hCaptcha, GeeTest Slide, ALTCHA, Friendly Captcha, CAP, supported Shumei spatial puzzles and the Baxia NC slider. [Coverage and limits](apps/docs/getting-started/challenge-support.md).
 - **Fast repeat requests:** automatic HTTP clearance reuse, Redis or in-memory caching, and browser fallback when required. No named session is needed for shared clearance reuse.
 - **MCP for agents:** read Markdown, scrape HTML, extract structured JSON, capture screenshots and inspect browser activity from known URLs.
 - **Isolated browser sessions:** retain cookies, localStorage, sessionStorage and browser identity. Scrape within a session, keep a page open for JavaScript eval and read cookies. [Session API](apps/docs/api-reference/browser-sessions.md).
@@ -115,14 +115,14 @@ docker run -d --name trawl \
   -e MCP_ENABLED=true \
   -e METRICS_DASHBOARD_ENABLED=true \
   -v trawl_metrics:/data/metrics \
-  ghcr.io/germondai/trawl:1.11.1
+  ghcr.io/germondai/trawl:1.12.0
 
 curl http://localhost:8191/health
 ```
 
 Open [the local dashboard](http://localhost:8191/dashboard). Keep the API and MCP endpoint on a trusted network; dashboard history survives container recreation through the mounted volume.
 
-For Redis and Compose deployments, see the [quick-start guide](apps/docs/getting-started/quick-start.md) and [Compose examples](apps/docs/deployment/docker-compose.md). Use `:1.11.1-baseline` on older CPUs or NAS hardware.
+For Redis and Compose deployments, see the [quick-start guide](apps/docs/getting-started/quick-start.md) and [Compose examples](apps/docs/deployment/docker-compose.md). Use `:1.12.0-baseline` on older CPUs or NAS hardware.
 
 <details>
 <summary>Dashboard preview</summary>
@@ -197,7 +197,7 @@ By default, request pages close after each operation. Create a session with `"ke
 
 TRAWL detects supported walls and runs the matching browser flow before returning content. Coverage includes JavaScript and proof-of-work challenges, interactive controls, and supported CAPTCHA widget variants.
 
-Some challenges need a particular browser mode, a different egress IP or an external provider. For example, DataDome Device Check uses the opt-in headful pool; built-in hCaptcha support does not include image grids. Passive reCAPTCHA v3 scripts are not treated as blocking widgets.
+Some challenges need a particular browser mode, a different egress IP or an external provider. For example, DataDome Device Check and audio CAPTCHA use the opt-in headful pool; built-in hCaptcha support does not include image grids. Passive reCAPTCHA v3 scripts are not treated as blocking widgets.
 
 The optional 2Captcha fallback supports captured Cloudflare Challenge Pages and supported declarative Turnstile/reCAPTCHA v2 widgets without a site profile. Other documented tasks require a site profile. It is disabled without a provider key; paid-service acceptance remains unverified.
 
@@ -213,8 +213,8 @@ Enable `MITM_ENABLED=true` and point your HTTP-compatible client at port `8192`.
 
 | Tags                             | Use case                             |
 | -------------------------------- | ------------------------------------ |
-| `:latest`, `:1.11.1`             | Standard release for modern hardware |
-| `:baseline`, `:1.11.1-baseline`   | Older x86 CPUs and NAS kernels       |
+| `:latest`, `:1.12.0`             | Standard release for modern hardware |
+| `:baseline`, `:1.12.0-baseline`   | Older x86 CPUs and NAS kernels       |
 | `:nightly`, `:nightly-<dev-sha>`  | Development builds from `dev`        |
 
 All tags use `ghcr.io/germondai/trawl`. Both release variants are published for Linux AMD64 and ARM64. [Standalone containers and source builds](apps/docs/deployment/standalone.md).

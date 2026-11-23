@@ -121,7 +121,7 @@ Other settings worth reviewing:
 | `BROWSER_BLOCK_ADS` | Keep the default `true` initially. Disabling uBlock removes extension overhead, but allows ads and trackers to load and may increase total work. Measure your targets before changing it. |
 | `BROWSER_HARDWARE_CONCURRENCY` | Leave unset initially. A lower reported CPU count can reduce PoW workers but increase solve time or total CPU work. |
 | `BROWSER_RECYCLE_AFTER_CONTEXTS` | Keep the default `8`. Existing recycling and memory-pressure recovery help control browser growth; very frequent recycling adds launch work. |
-| `BROWSER_ACQUIRE_TIMEOUT_MS` | Keep enough time for a cold launch and any queue. The default is 15 seconds; increasing it allows more waiting, not more browser capacity. The request's overall deadline still applies. |
+| `BROWSER_ACQUIRE_TIMEOUT_MS` | Keep enough time for a cold launch and any queue. The default is 30 seconds; increasing it allows more waiting, not more browser capacity. The request's overall deadline still applies. |
 
 Enable screenshots, diagnostics, response-body capture and archives only when the request needs
 them. Keep required CAPTCHA verification and content waits for workflows that depend on them.

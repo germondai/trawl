@@ -58,6 +58,45 @@ function request(port: number, url: string, method = "GET", headers: Record<stri
 }
 
 describe("proxy request lifecycle", () => {
+  test("isolates challenge routing between proxy instances without resetting the first instance", async () => {
+    const reads = [0, 0]
+    const origin = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(req) {
+        return new URL(req.url).pathname === "/challenge"
+          ? new Response("<html><title>Just a moment...</title><script>window._cf_chl_opt={}</script></html>", {
+              status: 403,
+              headers: { "content-type": "text/html" },
+            })
+          : new Response("Owned ordinary response", { headers: { "content-type": "text/plain" } })
+      },
+    })
+    const options = (index: number): Partial<MitmProxyOptions> => ({
+      deps: {
+        ...deps,
+        loadSession: async () => {
+          reads[index]++
+          return undefined
+        },
+      },
+    })
+    try {
+      await withProxy(async (first) => {
+        expect((await request(first, `${origin.url}challenge`)).status).toBe(502)
+        expect(reads[0]).toBe(1)
+        await withProxy(async (second) => {
+          expect((await request(second, origin.url.href)).status).toBe(200)
+          expect(reads[1]).toBe(0)
+          expect((await request(first, origin.url.href)).status).toBe(200)
+          expect(reads[0]).toBe(2)
+        }, options(1))
+      }, options(0))
+    } finally {
+      origin.stop(true)
+    }
+  })
+
   test("does not replay a POST after the origin accepted it but returned an invalid response", async () => {
     let commits = 0
     const origin = net.createServer((socket) => {
@@ -259,48 +298,64 @@ describe("proxy request lifecycle", () => {
     })
   })
 
-  test("closes a buffered origin response when the downstream client disconnects", async () => {
-    const sockets = new Set<net.Socket>()
-    let upstreamClosed!: () => void
-    const closed = new Promise<void>((resolve) => {
-      upstreamClosed = resolve
-    })
-    let ready!: () => void
-    const started = new Promise<void>((resolve) => {
-      ready = resolve
-    })
-    const origin = net.createServer((socket) => {
-      sockets.add(socket)
-      socket.once("close", () => {
-        sockets.delete(socket)
-        upstreamClosed()
+  test.each([
+    [false, "GET"],
+    [true, "GET"],
+    [true, "POST"],
+  ] as const)(
+    "closes a buffered origin response on disconnect, alwaysScrape=%s method=%s",
+    async (alwaysScrape, method) => {
+      const sockets = new Set<net.Socket>()
+      let requests = 0
+      let upstreamClosed!: () => void
+      const closed = new Promise<void>((resolve) => {
+        upstreamClosed = resolve
       })
-      socket.once("data", () => {
-        socket.write("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nTransfer-Encoding: chunked\r\n\r\n1\r\nx\r\n")
-        ready()
+      let ready!: () => void
+      const started = new Promise<void>((resolve) => {
+        ready = resolve
       })
-    })
-    origin.listen(0, "127.0.0.1")
-    await once(origin, "listening")
-    try {
-      await withProxy(async (port) => {
-        const client = net.connect(port, "127.0.0.1")
-        client.on("error", () => {})
-        try {
-          await once(client, "connect")
-          const originPort = (origin.address() as net.AddressInfo).port
-          client.write(`GET http://127.0.0.1:${originPort}/ HTTP/1.1\r\nHost: 127.0.0.1:${originPort}\r\n\r\n`)
-          await started
-          client.destroy()
-          await Promise.race([closed, Bun.sleep(500)])
-          expect(sockets.size).toBe(0)
-        } finally {
-          client.destroy()
-        }
+      const origin = net.createServer((socket) => {
+        sockets.add(socket)
+        socket.once("close", () => {
+          sockets.delete(socket)
+          upstreamClosed()
+        })
+        socket.once("data", () => {
+          requests++
+          socket.write("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nTransfer-Encoding: chunked\r\n\r\n1\r\nx\r\n")
+          ready()
+        })
       })
-    } finally {
-      for (const socket of sockets) socket.destroy()
-      await new Promise<void>((resolve) => origin.close(() => resolve()))
-    }
-  })
+      origin.listen(0, "127.0.0.1")
+      await once(origin, "listening")
+      try {
+        await withProxy(
+          async (port) => {
+            const client = net.connect(port, "127.0.0.1")
+            client.on("error", () => {})
+            try {
+              await once(client, "connect")
+              const originPort = (origin.address() as net.AddressInfo).port
+              const body = method === "POST" ? "x" : ""
+              client.write(
+                `${method} http://127.0.0.1:${originPort}/ HTTP/1.1\r\nHost: 127.0.0.1:${originPort}\r\n${body ? "Content-Type: text/plain\r\nContent-Length: 1\r\n" : ""}\r\n${body}`,
+              )
+              await started
+              client.destroy()
+              await Promise.race([closed, Bun.sleep(500)])
+              expect(sockets.size).toBe(0)
+              expect(requests).toBe(1)
+            } finally {
+              client.destroy()
+            }
+          },
+          { alwaysScrape, maxTimeout: 10000 },
+        )
+      } finally {
+        for (const socket of sockets) socket.destroy()
+        await new Promise<void>((resolve) => origin.close(() => resolve()))
+      }
+    },
+  )
 })

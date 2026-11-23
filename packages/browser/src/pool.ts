@@ -102,6 +102,7 @@ export class BrowserPool {
   private recycleAfterTemporaryContexts: number
   private contentProcesses!: number
   private hardwareConcurrency?: number
+  private geoipIp?: string
   private blockAds: boolean
   private virtualDisplay: boolean
   private label: string
@@ -129,11 +130,12 @@ export class BrowserPool {
 
   constructor({
     poolSize,
-    acquireTimeoutMs = 15_000,
+    acquireTimeoutMs = 30_000,
     pollIntervalMs = 100,
     recycleAfterTemporaryContexts = 8,
     contentProcesses = 2,
     hardwareConcurrency,
+    geoipIp,
     blockAds = true,
     virtualDisplay = false,
     label = "pool",
@@ -155,6 +157,7 @@ export class BrowserPool {
     recycleAfterTemporaryContexts?: number
     contentProcesses?: number
     hardwareConcurrency?: number
+    geoipIp?: string
     blockAds?: boolean
     virtualDisplay?: boolean
     label?: string
@@ -182,6 +185,7 @@ export class BrowserPool {
       throw new Error("hardwareConcurrency must be an integer from 1 to 64")
     this.contentProcesses = contentProcesses
     this.hardwareConcurrency = hardwareConcurrency
+    this.geoipIp = geoipIp
     this.blockAds = blockAds
     this.virtualDisplay = virtualDisplay
     this.label = label
@@ -319,9 +323,11 @@ export class BrowserPool {
       // so we pick one realistic value here. The fingerprint will still differ across
       // browsers because of `os` + `screen` randomization + Camoufox's per-launch
       // randomization (canvas seed, audio seed, font list, etc).
-      screen: { minWidth: 1280, maxWidth: 2560, minHeight: 720, maxHeight: 1440 },
+      // The window below is 1920x1080, so the screen can never be smaller than it: a window
+      // larger than its own monitor does not happen in a real browser.
+      screen: { minWidth: 1920, maxWidth: 2560, minHeight: 1080, maxHeight: 1440 },
       window: [1920, 1080] as [number, number],
-      geoip: true,
+      geoip: this.geoipIp ?? true,
       humanize: true,
       disable_coop: true,
       block_webrtc: true,
@@ -386,6 +392,18 @@ export class BrowserPool {
         // Keep proxied traffic fail-closed and SOCKS DNS on the proxy.
         ...PROXY_SAFETY_FIREFOX_PREFS,
       },
+    }).catch((error: unknown) => {
+      if (
+        !this.geoipIp &&
+        error instanceof Error &&
+        error.message === "Failed to get a public proxy IP address from any API endpoint."
+      ) {
+        throw new Error(
+          "Browser GeoIP lookup failed; check outbound HTTPS/DNS access or set BROWSER_GEOIP_IP to this container's actual public egress IP",
+          { cause: error },
+        )
+      }
+      throw error
     })
 
     try {

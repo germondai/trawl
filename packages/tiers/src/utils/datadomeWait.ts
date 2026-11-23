@@ -1,4 +1,5 @@
 import type { Page } from "patchright"
+import { sleep } from "./deadline"
 import { getDataDomeAction } from "./detect"
 
 export type DataDomeResolution = "ok" | "ip-blocked" | "timeout" | "captcha-required"
@@ -8,6 +9,7 @@ interface WaitOptions {
   stablePolls?: number
   redirectGraceMs?: number
   initialCookies?: ReadonlySet<string>
+  signal?: AbortSignal
 }
 
 function domainMatches(host: string, cookieDomain: string): boolean {
@@ -27,7 +29,7 @@ export async function waitForDataDomeResolution(
   originalUrl?: string,
   options: WaitOptions = {},
 ): Promise<DataDomeResolution> {
-  if (timeoutMs <= 0) return "timeout"
+  if (timeoutMs <= 0 || options.signal?.aborted) return "timeout"
   const deadline = Date.now() + timeoutMs
   const pollMs = options.pollMs ?? 300
   const stablePolls = options.stablePolls ?? 2
@@ -54,7 +56,7 @@ export async function waitForDataDomeResolution(
         .map((cookie) => `${cookie.domain}:${cookie.value}`),
     )
 
-  while (Date.now() < deadline) {
+  while (Date.now() < deadline && !options.signal?.aborted) {
     const html = await page.content().catch(() => "")
     const action = getDataDomeAction(html)
     if (action === "captcha") return "captcha-required"
@@ -78,7 +80,7 @@ export async function waitForDataDomeResolution(
       cookieAt ??= Date.now()
       if (clearPolls >= stablePolls) {
         await page.waitForLoadState("load", { timeout: Math.max(1, deadline - Date.now()) }).catch(() => {})
-        return "ok"
+        return options.signal?.aborted ? "timeout" : "ok"
       }
 
       // The Device Check redirect does not always fire on its own once the cookie is issued.
@@ -90,8 +92,8 @@ export async function waitForDataDomeResolution(
       }
     }
 
-    await new Promise((resolve) => setTimeout(resolve, Math.min(pollMs, Math.max(0, deadline - Date.now()))))
+    await sleep(Math.min(pollMs, Math.max(0, deadline - Date.now())), options.signal).catch(() => {})
   }
 
-  return cookieAt !== undefined ? "ip-blocked" : "timeout"
+  return !options.signal?.aborted && cookieAt !== undefined ? "ip-blocked" : "timeout"
 }

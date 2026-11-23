@@ -58,6 +58,21 @@ browser could not start, often because outbound networking or a GeoIP endpoint w
 acquire timeout means the browsers started but all pool capacity remained busy, and `/v1` returns
 HTTP 429.
 
+### Startup fails with `Failed to get a public proxy IP address from any API endpoint`
+
+Camoufox could not discover the container's public egress IP for GeoIP. This can happen without a
+VPN or proxy: DNS filtering, firewall rules or unavailable IP services can block discovery while
+ordinary HTTPS requests still work. The word `proxy` comes from Camoufox's generic error message.
+
+Restore outbound DNS/HTTPS access to an IP-discovery service, or set `BROWSER_GEOIP_IP` to the
+**actual public IP used by the container** and recreate TRAWL. The supplied Compose files forward
+this variable from `.env`. For custom deployments, add it to the service's `environment` section.
+The configured address lets Camoufox use the bundled GeoIP database without external IP discovery.
+
+Do not use a private container address or an arbitrary public IP. If the egress IP changes, update
+the setting before restarting. Leaving it unset preserves automatic discovery and still requires
+a reachable IP service. See [`BROWSER_GEOIP_IP`](/getting-started/configuration#browser-geoip-ip).
+
 ### Requests through the VPN return HTTP 403
 
 If TRAWL starts successfully but a target returns HTTP 403, the VPN is already routing traffic and
@@ -108,11 +123,11 @@ docker compose up -d --force-recreate
 
 **Symptom:** Request returns **HTTP 429** (not 500) with a FlareSolverr v2 envelope and `message: "Browser pool saturated, retry shortly"`.
 
-**Cause:** TRAWL polled for `BROWSER_ACQUIRE_TIMEOUT_MS` (default 15s) without finding an idle browser. The default pool contains one browser to keep ordinary Prowlarr and scraper deployments memory-efficient.
+**Cause:** TRAWL waited for a free browser until `BROWSER_ACQUIRE_TIMEOUT_MS` (default 30s) or the request's remaining `maxTimeout` expired. The default pool contains one browser to keep ordinary Prowlarr and scraper deployments memory-efficient.
 
 **Fixes (in order of preference):**
 
-1. **Raise `BROWSER_ACQUIRE_TIMEOUT_MS`** if your upstream target legitimately takes >5s per scrape - bumps the queue wait before 429 fires.
+1. **Raise `BROWSER_ACQUIRE_TIMEOUT_MS`** if bursts exhaust the queue wait. The client's `maxTimeout` must still leave time for scraping after a browser becomes available.
 2. **Raise `BROWSER_POOL_SIZE`** if you're consistently saturating - each browser uses ~350-500 MB RAM.
 3. **Reduce incoming request rate** if you control the client (Prowlarr's indexer interval, etc.).
 
