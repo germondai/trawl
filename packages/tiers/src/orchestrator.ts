@@ -78,6 +78,7 @@ export interface AcquireOptions {
 }
 
 export interface OrchestratorDeps {
+  signal?: AbortSignal
   sessions?: BrowserSessions
   acquireBrowser(domain: string, budgetMs?: number, options?: AcquireOptions): Promise<BrowserHandle>
   releaseBrowser(handle: BrowserHandle): void
@@ -147,7 +148,7 @@ export async function scrape(
 ): Promise<ScrapeResult> {
   const started = Date.now()
   req = { ...req, detectWaf: deps.wafDetectionEnabled !== false && (req.detectWaf ?? Boolean(deps.detectWaf)) }
-  const budget = new RequestBudget(req.maxTimeout ?? deps.defaultMaxTimeout ?? 60_000)
+  const budget = new RequestBudget(req.maxTimeout ?? deps.defaultMaxTimeout ?? 60_000, deps.signal)
   const attempts: TierResult[] = []
   let ownedHandle: BrowserHandle | undefined
   const releaseOwned = (handle: BrowserHandle) => {
@@ -175,7 +176,7 @@ export async function scrape(
               const handle = await deps.acquireBrowser(args[0], args[1], { ...args[2], signal: budget.signal })
               if (budget.signal.aborted) {
                 deps.releaseBrowser(handle)
-                throw new DeadlineError()
+                throw budget.signal.reason
               }
               ownedHandle = handle
               return handle
@@ -213,9 +214,9 @@ export async function scrape(
     }
     return result
   } catch (error) {
-    if (error instanceof DeadlineError) {
+    if (error instanceof DeadlineError || budget.signal.aborted) {
       if (ownedHandle) releaseOwned(ownedHandle)
-      if (capacityExpired) throw new PoolExhaustedError()
+      if (error instanceof DeadlineError && capacityExpired) throw new PoolExhaustedError()
     }
     const failure = error instanceof DeadlineError ? new ScrapeError(error.message, attempts) : error
     if (req.detectWaf && failure instanceof ScrapeError) failure.waf = await diagnose()

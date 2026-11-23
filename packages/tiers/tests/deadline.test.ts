@@ -47,6 +47,47 @@ const deps = {
   invalidateSession: async () => {},
 }
 
+test("an already cancelled scrape starts no HTTP or browser work", async () => {
+  let called = false
+  const reason = new DOMException("Proxy client disconnected", "AbortError")
+  await expect(
+    scrape(
+      { url: "https://example.test/" },
+      {
+        ...deps,
+        signal: AbortSignal.abort(reason),
+        loadSession: async () => {
+          called = true
+          return undefined
+        },
+      },
+    ),
+  ).rejects.toBe(reason)
+  expect(called).toBe(false)
+})
+
+test("external cancellation keeps its reason and waits for owned cleanup", async () => {
+  const controller = new AbortController()
+  const reason = new Error("Proxy client disconnected")
+  const budget = new RequestBudget(1000, controller.signal)
+  let cleaned = false
+  budget.own(async () => {
+    await Bun.sleep(10)
+    cleaned = true
+  })
+  try {
+    await expect(
+      budget.run(async () => {
+        controller.abort(reason)
+        await new Promise(() => {})
+      }),
+    ).rejects.toBe(reason)
+    expect(cleaned).toBe(true)
+  } finally {
+    budget.dispose()
+  }
+})
+
 describe("scrape deadline", () => {
   test("escalates a Cloudflare challenge before its open body consumes the deadline", async () => {
     const operation = scrape(
@@ -136,54 +177,60 @@ describe("scrape deadline", () => {
   })
 })
 
-test("deadline closes the owned context and releases its browser lease", async () => {
-  let closeCalls = 0
-  let releases = 0
-  let cancelNavigation!: () => void
-  const page = {
-    setDefaultTimeout() {},
-    on() {},
-    off() {},
-    goto: () =>
-      new Promise<void>((_, reject) => {
-        cancelNavigation = () => reject(new Error("page closed"))
-      }),
-    content: async () => "",
-    frames: () => [],
-    url: () => "https://example.test/",
-  }
-  const context = {
-    addInitScript: async () => {},
-    cookies: async () => [],
-    newPage: async () => page,
-    close: async () => {
-      closeCalls++
-      cancelNavigation?.()
-    },
-  }
-  const handle = {
-    id: 1,
-    lease: 1,
-    headful: false,
-    context,
-    browser: { newContext: async () => context },
-    fingerprint: { userAgent: "test", platform: "Win32" as const, locale: "en-US", timezone: "UTC" },
-  }
-  await expect(
-    scrape(
-      { url: "https://example.test/", skipHttp: true, maxTimeout: 60, maxTier: 3 },
-      {
-        ...deps,
-        acquireBrowser: async () => handle,
-        releaseBrowser: () => {
-          releases++
-        },
+test.each([false, true])(
+  "cancellation closes the owned context and releases its browser lease, external=%s",
+  async (external) => {
+    const controller = new AbortController()
+    let closeCalls = 0
+    let releases = 0
+    let cancelNavigation!: () => void
+    const page = {
+      setDefaultTimeout() {},
+      on() {},
+      off() {},
+      goto: () =>
+        new Promise<void>((_, reject) => {
+          cancelNavigation = () => reject(new Error("page closed"))
+          if (external) controller.abort(new Error("Proxy client disconnected"))
+        }),
+      content: async () => "",
+      frames: () => [],
+      url: () => "https://example.test/",
+    }
+    const context = {
+      addInitScript: async () => {},
+      cookies: async () => [],
+      newPage: async () => page,
+      close: async () => {
+        closeCalls++
+        cancelNavigation?.()
       },
-    ),
-  ).rejects.toThrow("deadline")
-  expect(closeCalls).toBe(1)
-  expect(releases).toBe(1)
-})
+    }
+    const handle = {
+      id: 1,
+      lease: 1,
+      headful: false,
+      context,
+      browser: { newContext: async () => context },
+      fingerprint: { userAgent: "test", platform: "Win32" as const, locale: "en-US", timezone: "UTC" },
+    }
+    await expect(
+      scrape(
+        { url: "https://example.test/", skipHttp: true, maxTimeout: external ? 500 : 60, maxTier: 3 },
+        {
+          ...deps,
+          signal: controller.signal,
+          acquireBrowser: async () => handle,
+          releaseBrowser: () => {
+            releases++
+          },
+        },
+      ),
+    ).rejects.toThrow(external ? "Proxy client disconnected" : "deadline")
+    expect(closeCalls).toBe(1)
+    expect(releases).toBe(1)
+  },
+)
 
 test.each([2, 3] as const)(
   "deadline cleans up pending tier %i resource creation before releasing the lease",
@@ -244,34 +291,40 @@ test.each([2, 3] as const)(
   },
 )
 
-test("a browser acquired after cancellation is released without starting a tier", async () => {
-  let releases = 0
-  const handle = {
-    id: 1,
-    lease: 1,
-    headful: false,
-    context: {},
-    browser: {},
-    fingerprint: { userAgent: "test", platform: "Win32" as const, locale: "en-US", timezone: "UTC" },
-  }
-  await expect(
-    scrape(
-      { url: "https://example.test/", skipHttp: true, maxTimeout: 20 },
-      {
-        ...deps,
-        acquireBrowser: async () => {
-          await Bun.sleep(50)
-          return handle
+test.each([false, true])(
+  "a browser acquired after cancellation is released without starting a tier, external=%s",
+  async (external) => {
+    const controller = new AbortController()
+    let releases = 0
+    const handle = {
+      id: 1,
+      lease: 1,
+      headful: false,
+      context: {},
+      browser: {},
+      fingerprint: { userAgent: "test", platform: "Win32" as const, locale: "en-US", timezone: "UTC" },
+    }
+    await expect(
+      scrape(
+        { url: "https://example.test/", skipHttp: true, maxTimeout: external ? 500 : 20 },
+        {
+          ...deps,
+          signal: controller.signal,
+          acquireBrowser: async () => {
+            if (external) controller.abort(new Error("Proxy client disconnected"))
+            await Bun.sleep(50)
+            return handle
+          },
+          releaseBrowser: () => {
+            releases++
+          },
         },
-        releaseBrowser: () => {
-          releases++
-        },
-      },
-    ),
-  ).rejects.toThrow("Browser pool exhausted")
-  await Bun.sleep(60)
-  expect(releases).toBe(1)
-})
+      ),
+    ).rejects.toThrow(external ? "Proxy client disconnected" : "Browser pool exhausted")
+    await Bun.sleep(60)
+    expect(releases).toBe(1)
+  },
+)
 
 test("an expired deadline takes precedence over a transport rejection before the timer callback", async () => {
   const budget = new RequestBudget(20)
