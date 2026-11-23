@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Isolate MITM challenge routing between proxy instances and cancel scrape work when the proxy client disconnects.
 - Preserve configured proxy failover and residential proxy selection for sessionless `/v1` requests (#295, #299).
 - Stop Baxia NC interaction when the page or widget frame navigates, preserving the embedded CAPTCHA opt-out on the destination (#285, #305).
 - Solve Baxia NC access walls for default `/v1` requests and reject uncleared Baxia pages from cached browser sessions (#285).
