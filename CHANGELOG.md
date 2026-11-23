@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-11-23
+
+### Security
+- Upgrade node-forge to 1.4.4 and the web/docs Nginx runtime to 1.31.9 for upstream security fixes.
+
 ### Fixed
-- Isolate MITM challenge routing between proxy instances and cancel scrape work when the proxy client disconnects.
+- Isolate MITM challenge routing between proxy instances and cancel scrape work when the proxy client disconnects (#307).
 - Preserve configured proxy failover and residential proxy selection for sessionless `/v1` requests (#295, #299).
 - Stop Baxia NC interaction when the page or widget frame navigates, preserving the embedded CAPTCHA opt-out on the destination (#285, #305).
 - Solve Baxia NC access walls for default `/v1` requests and reject uncleared Baxia pages from cached browser sessions (#285).
@@ -31,6 +36,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Route sessionless `/v1` GET and POST requests through the configured `PROXY_URL` pool when no request proxy is supplied (including Prowlarr's empty proxy object). Fail without sending traffic directly when the proxy is unavailable (#295).
 - Increase the default browser acquisition wait from 15 to 30 seconds so bursts can wait longer for a free browser. Keep explicit `BROWSER_ACQUIRE_TIMEOUT_MS` overrides and the request's overall deadline.
+- Refresh compatible dependencies, including Bun 1.4.5, Biome 2.6.8, noble-hashes 2.4.0, Rust 1.100.0 and golang.org/x/net 0.63.0. Preserve Friendly Captcha v1 proof bytes across the hash-library update. Keep the supported Camoufox/Playwright pairing and TypeScript 6 for Vue tooling.
+
+### Upgrade notes
+- No data migration is required. Recreate the container and retain existing data volumes.
+- Sessionless `/v1` requests now use the configured `PROXY_URL` pool when no request proxy is supplied, including Prowlarr's empty proxy object. An unavailable configured proxy does not fall back to a direct connection.
+- The optional `wreq` transport still retains an already pending native body read until its timeout. The default Bun transport is unaffected; the separate upstream fix is not included in this release.
+- Redis remains at 8.10.3 until the official stable 8.12 Docker image is available. The client workspace remains at 0.1.0 and is not published to npm by this release.
 
 ## [1.11.1] - 2026-11-12
 

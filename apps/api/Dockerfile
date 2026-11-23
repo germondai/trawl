@@ -7,7 +7,7 @@ RUN --network=none go test ./...
 RUN --network=none GOOS=linux GOARCH=$TARGETARCH sh build.sh
 
 # Stage 1: install workspace deps (runs natively on build host)
-FROM oven/bun:1.4.4 AS deps
+FROM oven/bun:1.4.5 AS deps
 WORKDIR /app
 
 # nodejs/python3/make/g++ are needed to compile better-sqlite3 (camoufox-js dep)
@@ -49,7 +49,7 @@ RUN bun install --frozen-lockfile --filter '@trawl/api' --production --omit=dev 
          node_modules/impit-win32-*
 
 # Stage 2: fetch the Camoufox Firefox binary (pinned version)
-FROM oven/bun:1.4.4 AS camoufox
+FROM oven/bun:1.4.5 AS camoufox
 ENV CAMOUFOX_INSTALL_DIR=/opt/camoufox
 
 ARG UBO_VERSION=1.75.0
@@ -117,7 +117,7 @@ RUN curl -fsSL \
     rm /tmp/ubo.xpi
 
 # Build against the baseline libc and generic CPU target for both image variants.
-FROM rust:1.99.1-slim-bookworm AS powsolve
+FROM rust:1.100.0-slim-bookworm AS powsolve
 WORKDIR /src
 COPY native/powsolve/ ./
 RUN cargo fetch --locked
@@ -125,7 +125,7 @@ RUN --network=none cargo test --release --locked --offline \
  && cargo build --release --locked --offline \
  && strip target/release/libpowsolve.so
 
-FROM oven/bun:1.4.4 AS bun-runtime
+FROM oven/bun:1.4.5 AS bun-runtime
 RUN apt-get update && apt-get install -y --no-install-recommends binutils \
  && strip --strip-all /usr/local/bin/bun
 
