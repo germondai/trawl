@@ -21,15 +21,17 @@ foreach ($identity in @($sid, [System.Security.Principal.SecurityIdentifier]'S-1
 Set-Acl -LiteralPath $env:TRAWL_PERMISSION_PATH -AclObject $acl
 `
   try {
-    await exec(
+    const operation = exec(
       join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
-      ["-NoProfile", "-NonInteractive", "-Command", script],
+      ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
       {
         timeout: 10000,
         windowsHide: true,
         env: { ...process.env, TRAWL_PERMISSION_PATH: path, TRAWL_PERMISSION_KIND: directory ? "directory" : "file" },
       },
     )
+    operation.child.stdin?.end()
+    await operation
   } catch (error) {
     const failure = error as { code?: unknown; killed?: boolean }
     const detail = failure.killed
