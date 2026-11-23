@@ -385,16 +385,19 @@ mod tests {
     }
     #[test]
     fn saved_connection_posts_json_with_private_auth_and_releases_cancelled_operations() {
+        #[cfg(unix)]
         use std::os::unix::fs::PermissionsExt;
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
             let home = std::env::temp_dir().join(format!("trawl-operation-{}", std::process::id()));
             std::fs::create_dir_all(&home).unwrap();
+            #[cfg(unix)]
             std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let address = listener.local_addr().unwrap();
             let path = home.join("config.json");
             std::fs::write(&path, json!({"desktop":{"connections":[{"id":"fixture","baseURL":format!("http://{address}/prefix"),"apiKey":"owned-token"}]}}).to_string()).unwrap();
+            #[cfg(unix)]
             std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
             let state = AppState {
                 runtime: home.clone(), home: home.clone(), child: tokio::sync::Mutex::new(None),
