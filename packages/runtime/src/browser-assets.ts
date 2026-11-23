@@ -114,9 +114,9 @@ export function browserBuildLabels(
   }
 }
 export const geoipAsset: Download = {
-  url: "https://github.com/P3TERX/GeoLite.mmdb/releases/download/2026.11.13/GeoLite2-City.mmdb",
-  size: 50559043,
-  sha256: "1ffc2e3e2c0d83a11cb64dfaa318e6f10f74aae131dd18899d5243eaf81c0364",
+  url: "https://github.com/P3TERX/GeoLite.mmdb/releases/download/2026.11.22/GeoLite2-City.mmdb",
+  size: 50674504,
+  sha256: "032702cf8de2c5ad36b2cdc73d71df62477ef484acb872e4c1a24d7b9ec89666",
 }
 export const uboAsset: Download = {
   size: 6371851,
