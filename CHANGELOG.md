@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Preserve configured proxy failover and residential proxy selection for sessionless `/v1` requests (#295, #299).
+- Stop Baxia NC interaction when the page or widget frame navigates, preserving the embedded CAPTCHA opt-out on the destination (#285, #305).
 - Solve Baxia NC access walls for default `/v1` requests and reject uncleared Baxia pages from cached browser sessions (#285).
 - Reuse browser sessions for repeated requests through the same explicit proxy, with separate cache entries for each proxy identity (#298).
 - Include page content in the structured results of MCP `read` and `scrape` for clients that consume structured output (#294).

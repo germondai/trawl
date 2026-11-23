@@ -266,7 +266,7 @@ async function scrapeWithinBudget(
   if (minTier > maxTier) {
     throw new ScrapeError(`Minimum tier ${minTier} exceeds max tier ${maxTier}`, timings)
   }
-  const forcedTier4Proxy = minTier === 4 ? (req.proxy ?? deps.residentialProxyPool?.next(domain)) : undefined
+  const forcedTier4Proxy = minTier === 4 ? (callerProxy ?? deps.residentialProxyPool?.next(domain)) : undefined
   if (minTier === 4 && !forcedTier4Proxy) {
     throw new ScrapeError("Tier 4 requires RESIDENTIAL_PROXY_URL or a per-request proxy.", timings)
   }
@@ -811,7 +811,7 @@ async function scrapeWithinBudget(
           continue
         }
         const pool = deps.proxyPool
-        if (t3.status !== "blocked" || req.proxy || !proxy3 || !pool || attempt + 1 >= MAX_PROXY_ATTEMPTS) break
+        if (t3.status !== "blocked" || callerProxy || !proxy3 || !pool || attempt + 1 >= MAX_PROXY_ATTEMPTS) break
         await checkPostReplay(t3)
         pool.markBad(proxy3)
         const next = pool.next(domain)

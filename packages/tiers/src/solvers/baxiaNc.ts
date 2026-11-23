@@ -125,13 +125,16 @@ function issued(before: Map<string, string>, now: Map<string, string>): boolean 
 
 async function drag(page: Page, plan: NcDragPlan, signal: AbortSignal): Promise<void> {
   const { mouse } = page
+  signal.throwIfAborted()
   await mouse.move(plan.start.x, plan.start.y)
   await sleep(plan.pauses.hover, signal)
   await mouse.move(plan.press.x, plan.press.y)
-  await mouse.down()
+  signal.throwIfAborted()
   try {
+    await mouse.down()
     await sleep(plan.pauses.held, signal)
     await mouse.move(plan.overshoot.x, plan.overshoot.y)
+    signal.throwIfAborted()
     await mouse.move(plan.release.x, plan.release.y)
     await sleep(plan.pauses.settle, signal)
   } finally {
@@ -142,21 +145,40 @@ async function drag(page: Page, plan: NcDragPlan, signal: AbortSignal): Promise<
 // Use the widget's own retry rather than reloading: a reload opens a new verification session.
 async function retry(
   page: Page,
+  frame: Frame,
   home: number,
   deadline: number,
   signal: AbortSignal,
   retryMs: number,
 ): Promise<boolean> {
+  const link = await frame
+    .locator(RETRY)
+    .first()
+    .elementHandle({ timeout: 200 })
+    .catch(() => null)
+  if (!link) return false
   let clicked = false
-  for (const frame of page.frames()) {
-    const link = frame.locator(RETRY).first()
-    if (await link.isVisible({ timeout: 200 }).catch(() => false)) {
-      clicked = await link
-        .click({ timeout: 1500 })
-        .then(() => true)
-        .catch(() => false)
-      if (clicked) break
+  try {
+    if (!(await link.isVisible())) return false
+    signal.throwIfAborted()
+    await link.scrollIntoViewIfNeeded({ timeout: 1500 })
+    const box = await link.boundingBox()
+    if (!box) return false
+    signal.throwIfAborted()
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await sleep(100, signal)
+    // Hover may navigate; keep the visibility check bound to the original element.
+    if (!(await link.isVisible())) return false
+    signal.throwIfAborted()
+    try {
+      await page.mouse.down()
+      await sleep(50, signal)
+    } finally {
+      await page.mouse.up().catch(() => {})
     }
+    clicked = true
+  } finally {
+    await link.dispose().catch(() => {})
   }
   if (!clicked) return false
   const until = Math.min(deadline, Date.now() + retryMs)
@@ -180,32 +202,47 @@ export async function solveBaxiaNc(
     ? AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, timeoutMs))])
     : AbortSignal.timeout(Math.max(1, timeoutMs))
   const deadline = Date.now() + timeoutMs
+  const navigation = new AbortController()
+  const interactionSignal = AbortSignal.any([signal, navigation.signal])
+  let widgetFrame: Frame | undefined
+  const onNavigation = (frame: Frame) => {
+    if (frame === page.mainFrame() || frame === widgetFrame) navigation.abort()
+  }
+  page.on("framenavigated", onNavigation)
+  page.on("framedetached", onNavigation)
   try {
-    if (!(await hasBaxiaNcWidget(page, Math.min(appearMs, timeoutMs), signal))) return false
+    if (!(await hasBaxiaNcWidget(page, Math.min(appearMs, timeoutMs), interactionSignal))) return false
     const first = await ncSlider(page)
     if (!first) return false
+    widgetFrame = first.frame
     const home = first.knob.x
 
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS && Date.now() < deadline && !signal.aborted; attempt++) {
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS && Date.now() < deadline && !interactionSignal.aborted; attempt++) {
       const found = await ncSlider(page)
-      if (!found) return false
+      if (!found || found.frame !== widgetFrame) return false
       const before = await clearance(page)
       console.log(`[baxia-nc] attempt ${attempt}/${MAX_ATTEMPTS}`)
-      await drag(page, planNcDrag(found.knob, found.track), signal)
+      await drag(page, planNcDrag(found.knob, found.track), interactionSignal)
 
+      // A successful release may navigate before the cookie becomes observable.
       const resultUntil = Math.min(deadline, Date.now() + resultMs)
       while (Date.now() < resultUntil && !signal.aborted) {
         if (issued(before, await clearance(page))) {
           console.log(`[baxia-nc] passed on attempt ${attempt}`)
           return true
         }
+        if (navigation.signal.aborted) return false
         if (page.isClosed()) return false
         await sleep(250, signal).catch(() => {})
       }
-      if (attempt === MAX_ATTEMPTS || !(await retry(page, home, deadline, signal, retryMs))) break
+      if (attempt === MAX_ATTEMPTS || !(await retry(page, widgetFrame, home, deadline, interactionSignal, retryMs)))
+        break
     }
   } catch (err) {
-    if (!signal.aborted) console.log("[baxia-nc] error:", err instanceof Error ? err.message : err)
+    if (!interactionSignal.aborted) console.log("[baxia-nc] error:", err instanceof Error ? err.message : err)
+  } finally {
+    page.off("framenavigated", onNavigation)
+    page.off("framedetached", onNavigation)
   }
   return false
 }
