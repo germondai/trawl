@@ -1,8 +1,5 @@
-import { execFile } from "node:child_process"
 import { join } from "node:path"
-import { promisify } from "node:util"
 
-const exec = promisify(execFile)
 // Windows ignores POSIX mode bits; replace the DACL rather than inheriting a shared directory's permissions.
 export async function protectWindowsStorage(path: string, directory: boolean) {
   if (process.platform !== "win32") return
@@ -20,25 +17,33 @@ foreach ($identity in @($sid, [System.Security.Principal.SecurityIdentifier]'S-1
 }
 Set-Acl -LiteralPath $env:TRAWL_PERMISSION_PATH -AclObject $acl
 `
+  const signal = AbortSignal.timeout(10000)
+  let detail: string
   try {
-    const operation = exec(
-      join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
-      ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
+    const operation = Bun.spawn(
+      [
+        join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+        "-NoProfile",
+        "-NonInteractive",
+        "-EncodedCommand",
+        Buffer.from(script, "utf16le").toString("base64"),
+      ],
       {
-        timeout: 10000,
+        signal,
+        stdin: "ignore",
+        stdout: "ignore",
+        stderr: "ignore",
         windowsHide: true,
         env: { ...process.env, TRAWL_PERMISSION_PATH: path, TRAWL_PERMISSION_KIND: directory ? "directory" : "file" },
       },
     )
-    operation.child.stdin?.end()
-    await operation
-  } catch (error) {
-    const failure = error as { code?: unknown; killed?: boolean }
-    const detail = failure.killed
-      ? "PowerShell timed out"
-      : typeof failure.code === "number"
-        ? `PowerShell exit code ${failure.code}`
-        : "PowerShell could not be started"
-    throw new Error(`Cannot protect local storage permissions; use a private NTFS user directory (${detail})`)
+    const exit = await operation.exited
+    if (exit === 0 && !signal.aborted) return
+    detail = `PowerShell exit code ${exit}`
+  } catch {
+    detail = "PowerShell could not be started"
   }
+  throw new Error(
+    `Cannot protect local storage permissions; use a private NTFS user directory (${signal.aborted ? "PowerShell timed out" : detail})`,
+  )
 }
