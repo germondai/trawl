@@ -5074,6 +5074,7 @@ name = "trawl-desktop"
 version = "0.1.0"
 dependencies = [
  "block2",
+ "gtk",
  "jni 0.22.4",
  "libc",
  "objc2",
