@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { type InstallationProgress, installationProgress } from "../src/progress"
+import { fixtureChildEnv } from "./helpers/child-env"
 
 test("installation progress is throttled, phase scoped and estimates only measured work", () => {
   let now = 0
@@ -43,11 +44,11 @@ test("private management progress reaches the parent while stdin stays open", as
       "--progress",
     ],
     {
-      env: { PATH: process.env.PATH },
+      env: fixtureChildEnv(),
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(process.platform === "win32" ? 25000 : 10000),
     },
   )
   try {

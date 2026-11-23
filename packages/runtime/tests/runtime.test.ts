@@ -9,6 +9,7 @@ import { control, instanceState, startControl } from "../src/control"
 import { startManaged, stopManaged } from "../src/manager"
 import { runtimePaths } from "../src/paths"
 import { emptyConfig, publicConfig, readConfig, validateConfig, writeConfig } from "../src/store"
+import { fixtureChildEnv } from "./helpers/child-env"
 
 describe("managed runtime", () => {
   test("desktop quit and visibility preferences migrate, validate and persist", async () => {
@@ -79,12 +80,12 @@ describe("managed runtime", () => {
         stdin: "pipe",
         stdout: "ignore",
         stderr: "pipe",
-        env: { PATH: process.env.PATH, TRAWL_RUNTIME_RESOURCES: resources },
-        signal: AbortSignal.timeout(10000),
+        env: { ...fixtureChildEnv(), TRAWL_RUNTIME_RESOURCES: resources },
+        signal: AbortSignal.timeout(process.platform === "win32" ? 25000 : 10000),
       },
     )
     try {
-      const deadline = Date.now() + 5000
+      const deadline = Date.now() + (process.platform === "win32" ? 15000 : 5000)
       while (!(await Bun.file(loaded).exists()) && Date.now() < deadline) await Bun.sleep(10)
       expect(await Bun.file(loaded).exists()).toBe(true)
       expect(await control("status", paths)).toMatchObject({ running: true, ready: false })
