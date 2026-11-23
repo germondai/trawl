@@ -61,7 +61,7 @@ jobs:
           persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.5
+          bun-version: ${{ runner.os == 'Windows' && '1.4.4' || '1.4.5' }}
       - uses: actions/setup-node@v7
         with:
           node-version: 26.13.1
