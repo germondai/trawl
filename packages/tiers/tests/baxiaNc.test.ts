@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { EventEmitter } from "node:events"
 import type { Page } from "patchright"
 import { hasBaxiaNcMarkup, hasBaxiaNcWidget, planNcDrag, solveBaxiaNc } from "../src/solvers/baxiaNc"
 import { persistentBrowserWall } from "../src/utils/browserWall"
@@ -53,6 +54,8 @@ interface FakeOptions {
   hasWidget?: boolean
   hasRetry?: boolean
   knobHomesOnRetry?: boolean
+  navigateOnMove?: number
+  navigateOnRelease?: boolean
 }
 
 function fakePage(options: FakeOptions = {}) {
@@ -62,6 +65,8 @@ function fakePage(options: FakeOptions = {}) {
     ? [{ name: "x5sec", value: options.existingCookie, domain: ".example.test", path: "/" }]
     : []
   let drags = 0
+  let moves = 0
+  const events = new EventEmitter()
   let knobX = KNOB.x
   const locator = (selector: string) => {
     const first = {
@@ -69,38 +74,92 @@ function fakePage(options: FakeOptions = {}) {
         if (!hasWidget) return null
         if (selector === "#nc_1_n1z") return { ...KNOB, x: knobX }
         if (selector === "#nc_1_n1t") return TRACK
+        if (hasRetry && selector.includes("refresh")) return KNOB
         return null
       },
       isVisible: async () => hasRetry && selector.includes("refresh"),
-      click: async () => {
-        log.push("retry")
-        if (knobHomesOnRetry) knobX = KNOB.x
-      },
+      scrollIntoViewIfNeeded: async () => {},
+      dispose: async () => {},
     }
-    return { first: () => first }
+    return { first: () => ({ ...first, elementHandle: async () => first }) }
   }
   const frame = { locator }
+  let retryPress = false
   const page = {
+    on: events.on.bind(events),
+    off: events.off.bind(events),
+    mainFrame: () => frame,
     frames: () => [frame],
     context: () => ({ cookies: async () => cookies }),
     isClosed: () => false,
     mouse: {
-      move: async (x: number, y: number) => void log.push(`move ${Math.round(x)},${Math.round(y)}`),
+      move: async (x: number, y: number) => {
+        log.push(`move ${Math.round(x)},${Math.round(y)}`)
+        retryPress = x === 120 && y === 220 && knobX !== KNOB.x
+        if (++moves === options.navigateOnMove) events.emit("framenavigated", frame)
+      },
       down: async () => void log.push("down"),
       up: async () => {
         log.push("up")
+        if (retryPress) {
+          log.push("retry")
+          if (knobHomesOnRetry) knobX = KNOB.x
+          retryPress = false
+          return
+        }
         drags++
         knobX = KNOB.x + 260
         if (options.passOnDrag === drags) {
           cookies.push({ name: "x5sec", value: `issued-${drags}`, domain: ".example.test", path: "/" })
         }
+        if (options.navigateOnRelease) events.emit("framenavigated", frame)
       },
     },
   }
-  return { page: page as unknown as Page, log, drags: () => drags }
+  return { page: page as unknown as Page, log, drags: () => drags, events }
 }
 
 describe("solveBaxiaNc", () => {
+  test("stops before pressing when the first move navigates to another document", async () => {
+    const fake = fakePage({ navigateOnMove: 1 })
+    expect(await solveBaxiaNc(fake.page, 5000, undefined, FAST)).toBe(false)
+    expect(fake.log).toHaveLength(1)
+    expect(fake.drags()).toBe(0)
+    expect(fake.events.listenerCount("framenavigated")).toBe(0)
+    expect(fake.events.listenerCount("framedetached")).toBe(0)
+  })
+
+  test("releases the mouse without continuing a drag after navigation", async () => {
+    const fake = fakePage({ navigateOnMove: 3 })
+    expect(await solveBaxiaNc(fake.page, 5000, undefined, FAST)).toBe(false)
+    expect(fake.log.filter((entry) => entry.startsWith("move "))).toHaveLength(3)
+    expect(fake.log.filter((entry) => entry === "down")).toHaveLength(1)
+    expect(fake.log.at(-1)).toBe("up")
+    expect(fake.log).not.toContain("retry")
+  })
+
+  test("accepts a fresh cookie when a completed drag navigates immediately", async () => {
+    const fake = fakePage({ passOnDrag: 1, navigateOnRelease: true })
+    expect(await solveBaxiaNc(fake.page, 5000, undefined, FAST)).toBe(true)
+    expect(fake.drags()).toBe(1)
+    expect(fake.events.listenerCount("framenavigated")).toBe(0)
+  })
+
+  test("releases the mouse and removes listeners when cancelled during a drag", async () => {
+    const controller = new AbortController()
+    const fake = fakePage()
+    const down = fake.page.mouse.down.bind(fake.page.mouse)
+    fake.page.mouse.down = async () => {
+      await down()
+      controller.abort()
+    }
+    expect(await solveBaxiaNc(fake.page, 5000, controller.signal, FAST)).toBe(false)
+    expect(fake.log.at(-1)).toBe("up")
+    expect(fake.log.filter((entry) => entry.startsWith("move "))).toHaveLength(2)
+    expect(fake.events.listenerCount("framenavigated")).toBe(0)
+    expect(fake.events.listenerCount("framedetached")).toBe(0)
+  })
+
   test("passes when the first slide issues a new x5sec", async () => {
     const fake = fakePage({ passOnDrag: 1 })
     expect(await solveBaxiaNc(fake.page, 5000, undefined, FAST)).toBe(true)

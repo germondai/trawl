@@ -17,6 +17,7 @@ describe.skipIf(process.env.TRAWL_BAXIA_TESTS !== "1")("Baxia access walls", () 
   const attempts: TierResult[] = []
   const verified = new Map<string, number>()
   const submissions = new Map<string, number>()
+  const retryClicks = new Map<string, number>()
   const deps: OrchestratorDeps = {
     acquireBrowser: async () => handle,
     releaseBrowser() {},
@@ -44,10 +45,14 @@ describe.skipIf(process.env.TRAWL_BAXIA_TESTS !== "1")("Baxia access walls", () 
         const url = new URL(request.url)
         const id = url.searchParams.get("id") ?? ""
         const mode = url.searchParams.get("mode") ?? "accept"
+        if (url.pathname === "/retry-click") {
+          retryClicks.set(id, (retryClicks.get(id) ?? 0) + 1)
+          return new Response(null, { status: 204 })
+        }
         if (url.pathname === "/verify") {
           submissions.set(id, (submissions.get(id) ?? 0) + 1)
           const { down, up, distance } = await request.json()
-          const pass = down && up && distance >= 245 && mode !== "reject"
+          const pass = down && up && distance >= 245 && !["reject", "retry-redirect"].includes(mode)
           if (pass) verified.set(id, (verified.get(id) ?? 0) + 1)
           return Response.json({ pass }, { headers: pass ? { "set-cookie": `x5sec=owned-${id}; Path=/` } : {} })
         }
@@ -68,13 +73,28 @@ describe.skipIf(process.env.TRAWL_BAXIA_TESTS !== "1")("Baxia access walls", () 
           window.onmouseup=async e=>{if(!held)return;held=false;
             const result=await fetch('/verify?id=${id}&mode=${mode}',{method:'POST',headers:{'content-type':'application/json'},
               body:JSON.stringify({distance,down,up:e.isTrusted})}).then(r=>r.json());
-            if(result.pass)setTimeout(()=>location.replace('/content?id=${id}'),${mode === "delayed" ? 300 : 0});
+            if(result.pass)setTimeout(()=>top.location.replace('/content?id=${id}'),${mode === "delayed" ? 300 : 0});
           };
           </script>`
+        const redirect = ["drag-redirect", "press-redirect", "frame-redirect"].includes(mode)
+          ? `<script>window.addEventListener('${mode === "press-redirect" ? "mousedown" : "mousemove"}', event => {
+              if(event.isTrusted) location.replace('/wall?id=${id}&mode=embedded');
+            }, {once:true});</script>`
+          : ""
+        if (url.pathname === "/widget")
+          return new Response(`<html><body>${widget}${redirect}</body></html>`, {
+            headers: { "content-type": "text/html" },
+          })
+        const retry = ["retry-redirect", "embedded"].includes(mode)
+          ? `<button id="nc_1_refresh1" style="position:absolute;left:400px;top:40px"
+              onmouseover="${mode === "retry-redirect" ? `location.replace('/wall?id=${id}&mode=embedded')` : ""}"
+              onclick="fetch('/retry-click?id=${id}')">Retry</button>`
+          : ""
         return new Response(
           `<html><body><h1>Owned NC fixture</h1>
-          ${mode === "embedded" ? "" : '<a href="/_____tmd_____/punish?x5secdata=owned">Baxia challenge</a>'}
-          ${mode === "missing" ? "" : widget}</body></html>`,
+          ${mode === "embedded" ? "<span>Optional widget</span>" : '<a href="/_____tmd_____/punish?x5secdata=owned">Baxia challenge</a>'}
+          ${mode.startsWith("frame-") ? `<iframe src="/widget?id=${id}&mode=${mode}" style="width:500px;height:250px;border:0"></iframe>` : mode === "missing" ? "" : widget}
+          ${mode.startsWith("frame-") ? "" : redirect}${retry}</body></html>`,
           { headers: { "content-type": "text/html", ...(mode === "embedded" ? {} : { bxpunish: "1" }) } },
         )
       },
@@ -187,6 +207,41 @@ describe.skipIf(process.env.TRAWL_BAXIA_TESTS !== "1")("Baxia access walls", () 
     expect(response.status, JSON.stringify(body)).toBe(200)
     expect(body.solution.response).toContain("Owned protected content")
     expect(verified.get(id)).toBe(1)
+  }, 30000)
+
+  test.each(["drag-redirect", "press-redirect"])(
+    "/v1 stops interacting after navigation during %s",
+    async (mode) => {
+      const { response, body, id } = await send("/v1", mode)
+      expect(submissions.get(id) ?? 0).toBe(0)
+      expect(response.status, JSON.stringify(body)).toBe(200)
+      expect(body.solution.response).toContain("Optional widget")
+      expect(attempts.flatMap((a) => a.captchas ?? [])).toEqual([{ kind: "baxia-nc", outcome: "failed" }])
+    },
+    30000,
+  )
+
+  test("/v1 solves a wall whose widget is in an iframe", async () => {
+    const { response, body, id } = await send("/v1", "frame-accept")
+    expect(response.status, JSON.stringify(body)).toBe(200)
+    expect(body.solution.response).toContain("Owned protected content")
+    expect(verified.get(id)).toBe(1)
+    expect(submissions.get(id)).toBe(1)
+  }, 30000)
+
+  test("/v1 stops interacting after the widget iframe navigates", async () => {
+    const { response, body, id } = await send("/v1", "frame-redirect")
+    expect(response.status, JSON.stringify(body)).toBe(500)
+    expect(JSON.stringify(body)).toContain("baxia-persistent")
+    expect(submissions.get(id) ?? 0).toBe(0)
+  }, 30000)
+
+  test("/v1 never retries a matching control in the destination document", async () => {
+    const { response, body, id } = await send("/v1", "retry-redirect")
+    expect(retryClicks.get(id) ?? 0).toBe(0)
+    expect(submissions.get(id)).toBe(1)
+    expect(response.status, JSON.stringify(body)).toBe(200)
+    expect(body.solution.response).toContain("Optional widget")
   }, 30000)
 
   test.each([100, 1000])(
