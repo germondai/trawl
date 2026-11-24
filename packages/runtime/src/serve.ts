@@ -4,7 +4,7 @@ import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { parseArgs } from "node:util"
 import { flagEnvironment, settingFlags, validateEnvironment } from "@trawl/config"
-import { browserStatus } from "./browser"
+import { inspectBrowser } from "./browser"
 import { browserBuild } from "./browser-assets"
 import { control, startControl } from "./control"
 import { applyDesktopHistoryDefaults } from "./desktop-defaults"
@@ -31,6 +31,7 @@ export async function runServer(args: string[]) {
   if (await control("status", paths)) throw new Error("A managed instance is already running")
   const owner = values.owner ?? "foreground"
   if (!["cli", "desktop", "foreground"].includes(owner)) throw new Error("Invalid instance owner")
+  console.log("[runtime] Preparing local server storage")
   await privateDirectory(paths.home)
   const file = await readConfig(paths)
   const resolved = resolveManagedEnvironment(paths, file.env, process.env, {
@@ -58,7 +59,8 @@ export async function runServer(args: string[]) {
   }
   if (configChanged) await writeConfig(file, paths)
   if (owner === "desktop") env.METRICS_DASHBOARD_ENABLED = "true"
-  const browser = await browserStatus(paths)
+  console.log("[runtime] Checking active browser installation")
+  const browser = await inspectBrowser(paths.browser)
   if (!browser.installed)
     throw new Error(
       "Browser is not installed. Run trawl-server setup (or trawl browser install) before starting the server.",
@@ -68,9 +70,9 @@ export async function runServer(args: string[]) {
   const library = join(resources, `libpowsolve${extension}`)
   const waf = join(resources, process.platform === "win32" ? "trawl-waf.exe" : "trawl-waf")
   Object.assign(process.env, env, {
-    CAMOUFOX_INSTALL_DIR: browser.path,
+    CAMOUFOX_INSTALL_DIR: paths.browser,
     TRAWL_BROWSER_LAUNCHER: browserBuild(browser.version)?.launcher ?? "legacy",
-    FPGEN_DATA_DIR: join(browser.path, "fpgen"),
+    FPGEN_DATA_DIR: join(paths.browser, "fpgen"),
     POWSOLVE_LIB: library,
     WAFMEOW_PATH: waf,
     TRAWL_MANAGED_INSTANCE: "1",
@@ -111,9 +113,10 @@ export async function runServer(args: string[]) {
       shutdown,
       () => ready,
     )
-    if (!(await browserStatus(paths)).installed)
+    if (!(await inspectBrowser(paths.browser)).installed)
       throw new Error("Browser installation changed during startup; install it before starting the server")
     maintainLogs(paths)
+    console.log("[runtime] Starting API and preparing browser capacity")
     const api = await import(pathToFileURL(join(resources, "api.mjs")).href)
     await api.ready
     ready = true

@@ -122,7 +122,7 @@ const overflow = computed(() => [
         >
         <AppTooltip v-if="!phone && local && desktop.status.running" :text="t('ui.stopServer')" :kbds="kbds('server')"
           ><UButton
-            icon="i-lucide-square"
+            icon="i-lucide-circle-stop"
             :aria-label="t('ui.stopServer')"
             color="neutral"
             variant="ghost"
@@ -156,7 +156,7 @@ const overflow = computed(() => [
           ></UDropdownMenu
         >
       </div>
-      <div v-if="windows" class="flex items-center gap-1 border-s border-default ps-1">
+      <div v-if="windows" class="window-controls">
         <UButton
           icon="i-lucide-minus"
           color="neutral"

@@ -85,6 +85,7 @@ export const useDesktopStore = defineStore("desktop", () => {
   const health = shallowRef<HealthResponse>()
   const capabilities = shallowRef<InstanceCapabilities | null>()
   const busy = shallowRef(false)
+  const starting = shallowRef(false)
   let configRevision = 0
   let configWrites: Promise<unknown> = Promise.resolve()
   let operationSerial = 0
@@ -226,7 +227,18 @@ export const useDesktopStore = defineStore("desktop", () => {
       busy.value = false
     }
   }
-  const start = () => action(() => invoke("server_start"))
+  async function start(restart = false) {
+    if (busy.value) return false
+    return action(async () => {
+      if (restart) await management({ action: "stop" })
+      starting.value = true
+      try {
+        status.value = await invoke<Status>("server_start")
+      } finally {
+        starting.value = false
+      }
+    })
+  }
   const stop = () => action(() => management({ action: "stop" }))
   async function refreshBrowser() {
     const revision = ++browserRevision
@@ -307,6 +319,7 @@ export const useDesktopStore = defineStore("desktop", () => {
     health,
     capabilities,
     busy,
+    starting,
     settingsDirty,
     error,
     setError: (cause: unknown) => {

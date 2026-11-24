@@ -101,7 +101,11 @@ test("a failed startup bootstrap never marks placeholder configuration as loaded
 test("native startup errors retain their actionable message", async () => {
   setActivePinia(createPinia())
   const store = useDesktopStore()
+  const pending = store.start()
+  expect(store.starting).toBe(true)
   expect(await store.start()).toBe(false)
+  expect(await pending).toBe(false)
+  expect(store.starting).toBe(false)
   expect(store.error).toBe("Local server stopped during startup. Check Logs for details.")
 })
 

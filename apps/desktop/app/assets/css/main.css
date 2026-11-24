@@ -279,8 +279,25 @@ button:disabled,
   -webkit-backdrop-filter: blur(4px);
 }
 .workspace-navbar.native-windows {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-  padding-inline-end: 8px;
+  padding-inline: 16px;
+  background: color-mix(in srgb, var(--ui-bg) 82%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.native-windows .window-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-inline-start: 1px solid var(--ui-border);
+  margin-inline-start: 4px;
+  padding-inline-start: 8px;
+}
+@container workspace (max-width: 720px) {
+  .workspace-navbar.native-windows {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 4px;
+    padding-inline: 8px;
+  }
 }
 .workspace-scroll {
   padding-top: 64px;

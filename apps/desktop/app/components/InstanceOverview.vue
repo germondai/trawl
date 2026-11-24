@@ -89,7 +89,7 @@ const maximumMs = computed(() => {
         t("ui.installBrowser")
       }}</UButton
     >
-    <UButton v-else icon="i-lucide-play" :loading="desktop.busy" :disabled="!desktop.native" @click="desktop.start">{{
+    <UButton v-else icon="i-lucide-play" :loading="desktop.busy" :disabled="!desktop.native" @click="desktop.start()">{{
       t("ui.startServer")
     }}</UButton>
   </div>

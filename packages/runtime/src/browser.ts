@@ -174,7 +174,7 @@ function browserSlot(paths: RuntimePaths, version: string) {
     throw new Error("Unsupported browser build")
   return join(paths.home, "browsers", version)
 }
-async function inspectBrowser(directory: string) {
+export async function inspectBrowser(directory: string) {
   const result: Pick<BrowserStatus, "installed" | "state" | "version"> = { installed: false, state: "not-installed" }
   try {
     const directoryInfo = await lstat(directory)

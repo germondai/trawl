@@ -102,6 +102,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Show desktop server startup progress immediately, refresh the startup log, and check only the active browser before launching. Center the Windows header and distinguish server controls from window controls.
+
 - Start the Linux desktop shell when WebKitGTK advertises Android compatibility in its user agent.
 
 - Finish macOS startup while its window is hidden, avoiding a visibility/readiness deadlock, keep native controls available on the recovery screen, and preserve the tray when closing an unprepared window unless quitting is configured.

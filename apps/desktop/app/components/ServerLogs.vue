@@ -125,6 +125,17 @@ watch(
   },
   { immediate: true },
 )
+const { resume: followStartup, pause: stopFollowingStartup } = useTimeoutPoll(loadLocal, 2000, {
+  immediate: false,
+})
+watch(
+  () => !useLive.value && desktop.activeId === "local" && desktop.starting,
+  (starting) => {
+    if (starting) followStartup()
+    else stopFollowingStartup()
+  },
+  { immediate: true },
+)
 </script>
 <template>
   <div v-if="desktop.activeId !== 'local' && !desktop.capabilities?.logs" class="notice">

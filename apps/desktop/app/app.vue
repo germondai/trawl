@@ -352,10 +352,7 @@ function requestClose(behavior: string) {
 }
 async function restart() {
   restartPrompt.value = false
-  await desktop.action(async () => {
-    await desktop.management({ action: "stop" })
-    await invoke("server_start")
-  })
+  await desktop.start(true)
 }
 const remember = shallowRef(true)
 const visible = useDocumentVisibility()
@@ -546,11 +543,17 @@ async function close(behavior: "tray" | "quit", rememberChoice = false) {
                   </div>
                   <div v-if="desktop.error" class="notice error" role="alert">{{ desktop.error }}</div>
                   <p
-                    v-if="desktop.activeId === 'local' && desktop.status.running && desktop.status.ready === false"
+                    v-if="
+                      desktop.activeId === 'local' &&
+                      (desktop.starting || (desktop.status.running && desktop.status.ready === false))
+                    "
                     class="notice"
                     role="status"
                   >
                     {{ t("ui.startingLocalServerAndPreparingTheBrowser") }}
+                    <UButton v-if="!desktop.mobile && page !== 'logs'" variant="link" @click="navigate('logs')">
+                      {{ t("ui.logs") }}
+                    </UButton>
                   </p>
                   <Transition :css="false" @before-enter="scrollToTop(false)"
                     ><div :key="page" class="page-view">
