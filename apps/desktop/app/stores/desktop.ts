@@ -208,7 +208,7 @@ export const useDesktopStore = defineStore("desktop", () => {
       if (serial === generation) refreshing = undefined
     }
   }
-  async function action(operation: () => Promise<unknown>) {
+  async function action(operation: () => Promise<unknown>, reloadConfig = true) {
     operationSerial++
     generation++
     refreshing = undefined
@@ -216,7 +216,7 @@ export const useDesktopStore = defineStore("desktop", () => {
     error.value = ""
     try {
       await operation()
-      await bootstrap()
+      if (reloadConfig) await bootstrap()
       await refresh(true)
       return true
     } catch (cause) {
@@ -239,7 +239,7 @@ export const useDesktopStore = defineStore("desktop", () => {
       }
     })
   }
-  const stop = () => action(() => management({ action: "stop" }))
+  const stop = () => action(() => management({ action: "stop" }), false)
   async function refreshBrowser() {
     const revision = ++browserRevision
     const next = await management<BrowserInstallation>({ action: "browserStatus" })

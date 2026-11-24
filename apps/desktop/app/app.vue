@@ -30,9 +30,9 @@ watch(
   },
 )
 const downloads = useBrowserDownloadsStore()
-const nativeShortcuts = desktop.native
 const macOS = /Mac/.test(navigator.platform)
 const nativeMac = desktop.native && macOS
+const nativeShortcuts = nativeMac || desktop.mobile
 let historyGesture: ReturnType<typeof installNativeHistoryGesture> | undefined
 let historyPhase: UnlistenFn | undefined
 onMounted(async () => {
@@ -218,7 +218,7 @@ useEventListener(
 )
 const workspacePane = useTemplateRef<HTMLElement>("workspacePane")
 const workspaceScroll = useTemplateRef<HTMLElement>("workspaceScroll")
-const { top: scrollToTop } = useWorkspaceScroll(workspaceScroll)
+onst { top: scrollToTop } = useWorkspaceScroll(workspaceScroll)
 const pageRefresh = providePageRefresh(async () => {
   if (!desktop.native || desktop.busy) return
   await desktop.bootstrap()
@@ -542,19 +542,6 @@ async function close(behavior: "tray" | "quit", rememberChoice = false) {
                     {{ t("ui.desktopPreviewOpenTheNativeApplicationToManage") }}
                   </div>
                   <div v-if="desktop.error" class="notice error" role="alert">{{ desktop.error }}</div>
-                  <p
-                    v-if="
-                      desktop.activeId === 'local' &&
-                      (desktop.starting || (desktop.status.running && desktop.status.ready === false))
-                    "
-                    class="notice"
-                    role="status"
-                  >
-                    {{ t("ui.startingLocalServerAndPreparingTheBrowser") }}
-                    <UButton v-if="!desktop.mobile && page !== 'logs'" variant="link" @click="navigate('logs')">
-                      {{ t("ui.logs") }}
-                    </UButton>
-                  </p>
                   <Transition :css="false" @before-enter="scrollToTop(false)"
                     ><div :key="page" class="page-view">
                       <InstanceOverview

@@ -280,9 +280,19 @@ button:disabled,
 }
 .workspace-navbar.native-windows {
   padding-inline: 16px;
-  background: color-mix(in srgb, var(--ui-bg) 82%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.workspace-navbar.native-windows::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  content: "";
+  pointer-events: none;
+  background: color-mix(in srgb, var(--ui-bg) 74%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 .native-windows .window-controls {
   display: flex;

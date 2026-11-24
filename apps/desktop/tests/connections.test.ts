@@ -37,10 +37,13 @@ const metrics = {
 mock.module("@tauri-apps/api/core", () => ({
   isTauri: () => true,
   Channel: class {},
-  invoke: async (command: string, request: { instanceId: string; path: string }) => {
+  invoke: async (command: string, request: { instanceId: string; path: string; request?: { action: string } }) => {
     if (command === "instance_status") return localStatus
     if (command === "server_start") throw "Local server stopped during startup. Check Logs for details."
-    if (command === "management") throw new Error("Fixture configuration is unavailable")
+    if (command === "management") {
+      if (request.request?.action === "stop") return (localStatus = { running: false, ready: false })
+      throw new Error("Fixture configuration is unavailable")
+    }
     if (request.path === "/health" && request.instanceId === "local") {
       healthReads++
       return { status: 503, body: '{"status":"starting","pool":{}}' }
@@ -107,6 +110,16 @@ test("native startup errors retain their actionable message", async () => {
   expect(await pending).toBe(false)
   expect(store.starting).toBe(false)
   expect(store.error).toBe("Local server stopped during startup. Check Logs for details.")
+})
+
+test("stopping uses live status without another configuration bootstrap", async () => {
+  setActivePinia(createPinia())
+  const store = useDesktopStore()
+  localStatus = { running: true, ready: false }
+  await store.refresh()
+  expect(store.status.running).toBe(true)
+  expect(await store.stop()).toBe(true)
+  expect(store.status.running).toBe(false)
 })
 
 test("capability discovery retries a transient failure on the selected instance", async () => {

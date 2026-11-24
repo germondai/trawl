@@ -36,6 +36,7 @@ export default defineNuxtConfig({
         "lucide:network",
         "lucide:play",
         "lucide:square",
+        "lucide:circle-stop",
         "lucide:refresh-cw",
         "lucide:wrench",
         "lucide:undo-2",

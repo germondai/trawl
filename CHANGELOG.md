@@ -102,6 +102,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Brand the Windows installer, render the Stop icon offline, show startup progress in Logs, and use focused app shortcuts on Windows and Linux. Skip configuration reload after the server stops.
+
 - Show desktop server startup progress immediately, refresh the startup log, and check only the active browser before launching. Center the Windows header and distinguish server controls from window controls.
 
 - Start the Linux desktop shell when WebKitGTK advertises Android compatibility in its user agent.

@@ -146,6 +146,15 @@ watch(
     }}
   </div>
   <section v-else class="panel logs-panel">
+    <p
+      v-if="
+        desktop.activeId === 'local' && (desktop.starting || (desktop.status.running && desktop.status.ready === false))
+      "
+      class="notice"
+      role="status"
+    >
+      {{ t("ui.startingLocalServerAndPreparingTheBrowser") }}
+    </p>
     <div class="panel-heading">
       <h2>{{ t("ui.logs") }}</h2>
       <span class="text-xs muted">{{ useLive ? t("ui.applicationEvents") : t("ui.localProcessLog") }}</span>

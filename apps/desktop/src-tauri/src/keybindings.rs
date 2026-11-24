@@ -87,6 +87,11 @@ fn definitions() -> &'static Value {
         .expect("shortcut definitions")
     })
 }
+// The focused WebView owns app shortcuts where the native menu is hidden.
+fn uses_native_accelerator(action: &str) -> bool {
+    cfg!(target_os = "macos") || definitions()[action]["scope"] == "tray"
+}
+
 pub fn item(app: &tauri::AppHandle, action: &str, label: &str) -> tauri::Result<Item> {
     let state = app.state::<Keybindings>();
     let mut items = state.items.lock().unwrap();
@@ -96,7 +101,9 @@ pub fn item(app: &tauri::AppHandle, action: &str, label: &str) -> tauri::Result<
         id.clone(),
         crate::i18n::text(label),
         true,
-        definitions()[action]["default"].as_str(),
+        definitions()[action]["default"]
+            .as_str()
+            .filter(|_| uses_native_accelerator(action)),
     )?;
     state.labels.lock().unwrap().insert(id, label.to_owned());
     items.push((action.to_string(), item.clone()));
@@ -214,7 +221,9 @@ fn apply_on_main(app: &tauri::AppHandle, input: &Value) -> Result<(), String> {
             old.id().clone(),
             old.text().map_err(|e| e.to_string())?,
             old.is_enabled().map_err(|e| e.to_string())?,
-            wanted[action].as_deref(),
+            wanted[action]
+                .as_deref()
+                .filter(|_| uses_native_accelerator(action)),
         )
         .map_err(|e| e.to_string())?;
         for parent in &parents {

@@ -55,7 +55,10 @@
     },
     "windows": {
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "headerImage": "resources/nsis-header.bmp",
+        "sidebarImage": "resources/nsis-sidebar.bmp"
       }
     }
   }
