@@ -218,7 +218,7 @@ useEventListener(
 )
 const workspacePane = useTemplateRef<HTMLElement>("workspacePane")
 const workspaceScroll = useTemplateRef<HTMLElement>("workspaceScroll")
-onst { top: scrollToTop } = useWorkspaceScroll(workspaceScroll)
+const { top: scrollToTop } = useWorkspaceScroll(workspaceScroll)
 const pageRefresh = providePageRefresh(async () => {
   if (!desktop.native || desktop.busy) return
   await desktop.bootstrap()
