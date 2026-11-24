@@ -64,11 +64,8 @@ export async function stopManaged(paths = runtimePaths(), requiredOwner?: "deskt
   if (!current) return { running: false }
   if (requiredOwner && current.owner !== requiredOwner) return { ...current, stopped: false }
   await control("stop", paths)
-  const config = await readConfig(paths)
-  const deadline =
-    Date.now() +
-    Math.min(current.shutdownDrainMs ?? Number(config.env.BROWSER_SHUTDOWN_DRAIN_MS || 0), 2147453647) +
-    30000
+  const drainMs = current.shutdownDrainMs ?? Number((await readConfig(paths)).env.BROWSER_SHUTDOWN_DRAIN_MS || 0)
+  const deadline = Date.now() + Math.min(drainMs, 2147453647) + 30000
   while (Date.now() < deadline) {
     signal?.throwIfAborted()
     try {
