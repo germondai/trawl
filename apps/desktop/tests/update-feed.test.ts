@@ -21,3 +21,22 @@ test("release feed rejects unsigned packages and keeps architecture-specific URL
     await rm(folder, { recursive: true, force: true })
   }
 })
+
+test("release feed routes Linux updates to the installed package format", async () => {
+  const folder = await mkdtemp(join(tmpdir(), "trawl-linux-feed-"))
+  try {
+    const target = "linux-aarch64"
+    const deb = `TRAWL_2.0.0_${target}.deb`
+    const appImage = `TRAWL_2.0.0_${target}.AppImage`
+    for (const name of [deb, appImage]) {
+      await writeFile(join(folder, name), "fixture package")
+      await writeFile(join(folder, `${name}.sig`), "Zml4dHVyZQ==")
+    }
+    const { platforms } = await buildUpdateFeed("2.0.0", folder)
+    expect(platforms[`${target}-deb`]?.url.endsWith(`/${deb}`)).toBe(true)
+    expect(platforms[`${target}-appimage`]?.url.endsWith(`/${appImage}`)).toBe(true)
+    expect(platforms[target]).toBeUndefined()
+  } finally {
+    await rm(folder, { recursive: true, force: true })
+  }
+})

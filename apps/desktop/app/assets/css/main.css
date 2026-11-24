@@ -280,17 +280,7 @@ button:disabled,
 }
 .workspace-navbar.native-windows {
   padding-inline: 16px;
-  background: transparent;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-.workspace-navbar.native-windows::before {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  content: "";
-  pointer-events: none;
-  background: color-mix(in srgb, var(--ui-bg) 74%, transparent);
+  background: color-mix(in srgb, var(--ui-bg) 66%, transparent);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
 }
@@ -2226,4 +2216,24 @@ html[data-language-ready="false"] body {
     grid-template-columns: 1fr;
     gap: 4px;
   }
+}
+
+.predictive-back-preview {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--ui-bg);
+  pointer-events: none;
+  translate: var(--predictive-back-reveal) 0;
+}
+.workspace[data-predictive-back] > :is(.workspace-navbar, .workspace-scroll) {
+  translate: var(--predictive-back-offset) 0;
+}
+.workspace[data-predictive-back] > .workspace-scroll {
+  position: relative;
+  background: var(--ui-bg);
+}
+.workspace[data-predictive-back="cancelling"] > :is(.predictive-back-preview, .workspace-navbar, .workspace-scroll) {
+  transition: translate 180ms ease-out;
 }

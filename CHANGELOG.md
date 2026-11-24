@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add optional interaction sounds and native haptic feedback for Android and compatible Mac trackpads.
+- Produce a portable Windows ZIP alongside the installer in manual native builds.
+
+- Preview previous app pages during Android Predictive Back and restore the current page when the gesture is cancelled.
+
 - Add instance-scoped Cloudflare, Google, Quad9 and AdGuard DNS-over-HTTPS presets plus custom IP/TCP or HTTPS servers for direct HTTP and browser traffic, including Android. Preserve upstream-proxy DNS, public-only address checks and inherited defaults.
 - Localize desktop and Android interfaces in English, Czech, Slovak, Polish, German and French. Default to System with English fallback; bundle offline catalogs, flags, locale-aware formatting, native menu/notification labels and language-reactive error messages while preserving technical names and user content.
 - Add a localized contextual app tour across responsive pages, with highlighted controls, safe viewport positioning, persistent navigation actions, scrollable explanations and reopening from App settings or the command palette. Avoid transient card jumps while switching tour steps.
@@ -102,9 +107,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Brand the Windows installer, render the Stop icon offline, show startup progress in Logs, and use focused app shortcuts on Windows and Linux. Skip configuration reload after the server stops.
+- Center the Windows workspace header, apply blur to its translucent backdrop, and distinguish the server stop action from the window controls. Brand the Windows installer and keep request helper processes hidden on Windows.
 
-- Show desktop server startup progress immediately, refresh the startup log, and check only the active browser before launching. Center the Windows header and distinguish server controls from window controls.
+- Record local server startup milestones in the process log. Check only the active browser before starting the engine.
+
+- Report the packaged CLI version and keep Debian and AppImage updater entries separate.
 
 - Start the Linux desktop shell when WebKitGTK advertises Android compatibility in its user agent.
 

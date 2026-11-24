@@ -263,6 +263,19 @@ async fn resource_usage() -> Result<Value, String> {
 async fn live_activity_status(app: tauri::AppHandle) -> Result<Value, String> {
     call(&app, "liveActivityStatus", json!({})).await
 }
+pub(super) async fn interaction_haptic(
+    app: &tauri::AppHandle,
+    feedback: crate::InteractionFeedback,
+) -> Result<(), String> {
+    let feedback = match feedback {
+        crate::InteractionFeedback::Press => "press",
+        crate::InteractionFeedback::Navigate => "navigate",
+        crate::InteractionFeedback::Success => "success",
+        crate::InteractionFeedback::Error => "error",
+    };
+    call(app, "interactionHaptic", json!({"feedback": feedback})).await?;
+    Ok(())
+}
 pub async fn app_locale(app: &tauri::AppHandle) -> Result<String, String> {
     let value = call(app, "appLocale", json!({})).await?;
     Ok(value["locale"].as_str().unwrap_or("en").to_owned())
@@ -316,6 +329,11 @@ async fn close_window(app: tauri::AppHandle, behavior: String) -> Result<(), Str
 fn cancel_quit_gesture() {}
 #[tauri::command]
 fn set_shortcut_recording(_enabled: bool) {}
+#[tauri::command]
+async fn set_android_page_back(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    call(&app, "pageBack", json!({"enabled": enabled})).await?;
+    Ok(())
+}
 #[tauri::command]
 async fn enable_notifications(app: tauri::AppHandle) -> Result<(), String> {
     let handle = app.clone();
@@ -412,6 +430,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             crate::app_locale,
+            crate::interaction_haptic,
             crate::updates::check_app_update,
             crate::updates::install_app_update,
             management,
@@ -427,6 +446,7 @@ pub fn run() {
             close_window,
             cancel_quit_gesture,
             set_shortcut_recording,
+            set_android_page_back,
             enable_notifications,
             crate::runtime::api_request,
             crate::operations::api_operation,

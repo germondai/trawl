@@ -1,4 +1,6 @@
 {
+  "ui.interactionSounds": "Zvuky rozhraní",
+  "ui.hapticFeedback": "Haptická odezva",
   "ui.trawlIsAvailable": "TRAWL {p0} je k dispozici",
   "ui.installItFromAppSettings": "Nainstaluj jej v nastavení aplikace.",
   "ui.appSettings": "Nastavení aplikace",

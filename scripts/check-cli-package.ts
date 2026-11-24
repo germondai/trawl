@@ -58,6 +58,8 @@ try {
     if (!Bun.which(runtime)) throw new Error(`${runtime} must be installed`)
     const prefix =
       runtime === "deno" ? ["run", "--no-config", "--node-modules-dir=manual", "--no-lock", "--allow-all"] : []
+    const version = await run([runtime, ...prefix, path, "--version"])
+    if (version.trim() !== manifest.version) throw new Error("CLI version does not match its package manifest")
     const help = await run([runtime, ...prefix, path, "--help"])
     if (!help.includes("Usage: trawl")) throw new Error("CLI help missing")
     const info = JSON.parse(

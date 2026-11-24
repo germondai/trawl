@@ -109,6 +109,52 @@ async fn app_locale(app: tauri::AppHandle) -> Result<String, String> {
         Ok(i18n::locale().to_owned())
     }
 }
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum InteractionFeedback {
+    Press,
+    Navigate,
+    Success,
+    Error,
+}
+
+#[tauri::command]
+async fn interaction_haptic(
+    app: tauri::AppHandle,
+    feedback: InteractionFeedback,
+) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        mobile::interaction_haptic(&app, feedback).await
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_app_kit::{
+            NSHapticFeedbackManager, NSHapticFeedbackPattern, NSHapticFeedbackPerformanceTime,
+            NSHapticFeedbackPerformer,
+        };
+        let pattern = match feedback {
+            InteractionFeedback::Press | InteractionFeedback::Error => {
+                NSHapticFeedbackPattern::Generic
+            }
+            InteractionFeedback::Navigate => NSHapticFeedbackPattern::Alignment,
+            InteractionFeedback::Success => NSHapticFeedbackPattern::LevelChange,
+        };
+        app.run_on_main_thread(move || {
+            NSHapticFeedbackManager::defaultPerformer().performFeedbackPattern_performanceTime(
+                pattern,
+                NSHapticFeedbackPerformanceTime::Now,
+            );
+        })
+        .map_err(|error| error.to_string())
+    }
+    #[cfg(not(any(target_os = "android", target_os = "macos")))]
+    {
+        let _ = (app, feedback);
+        Ok(())
+    }
+}
+
 #[cfg(not(target_os = "android"))]
 mod setting_paths;
 mod updates;

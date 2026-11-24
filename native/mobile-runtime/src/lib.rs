@@ -234,7 +234,14 @@ impl Runtime {
         let mut desktop = current["desktop"].clone();
         desktop.as_object_mut().unwrap().extend(incoming);
         value["desktop"] = desktop;
-        for key in ["autostart", "startServerOnLaunch", "smoothScroll", "liveActivities"] {
+        for key in [
+            "autostart",
+            "startServerOnLaunch",
+            "smoothScroll",
+            "liveActivities",
+            "interactionSounds",
+            "hapticFeedback",
+        ] {
             if !value["desktop"][key].is_boolean() {
                 return Err(format!("Invalid {key} preference"));
             }

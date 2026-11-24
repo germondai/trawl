@@ -1,7 +1,10 @@
 #[tauri::command]
 async fn enable_notifications(app: tauri::AppHandle) -> Result<(), String> {
     use tauri_plugin_notification::NotificationExt;
-    tauri::async_runtime::spawn_blocking(move || app.notification().request_permission()).await.map_err(|_| "Could not request notification permission")?.map_err(|e|e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || app.notification().request_permission())
+        .await
+        .map_err(|_| "Could not request notification permission")?
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 #[tauri::command]
@@ -11,9 +14,9 @@ fn cancel_quit_gesture(app: tauri::AppHandle) {
     #[cfg(not(target_os = "macos"))]
     let _ = app;
 }
-mod keybindings;
 #[cfg(target_os = "macos")]
 mod history_gesture;
+mod keybindings;
 mod operations;
 mod resources;
 mod runtime;
@@ -335,7 +338,7 @@ pub fn run() {
                 _ => {}
             }
         })
-        .invoke_handler(tauri::generate_handler![crate::app_locale, crate::i18n::refresh_app_language, crate::updates::check_app_update, crate::updates::install_app_update, enable_notifications,
+        .invoke_handler(tauri::generate_handler![crate::app_locale, crate::interaction_haptic, crate::i18n::refresh_app_language, crate::updates::check_app_update, crate::updates::install_app_update, enable_notifications,
             crate::setting_paths::choose_setting_path,
             cancel_quit_gesture,
             runtime::management,

@@ -1,4 +1,6 @@
 {
+  "ui.interactionSounds": "Interaktionstöne",
+  "ui.hapticFeedback": "Haptisches Feedback",
   "ui.trawlIsAvailable": "TRAWL {p0} ist verfügbar",
   "ui.installItFromAppSettings": "Installiere das Update in den App-Einstellungen.",
   "ui.appSettings": "App-Einstellungen",

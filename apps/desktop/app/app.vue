@@ -12,6 +12,7 @@ import { type SettingTarget, settingNavigation } from "~/utils/setting-navigatio
 import { newWorkbenchDraft, replacesWorkbenchDraft } from "~/utils/workbench"
 
 const desktop = useDesktopStore()
+const feedback = useInteractionFeedback()
 const initializing = shallowRef(desktop.native)
 let initialized = false
 const appUpdates = useAppUpdates()
@@ -77,7 +78,11 @@ function move(direction: -1 | 1) {
 function moveTo(id: number) {
   const next = navigation.find(id)
   if (!next) return
-  const apply = () => navigation.go(id)
+  const apply = () => {
+    if (navigation.current.value.id === id) return
+    navigation.go(id)
+    feedback("navigate")
+  }
   if (next.page !== page.value) guard(apply)
   else apply()
 }
@@ -218,6 +223,14 @@ useEventListener(
 )
 const workspacePane = useTemplateRef<HTMLElement>("workspacePane")
 const workspaceScroll = useTemplateRef<HTMLElement>("workspaceScroll")
+useAndroidPredictiveBack({
+  enabled: () => desktop.mobile,
+  animate: () => phone.value && !initializing.value && !desktop.settingsDirty,
+  workspace: () => workspacePane.value,
+  current: () => navigation.current.value,
+  previous: () => navigation.peek(-1),
+  navigate: () => move(-1),
+})
 const { top: scrollToTop } = useWorkspaceScroll(workspaceScroll)
 const pageRefresh = providePageRefresh(async () => {
   if (!desktop.native || desktop.busy) return
@@ -315,6 +328,7 @@ function navigate(next: Page) {
   }
   guard(() => {
     navigation.visit(next, next === "workbench" ? { "workbench-tab": workbench.activeTabId } : {})
+    feedback("navigate")
     sidebarOpen.value = false
   })
 }

@@ -22,6 +22,7 @@ export async function runPowProcess(input: unknown, timeoutMs = 1000, signal?: A
         stdin: "pipe",
         stdout: "pipe",
         stderr: "ignore",
+        windowsHide: true,
         env: { PATH: process.env.PATH, POWSOLVE_LIB: process.env.POWSOLVE_LIB },
       },
     )

@@ -36,6 +36,7 @@ import {
   uninstallBrowser,
   writeConfig,
 } from "@trawl/runtime"
+import { version } from "../package.json"
 
 export interface CliIO {
   out: (value: string) => void
@@ -108,7 +109,7 @@ export async function runCli(args: string[], io: CliIO): Promise<number> {
       },
     })
     if (values.version) {
-      io.out("0.1.0 (unreleased)\n")
+      io.out(`${version}\n`)
       return 0
     }
     if (values.help || positionals.length === 0) {

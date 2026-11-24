@@ -122,9 +122,9 @@ const overflow = computed(() => [
         >
         <AppTooltip v-if="!phone && local && desktop.status.running" :text="t('ui.stopServer')" :kbds="kbds('server')"
           ><UButton
-            icon="i-lucide-circle-stop"
+            icon="i-lucide-square"
             :aria-label="t('ui.stopServer')"
-            color="neutral"
+            :color="windows ? 'error' : 'neutral'"
             variant="ghost"
             :loading="desktop.busy"
             :disabled="desktop.busy"

@@ -8,9 +8,11 @@ import {
   type WorkbenchResult,
 } from "~/utils/workbench"
 import { nativeErrorMessage, t } from "../utils/localization"
+import { useInteractionFeedback } from "./useInteractionFeedback"
 
 export function useWorkbenchRun() {
   const desktop = useDesktopStore()
+  const feedback = useInteractionFeedback()
   const result = shallowRef<WorkbenchResult>()
   const state = shallowRef<"idle" | "pending" | "completed" | "failed" | "stopped">("idle")
   const failure = shallowRef<unknown>()
@@ -65,6 +67,7 @@ export function useWorkbenchRun() {
     failure.value = undefined
     failureDetails.value = ""
     state.value = "pending"
+    feedback("press")
     started = performance.now()
     elapsed.value = 0
     timer = setInterval(() => {
@@ -88,6 +91,7 @@ export function useWorkbenchRun() {
       requestId.value = response.requestId ?? requestId.value
       if (response.requestId) requestIdConfirmed.value = true
       state.value = "completed"
+      feedback("success")
     } catch (cause) {
       if (current !== generation || desktop.activeId !== id) return
       failure.value = cause
@@ -105,6 +109,7 @@ export function useWorkbenchRun() {
         }
       }
       state.value = cause instanceof TrawlError && ["timeout", "aborted"].includes(cause.kind) ? "stopped" : "failed"
+      if (!(cause instanceof TrawlError && cause.kind === "aborted")) feedback("error")
     } finally {
       if (current === generation) {
         finishTimer()

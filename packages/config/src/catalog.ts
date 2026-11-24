@@ -1138,6 +1138,8 @@ export interface UserConfig {
     quitBehavior: "immediate" | "double-press" | "hold"
     appVisibility: "dock-and-tray" | "dock" | "tray"
     smoothScroll: boolean
+    interactionSounds?: boolean
+    hapticFeedback?: boolean
     liveActivities?: boolean
     sidebarBehavior?: "collapse" | "hide"
     keybindings: Keybindings
@@ -1157,6 +1159,8 @@ export const emptyConfig = (): UserConfig => ({
     quitBehavior: "hold",
     appVisibility: "dock-and-tray",
     smoothScroll: true,
+    interactionSounds: false,
+    hapticFeedback: false,
     liveActivities: true,
     sidebarBehavior: "collapse",
     keybindings: defaultKeybindings(),

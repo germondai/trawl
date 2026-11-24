@@ -4,7 +4,7 @@ Verze průvodce 1.2 · 20. listopadu 2026
 
 Tento základ slouží pro návrh nového produktu, vytvoření startovací šablony a pozdější vyčlenění společného frameworku. Vychází z vývoje TRAWLu: desktopového a mobilního rozhraní, nativního runtime, ovládání, správy oken, nastavení, instalačních balíčků a aktualizací. Pravidla lze použít i s jiným stackem.
 
-**Nedílnou součástí je [referenční katalog rozhraní a chování TRAWLu](trawl-interaction-catalog.md).** Obsahuje 77 receptů našich barů, responzivních rozvržení, vratných trackpad gest, mobilního refresh gesta a indikátoru, drawer scroll/drag, přesouvání tabů, tooltipů, hledání, macOS chrome/tray/Dock, Android insets a background/notifikací. Samostatně zaznamenává pohyb plovoucích akcí, konkrétní transitions, keycaps, původ a rozsah nastavení, highlighty, soubory a témata. Zachovává průběh, kalibraci, důvod, přerušení, zdrojový kód i ověřovací scénář. Při stavbě šablony se tyto detaily nesmějí ztratit pouhým převodem na obecné zásady.
+**Nedílnou součástí je [referenční katalog rozhraní a chování TRAWLu](trawl-interaction-catalog.md).** Obsahuje recepty našich barů, responzivních rozvržení, vratných trackpad gest, Android Predictive Back, mobilního refresh gesta a indikátoru, drawer scroll/drag, přesouvání tabů, tooltipů, hledání, macOS chrome/tray/Dock, Android insets a background/notifikací. Samostatně zaznamenává pohyb plovoucích akcí, konkrétní transitions, keycaps, původ a rozsah nastavení, highlighty, soubory a témata. Zachovává průběh, kalibraci, důvod, přerušení, zdrojový kód i ověřovací scénář. Při stavbě šablony se tyto detaily nesmějí ztratit pouhým převodem na obecné zásady.
 
 Součástí sady je také [plán lokalizace](production-app-localization-plan.md): webové UI, nativní menu, notifikace, live aktivity, plurály, formátování, RTL, offline balíček a ověření. Lokalizace TRAWLu je následná fáze po dalším testování a rozhodnutí o jejím zahájení; současná aplikace tímto dokumentem nové překlady nezískává.
 
@@ -198,6 +198,12 @@ Pořadí uvnitř aplikace je předvídatelné: otevřená přechodná nabídka �
 Do historie ukládej stabilní identifikátory, nikoli kopie dokumentů, tokeny, velké response ani celé modal payloady. Omez její velikost. Nová navigace zprostřed historie zahodí neplatnou větev Vpřed. Zavřený nebo smazaný tab se nesmí při návratu znovu vytvořit. Nepodporovaná kategorie se opraví na dostupný cíl také po asynchronním načtení katalogu.
 
 Přechodné menu se po dismiss nepřipomíná přes Vpřed. Dialog lze obnovit pouze pokud je obsah stále platný a uživatel ho explicitně nedokončil. Ochrana neuložených změn musí zachovat zamýšlený cíl i při navigaci Vpřed.
+
+### Android Predictive Back
+
+Na mobilu nech animaci Zpět sledovat průběh systémového tahu. Pokud má aplikace předchozí stránku, odkrývej její náhled od příslušného okraje a navigaci proveď teprve po potvrzení. Při zrušení vrať zobrazení do výchozí polohy. Zachovej aktuální krok historie, rozepsaná data i scroll. Náhled ber jako dočasnou neinteraktivní reprezentaci, která nesmí spouštět načítání stránky ani se dostat do focus pořadí.
+
+Na kořeni uvolni gesto systému. Na Androidu 14 a novějším může aplikace využít průběh gesta pro vlastní přechod. Tlačítko Zpět, starší Android, omezený pohyb a chybějící náhled mají zachovat funkční návrat bez průběžné animace. Testuj také obě hrany, klávesnici, otevřenou vrstvu a neuložené změny. Viz [katalog G12](trawl-interaction-catalog.md#g12-android-predictive-back) a [Android Developers](https://developer.android.com/guide/navigation/custom-back/support-animations-views).
 
 ### Příkazy a zkratky
 
@@ -403,6 +409,14 @@ Jeden zdroj pravdy řídí produktovou verzi a její převod do platformních id
 
 Tauri používá odlišné systémové WebView implementace. Test v lokálním Chrome proto nedokazuje shodné chování WKWebView, WebKitGTK nebo Android WebView. Minimální OS a webové funkce stanov podle reálné podporované kombinace, ne podle nejnovějšího browseru vývojáře. Viz [Tauri WebView versions](https://v2.tauri.app/reference/webview-versions/).
 
+### Nativní okno v Tauri na Windows a Linuxu
+
+- **Windows.** Pokud má aplikace vlastní hlavičku, řeš systémový rám okna a nativní menu samostatně. TRAWL používá `set_decorations(false)` a `hide_menu()`. Do hlavičky přidává přístupná tlačítka pro minimalizaci, maximalizaci a zavření i vyhrazenou oblast pro přetažení. Oprávnění k ovládání okna omez na hlavní lokální okno a na Windows. Při testu vyzkoušej také klávesové zkratky a chování při zavření do tray.
+- **Linux s GTK.** Pokud se skryté menu vrátí při prvním zobrazení nebo při opětovném otevření okna, prověř životní cyklus GTK widgetu. Tauri přes Tao při zobrazení volá `show_all()`, které menu skryté pomocí `hide_menu()` může znovu zobrazit. TRAWL přímo na widgetu `GtkMenuBar` nastavuje `set_no_show_all(true)` a volá `hide()`. Menu zůstává připojené kvůli akcelerátorům. Tento případ jsme reprodukovali v Arch Linux ARM64 s Hyprlandem a opravu ověřili na novém balíčku.
+- **Detekce platformy.** Pro nativní funkce upřednostni informaci od hostitele. Pokud používáš user agent, ověř skutečný token platformy. WebKitGTK na Arch ARM64 se v našem testu hlásil jako `Linux; like Android 4.4`. Hledání pouhého podřetězce `Android` přeskočilo inicializaci desktopového okna a skončilo na obrazovce obnovy. Regresní test pokrývá tuto hlavičku i skutečný Android WebView včetně TV.
+
+Tauri popisuje vytvoření vlastní hlavičky a minimální oprávnění v dokumentaci k [přizpůsobení okna](https://v2.tauri.app/learn/window-customization/).
+
 ### Matice distribučních cílů
 
 | Cíl | Obvyklé varianty k výběru | Povinná evidence pro deklarovanou variantu |
@@ -415,6 +429,8 @@ Tauri používá odlišné systémové WebView implementace. Test v lokálním C
 | Web/PWA | Deklarované browsery. | Produkční deploy, cache/offline strategie a obnova při aktualizaci klienta. |
 
 Tabulka je výběr, ne slib, že každý formát a každá architektura funguje s každým pluginem. Pro každou skutečně vybranou položku ověř podporu nativních dependencies a konfiguraci. Tauri [distribuční dokumentace](https://v2.tauri.app/distribute/) je výchozí reference, ne výsledek testu produktu.
+
+Při ověřování nativního buildu zaznamenej commit, architekturu hosta i binárky a SHA‑256. Pokud mají dva buildy stejné číslo verze, porovnej hash spuštěné binárky s binárkou z balíčku a ověř vzhled otevřeného okna. U TRAWLu jsme instalátor NSIS pro x64 spustili na Windows 11 ARM v emulaci. Na Arch ARM64 jsme ověřili spuštění z rozbaleného `.deb`, jehož desktop potřeboval WebKitGTK 4.1 a knihovnu AppIndicator pro systémovou lištu. Instalaci a upgrade `.deb` ověřuj v cílové distribuci se správcem balíčků pro tento formát.
 
 U Androidu odděl instalační APK od [App Bundle pro distribuční zpracování](https://developer.android.com/guide/app-bundle). Zahrnuté nativní knihovny musí splňovat požadavky cílových zařízení, včetně [16 KB page sizes](https://developer.android.com/guide/practices/page-sizes), kde je to vyžadováno. Samotný `zipalign` nestačí k důkazu správného ELF alignmentu a skutečného běhu na takovém zařízení.
 

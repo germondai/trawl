@@ -337,6 +337,14 @@ macOS musí použít původní nativní mouse-down událost správného aktivní
 
 Reference: [native-window-drag](../../apps/desktop/app/utils/native-window-drag.ts), [useNativeShell](../../apps/desktop/app/composables/useNativeShell.ts), [window_chrome](../../apps/desktop/src-tauri/src/window_chrome.rs), [desktop-polish tests](../../apps/desktop/tests/desktop-polish.test.ts).
 
+### G12 Android Predictive Back
+
+Při tahu ze systémové hrany se aktuální obsah odsunuje a odkrývá předchozí stránku. Dokud Android návrat nepotvrdí, historie se nemění. Zrušení vrátí stejnou stránku na místo a zachová rozepsaný požadavek i scroll. Na kořeni gesto přebírá systém.
+
+TRAWL pro náhled drží v paměti nejvýše čtyři nedávné stránky. Zobrazuje neinteraktivní kopii hlavičky a obsahu. Přesun na stejnou stránku, otevřená vrstva, neuložené nastavení, omezený pohyb nebo nedostupný náhled použijí standardní navigaci. Nativní callback má přednost před historií WebView pouze tehdy, když v historii aplikace existuje krok Zpět. Na starším Androidu funguje potvrzené Zpět bez průběhu tahu.
+
+Ověř tah zleva i zprava, náhled před potvrzením, zrušení, potvrzený návrat o jeden krok, klávesnici a návrat na domovskou obrazovku. Na Androidu 15 v emulátoru TRAWL ověřil náhled, zrušení, potvrzení a návrat na plochu. Viz [nativní callback](../../apps/desktop/src-tauri/gen/android/app/src/main/java/com/germondai/trawl/desktop/MainActivity.kt) a [napojení na historii](../../apps/desktop/app/composables/useAndroidPredictiveBack.ts).
+
 ## Text hledání a tooltipy
 
 ### T01 Psaní aktivuje hledání nebo hlavní vstup
@@ -872,7 +880,7 @@ Reference: [tauri config](../../apps/desktop/src-tauri/tauri.conf.json), [dmg ar
 
 App settings ukazuje nainstalovanou verzi nezávisle na posledním update checku. První dosud nezveřejněný feed není zaměněný za „máte nejnovější verzi“. Checking je oddělené od výsledku available/current/unpublished a od progress stavů idle/downloading/installing/ready/permission/failed. Ověření payloadu provádí nativní část uvnitř příslušné operace; současné UI nevystavuje samostatný verifying stav. Limity a chyba kontroly nejsou zaměněné s verzí aplikace a uživatel vidí skutečný progress.
 
-Desktop ověřuje update payload příslušným podpisem a před instalací řeší vlastněnou práci a restart. Android používá nativní DownloadManager a systémový instalátor, kontroluje vyšší version code a shodnou signing identitu; rozhodnutí o oprávnění a instalaci zůstává systému. Po změně instalované verze se starý stažený APK uklidí.
+Desktop ověřuje update payload příslušným podpisem a před instalací řeší vlastněnou práci a restart. Android otevře ověřený odkaz na APK v prohlížeči. Uživatel otevře stažený soubor v systémovém instalátoru, který při aktualizaci ověří podpisovou identitu. Ruční aktualizace Debian balíčku probíhá správcem balíčků. Feed rozlišuje podepsané aktualizace pro Debian a AppImage podle formátu instalace.
 
 Klíče, endpoint konkrétního repozitáře a product ID se do obecné šablony nekopírují jako produkční výchozí hodnoty. Store/iOS adaptery se navrhnou podle jejich kanálu. Přesný staged release, veřejná distribuce, signing a upgrade gate jsou v [hlavním release plánu](production-app-blueprint.md#build-aktualizace-a-vydání).
 

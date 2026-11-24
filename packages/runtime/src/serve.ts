@@ -14,6 +14,7 @@ import { runtimePaths } from "./paths"
 import { privateDirectory, readConfig, writeConfig } from "./store"
 
 export async function runServer(args: string[]) {
+  const startedAt = performance.now()
   if (args[0] === "serve") args = args.slice(1)
   const { values } = parseArgs({
     args,
@@ -59,7 +60,7 @@ export async function runServer(args: string[]) {
   }
   if (configChanged) await writeConfig(file, paths)
   if (owner === "desktop") env.METRICS_DASHBOARD_ENABLED = "true"
-  console.log("[runtime] Checking active browser installation")
+  console.log(`[runtime] Checking active browser installation elapsedMs=${Math.round(performance.now() - startedAt)}`)
   const browser = await inspectBrowser(paths.browser)
   if (!browser.installed)
     throw new Error(
@@ -116,10 +117,13 @@ export async function runServer(args: string[]) {
     if (!(await inspectBrowser(paths.browser)).installed)
       throw new Error("Browser installation changed during startup; install it before starting the server")
     maintainLogs(paths)
-    console.log("[runtime] Starting API and preparing browser capacity")
+    console.log(
+      `[runtime] Starting API and preparing browser capacity elapsedMs=${Math.round(performance.now() - startedAt)}`,
+    )
     const api = await import(pathToFileURL(join(resources, "api.mjs")).href)
     await api.ready
     ready = true
+    console.log(`[runtime] Local server ready elapsedMs=${Math.round(performance.now() - startedAt)}`)
   } catch (error) {
     if (watchingParent) {
       // A live parent pipe must not keep a failed child running.

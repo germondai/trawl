@@ -44,6 +44,8 @@ export function validateConfig(raw: unknown): UserConfig {
     !["immediate", "double-press", "hold"].includes(desktop.quitBehavior) ||
     !["dock-and-tray", "dock", "tray"].includes(desktop.appVisibility) ||
     typeof desktop.smoothScroll !== "boolean" ||
+    typeof desktop.interactionSounds !== "boolean" ||
+    typeof desktop.hapticFeedback !== "boolean" ||
     typeof desktop.liveActivities !== "boolean" ||
     !["collapse", "hide"].includes(desktop.sidebarBehavior ?? "collapse") ||
     typeof desktop.autostart !== "boolean" ||
@@ -107,6 +109,8 @@ export function validateConfig(raw: unknown): UserConfig {
       quitBehavior: desktop.quitBehavior,
       appVisibility: desktop.appVisibility,
       smoothScroll: desktop.smoothScroll,
+      interactionSounds: desktop.interactionSounds,
+      hapticFeedback: desktop.hapticFeedback,
       liveActivities: desktop.liveActivities,
       sidebarBehavior: desktop.sidebarBehavior ?? "collapse",
       keybindings: validateKeybindings(desktop.keybindings),

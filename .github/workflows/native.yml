@@ -155,6 +155,27 @@ jobs:
             apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
           retention-days: 7
           if-no-files-found: error
+      - name: Package Windows portable ZIP
+        if: github.event_name == 'workflow_dispatch' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $portable = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'TRAWL')
+          Copy-Item -LiteralPath apps/desktop/src-tauri/target/release/trawl-desktop.exe -Destination (Join-Path $portable.FullName 'TRAWL.exe')
+          $runtime = Join-Path $portable.FullName 'runtime'
+          Copy-Item -LiteralPath .artifacts/v2/runtime -Destination $runtime -Recurse
+          bun -e 'import { verifyRuntime } from "./packages/runtime/src/assets.ts"; await verifyRuntime(process.argv[1])' $runtime
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $archive = Join-Path (Resolve-Path .artifacts/v2).Path 'TRAWL-windows-portable.zip'
+          [System.IO.Compression.ZipFile]::CreateFromDirectory($portable.FullName, $archive, 'Optimal', $true)
+      - name: Retain Windows portable ZIP
+        if: github.event_name == 'workflow_dispatch' && runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: trawl-desktop-windows-portable
+          path: .artifacts/v2/TRAWL-windows-portable.zip
+          retention-days: 7
+          if-no-files-found: error
       - name: Retain verification report
         uses: actions/upload-artifact@v7
         with:

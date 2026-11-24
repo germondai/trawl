@@ -140,6 +140,7 @@ export class WafDetector {
           stdin: "pipe",
           stdout: "pipe",
           stderr: "ignore",
+          windowsHide: true,
           env: { PATH: process.env.PATH, GOMAXPROCS: "1", GOMEMLIMIT: "32MiB" },
         })
         this.worker = worker

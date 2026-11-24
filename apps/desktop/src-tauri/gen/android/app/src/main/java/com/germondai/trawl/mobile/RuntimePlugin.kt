@@ -3,9 +3,11 @@ package com.germondai.trawl.mobile
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.view.HapticFeedbackConstants
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -67,6 +69,23 @@ class RuntimePlugin(activity: Activity) : Plugin(activity), DefaultLifecycleObse
                     "openUrl" -> openUrl(invoke)
                     "storageSettings" -> storageSettings(invoke)
                     "minimize" -> minimize(invoke)
+                    "interactionHaptic" -> {
+                        val view = activity.window.decorView
+                        val feedback = invoke.getArgs().optString("feedback")
+                        val effect = if (Build.VERSION.SDK_INT >= 30 && feedback == "success") {
+                            HapticFeedbackConstants.CONFIRM
+                        } else if (Build.VERSION.SDK_INT >= 30 && feedback == "error") {
+                            HapticFeedbackConstants.REJECT
+                        } else {
+                            HapticFeedbackConstants.VIRTUAL_KEY
+                        }
+                        if (view.hasWindowFocus()) view.performHapticFeedback(effect)
+                        invoke.resolve()
+                    }
+                    "pageBack" -> {
+                        (activity as com.germondai.trawl.desktop.MainActivity).setPageBackEnabled(invoke.getArgs().optBoolean("enabled"))
+                        invoke.resolve()
+                    }
                     "shutdown" -> shutdown(invoke)
                     "actionFeedback" -> { RuntimeService.instance?.actionFeedback(invoke.getArgs().optString("action"), invoke.getArgs().optBoolean("success")); invoke.resolve() }
                     "liveActivityStatus" -> FocusNotifications.status(context,invoke)

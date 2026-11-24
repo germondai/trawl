@@ -244,6 +244,7 @@ export class BrowserPool {
       // Bounded like every other launch: an unbounded hang here leaves init() pending
       // forever with the HTTP listener already up, so the pod never becomes ready and
       // never fails either. Throwing lets the startup probe restart the container.
+      const launchStartedAt = performance.now()
       const { browser, context } = await this.launchWithin(fingerprint, this.launchTimeoutMs)
       const entry: PoolEntry = {
         id: i,
@@ -259,7 +260,9 @@ export class BrowserPool {
       }
       this.entries.push(entry)
       this.watchEntry(entry)
-      console.log(`[${this.label}] browser ${i + 1}/${this.poolSize} ready (UA=${fingerprint.platform})`)
+      console.log(
+        `[${this.label}] browser ${i + 1}/${this.poolSize} ready (UA=${fingerprint.platform}) launchMs=${Math.round(performance.now() - launchStartedAt)}`,
+      )
       this.wakeAcquires()
     }
 

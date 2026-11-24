@@ -4,7 +4,7 @@ export async function runSubprocess(
   signal?: AbortSignal,
 ): Promise<{ exitCode: number; stderr: string }> {
   signal?.throwIfAborted()
-  const child = Bun.spawn(command, { stdin: "ignore", stdout: "ignore", stderr: "pipe" })
+  const child = Bun.spawn(command, { stdin: "ignore", stdout: "ignore", stderr: "pipe", windowsHide: true })
   const stderr = new Response(child.stderr).text()
   const abort = () => {
     child.kill("SIGKILL")

@@ -57,6 +57,8 @@ Requests supports centered pagination and server-side search, source/result/tier
 
 Server access, limits and configuration are documented in [the observability API reference](../docs/api-reference/observability.md). Native targets must pass platform CI, installer and macOS/Windows signing checks before public distribution.
 
+Manual Windows builds produce an NSIS setup and a portable ZIP. To run the ZIP, extract the entire `TRAWL` folder and open `TRAWL.exe`. The ZIP requires Microsoft Edge WebView2 Runtime. Both variants use the same Windows user profile for settings and local browser data.
+
 New request supports up to eight draft tabs per instance (four instances in memory). Switching tabs stops waiting and clears the response view; request fields remain until a tab or the app window closes. Reset and closing a nonempty tab require confirmation. A dedicated sidebar action and the floating plus button open a request without replacing another draft. Captured server history is separate from these temporary tabs.
 
 Instruction links such as `BROWSER_INSPECTION_ENABLED` open the matching row in Server settings. Navigation uses the existing dirty-settings guard; remote links open read-only server values. Modal layout and close-button clearance are shared across the shell, and dialogs appear centered without a scale/translate entry animation.
@@ -152,7 +154,9 @@ App settings checks the official `app-updates.json` attachment on the latest Git
 
 Create desktop updater bundles with `bun --cwd apps/desktop native:update:package`, setting `TAURI_SIGNING_PRIVATE_KEY` to the protected key path and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` when required. The private key is not stored in the repository. Back it up securely; replacing the configured public key breaks updates for existing installations. Normal development packages do not require this signing key.
 
-For an approved release, collect and rename signed artifacts as `TRAWL_VERSION_TARGET.EXT`, with targets `darwin-aarch64`, `darwin-x86_64`, `linux-aarch64`, `linux-x86_64`, `windows-aarch64`, `windows-x86_64`, `android-aarch64`, or `android-armv7`. Extensions are `.app.tar.gz`, `.AppImage`, `.exe`/`.msi` and `.apk`. Keep each detached `.sig` beside its package; APKs also need a detached updater signature for the shared feed format. Run `bun apps/desktop/scripts/update-feed.ts VERSION ASSET_FOLDER app-updates.json [NOTES_FILE]`, review it, then attach the feed and matching artifacts to that approved `vVERSION` release. This script does not publish anything. Until the first feed is published the app reports that explicitly.
+On Linux, use the system package manager for manual `.deb` upgrades. The feed selects signed `.deb` and AppImage updates by the installed package format. For a direct release, test a clean install and an upgrade on each advertised package format. Verify the updater with the previous installed version, the exact release bytes, and the configured signing key. Keep the GitHub Releases feed available to existing clients if a future release moves the update endpoint.
+
+For an approved release, collect and rename signed artifacts as `TRAWL_VERSION_TARGET.EXT`, with targets `darwin-aarch64`, `darwin-x86_64`, `linux-aarch64`, `linux-x86_64`, `windows-aarch64`, `windows-x86_64`, `android-aarch64`, or `android-armv7`. Extensions are `.app.tar.gz`, `.AppImage`/`.deb`, `.exe`/`.msi` and `.apk`. The generator adds `-appimage` or `-deb` to Linux feed keys. Keep each detached `.sig` beside its package; APKs also need a detached updater signature for the shared feed format. Run `bun apps/desktop/scripts/update-feed.ts VERSION ASSET_FOLDER app-updates.json [NOTES_FILE]`, review it, then attach the feed and matching artifacts to that approved `vVERSION` release. This script does not publish anything. Until the first feed is published the app reports that explicitly.
 
 ## Instance DNS
 

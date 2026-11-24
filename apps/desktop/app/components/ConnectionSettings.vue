@@ -192,6 +192,8 @@ async function preference(
     | "autostart"
     | "startServerOnLaunch"
     | "smoothScroll"
+    | "interactionSounds"
+    | "hapticFeedback"
     | "liveActivities"
     | "sidebarBehavior",
   value: unknown,
@@ -346,6 +348,27 @@ async function preference(
           @update:model-value="preference('startServerOnLaunch', $event)"
         />
         <template #description>{{ t("ui.requiresTheBrowserToBeInstalledTheServer") }}</template>
+      </UFormField>
+      <UFormField class="preference-row" :ui="{ container: 'preference-control' }" :label="t('ui.interactionSounds')">
+        <USwitch
+          :aria-label="t('ui.interactionSounds')"
+          :model-value="desktop.config.desktop.interactionSounds === true"
+          :disabled="!desktop.native || desktop.busy"
+          @update:model-value="preference('interactionSounds', $event)"
+        />
+      </UFormField>
+      <UFormField
+        v-if="desktop.mobile || macOS"
+        class="preference-row"
+        :ui="{ container: 'preference-control' }"
+        :label="t('ui.hapticFeedback')"
+      >
+        <USwitch
+          :aria-label="t('ui.hapticFeedback')"
+          :model-value="desktop.config.desktop.hapticFeedback === true"
+          :disabled="!desktop.native || desktop.busy"
+          @update:model-value="preference('hapticFeedback', $event)"
+        />
       </UFormField>
       <UFormField
         class="preference-row"
