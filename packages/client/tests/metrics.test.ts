@@ -15,6 +15,7 @@ const snapshot: DashboardSnapshot = {
   timeline: [],
   domains: [],
   recentEvents: [],
+  captchas: { attempts: 1, solved: 1, failed: 0, kinds: [{ kind: "altcha", attempts: 1, solved: 1, failed: 0 }] },
 }
 test("metrics uses authenticated SDK transport with a validated range and snapshot", async () => {
   const requests: Request[] = []
@@ -36,6 +37,7 @@ test.each([
   { recentEvents: [{}] },
   { timeline: [{ minute: "today", requests: -1 }] },
   { domains: [null] },
+  { captchas: { attempts: 1, solved: 1, failed: 0, kinds: [null] } },
 ])("rejects malformed dashboard rows", async (override) => {
   const client = new Trawl({ fetch: async () => Response.json({ ...snapshot, ...override }) })
   await expect(client.metrics()).rejects.toMatchObject({ kind: "protocol" })

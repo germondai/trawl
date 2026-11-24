@@ -173,6 +173,7 @@ function createServer(poolReady: () => boolean, runScrape: RunScrape, metricsSto
       const html = result.html.slice(0, MCP_HTML_MAX_CHARS)
       const structuredContent = {
         ...metadata(result),
+        html,
         truncated,
         sessionCached: result.sessionCached,
         timings: result.timings.map(({ tier, status, durationMs, reason }) => ({
@@ -204,6 +205,7 @@ function createServer(poolReady: () => boolean, runScrape: RunScrape, metricsSto
     }),
     outputSchema: {
       ...metadataSchema,
+      html: z.string(),
       truncated: z.boolean(),
       sessionCached: z.boolean(),
       timings: z.array(
@@ -239,6 +241,7 @@ function createServer(poolReady: () => boolean, runScrape: RunScrape, metricsSto
       inputSchema: z.strictObject({ ...baseInputShape, ...readOptionsShape }),
       outputSchema: {
         ...metadataSchema,
+        content: z.string(),
         title: z.string(),
         format: z.enum(["markdown", "text"]),
         characters: z.number().int(),
@@ -254,7 +257,7 @@ function createServer(poolReady: () => boolean, runScrape: RunScrape, metricsSto
       try {
         const result = await runSafe(input, { operation: "read", parameters: { ...input, format, maxCharacters } })
         const { text, ...structuredContent } = readPage(result, { format, maxCharacters })
-        return { content: [{ type: "text", text }], structuredContent }
+        return { content: [{ type: "text", text }], structuredContent: { ...structuredContent, content: text } }
       } catch (error) {
         return errorResult(error)
       }

@@ -1,12 +1,13 @@
 import type { HealthResponse, PoolStats } from "@trawl/types"
 import { Elysia } from "elysia"
 import { HEADFUL_POOL_SIZE, POOL_SIZE, startTime } from "../config"
-import { getPool } from "../deps"
+import { getPool, getSessionCacheHealth } from "../deps"
 import { type RuntimeMemory, readRuntimeMemory } from "../runtimeMemory"
 
 export function healthRoute(
   getStats = () => getPool()?.getStats(),
   getMemory = (): RuntimeMemory | undefined => readRuntimeMemory(POOL_SIZE, HEADFUL_POOL_SIZE),
+  getCache = getSessionCacheHealth,
 ) {
   return new Elysia().get("/health", ({ set }) => {
     const stats = getStats()
@@ -28,6 +29,7 @@ export function healthRoute(
     return {
       status: ready ? "ok" : "starting",
       uptime: Math.floor((Date.now() - startTime) / 1000),
+      cache: getCache(),
       ...(memory ? { memory } : {}),
       pool:
         stats ??

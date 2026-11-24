@@ -10,7 +10,7 @@
     },
     "apps/api": {
       "name": "@trawl/api",
-      "version": "1.11.1",
+      "version": "1.12.0",
       "dependencies": {
         "@modelcontextprotocol/sdk": "^1.32.2",
         "@mozilla/readability": "^0.6.0",
@@ -21,7 +21,7 @@
         "@trawl/types": "workspace:*",
         "elysia": "^1.4.32",
         "linkedom": "^0.18.15",
-        "node-forge": "^1.4.3",
+        "node-forge": "^1.4.4",
         "turndown": "^7.2.5",
         "zod": "^4.6.7",
       },
@@ -59,7 +59,7 @@
     },
     "apps/docs": {
       "name": "@trawl/docs",
-      "version": "1.11.1",
+      "version": "1.12.0",
       "devDependencies": {
         "vitepress": "^1.6.4",
       },
@@ -77,7 +77,7 @@
     },
     "apps/web": {
       "name": "@trawl/web",
-      "version": "1.11.1",
+      "version": "1.12.0",
       "devDependencies": {
         "@nuxt/fonts": "^1.2.0",
         "@nuxtjs/color-mode": "^4.1.0",
@@ -90,7 +90,7 @@
     },
     "packages/browser": {
       "name": "@trawl/browser",
-      "version": "1.11.1",
+      "version": "1.12.0",
       "dependencies": {
         "@trawl/types": "workspace:*",
         "camoufox": "0.5.9",
@@ -170,7 +170,7 @@
     },
     "packages/tiers": {
       "name": "@trawl/tiers",
-      "version": "1.11.1",
+      "version": "1.12.0",
       "dependencies": {
         "@noble/hashes": "^2.4.0",
         "@trawl/browser": "workspace:*",
@@ -189,7 +189,7 @@
     },
     "packages/types": {
       "name": "@trawl/types",
-      "version": "1.11.1",
+      "version": "1.12.0",
       "devDependencies": {
         "typescript": "^7.0.2",
       },
@@ -1772,7 +1772,7 @@
 
     "node-fetch-native": ["node-fetch-native@1.6.7", "", {}, "sha512-g9yhqoedzIUm0nTnTqAQvueMPVOuIY16bqgAJJC8XOOubYFNwz6IER9qs0Gq2Xd0+CecCKFjtdDTMA4u4xG06Q=="],
 
-    "node-forge": ["node-forge@1.4.3", "", {}, "sha512-P6wzfh6t70avmV8FrVEAd/36sOPJQ+hkaJVX1Laap9J/77m7M0eyozDvc8SwnDf4P7MP94gwbAAo0rg3YVXT+g=="],
+    "node-forge": ["node-forge@1.4.4", "", {}, "sha512-T6VRRpF3+czIGcXW/LOeoD7Ej28d8CF1UMEAbJyJRUtYMvyXAgxUPW2kbUibumvV9LiUQAznJOFyeYclzSJMMg=="],
 
     "node-gyp-build": ["node-gyp-build@4.8.4", "", { "bin": { "node-gyp-build": "bin.js", "node-gyp-build-optional": "optional.js", "node-gyp-build-test": "build-test.js" } }, "sha512-LA4ZjwlnUblHVgq0oBF3Jl/6h/Nvs5fzBLwdEF4nuxnFdsfajde4WfxtJr3CaiH+F6ewcIB/q4jQ4UzPyid+CQ=="],
 

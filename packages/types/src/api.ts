@@ -184,11 +184,20 @@ export interface BlockedEvidence {
   screenshot?: string
 }
 
+// One CAPTCHA a tier tried to clear. Kinds match `captchasSolved` (for example `turnstile`,
+// `altcha`, `aws-waf`, or `recaptcha:2captcha` for the external-solver fallback).
+export interface CaptchaOutcome {
+  kind: string
+  outcome: "solved" | "failed"
+}
+
 export interface TierResult {
   tier: 1 | 2 | 3 | 4
   status: "success" | "blocked" | "needs-js" | "timeout" | "error" | "skipped"
   durationMs: number
   reason?: string
+  // Present only when this attempt tried at least one CAPTCHA.
+  captchas?: CaptchaOutcome[]
 }
 
 export interface WafDetection {
@@ -385,10 +394,22 @@ export interface RuntimeMemory {
   oomKills: number
 }
 
+export interface SessionCacheHealth {
+  driver: "redis" | "memory"
+  enabled: boolean
+  connected: boolean
+  state: "disabled" | "connecting" | "connected" | "unavailable"
+  lastConnectedAt: string | null
+  connectFailures: number
+  lookups: { hit: number; miss: number; error: number }
+  writes: { ok: number; error: number }
+}
+
 export interface HealthResponse {
   status: "ok" | "starting"
   uptime: number
   memory?: RuntimeMemory
+  cache?: SessionCacheHealth
   pool: PoolStats
 }
 
@@ -434,6 +455,7 @@ export interface DashboardEvent {
   statusCode: number | null
   category: string | null
   severity: string | null
+  captchas?: CaptchaOutcome[]
 }
 
 export interface DashboardSnapshot {
@@ -451,4 +473,10 @@ export interface DashboardSnapshot {
   timeline: { minute: string; requests: number; failures: number; averageMs: number }[]
   domains: { domain: string; requests: number; failures: number }[]
   recentEvents: DashboardEvent[]
+  captchas?: {
+    attempts: number
+    solved: number
+    failed: number
+    kinds: { kind: string; attempts: number; solved: number; failed: number }[]
+  }
 }

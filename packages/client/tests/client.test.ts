@@ -280,6 +280,15 @@ describe("TRAWL client", () => {
     expect(String(error)).not.toContain("owned-secret")
   })
 
+  test("validates optional solver outcomes on successful scrape timings", async () => {
+    const timing = { ...page.timings[0], captchas: [{ kind: "altcha", outcome: "solved" as const }] }
+    let timings: unknown[] = [timing]
+    const { client } = fixture(() => Response.json({ ...page, timings }))
+    expect((await client.scrape({ url: page.url })).timings).toEqual([timing])
+    timings = [{ ...timing, captchas: [{ kind: "altcha", outcome: "unknown" }] }]
+    await expect(client.scrape({ url: page.url })).rejects.toMatchObject({ kind: "protocol" })
+  })
+
   test("supports info, readiness and stats responses", async () => {
     const pool = { total: 1, available: 1, busy: 0, stalled: 0, live: 1, restarts: 0, avgRestarts: 0 }
     const { client } = fixture((request) => {
@@ -290,6 +299,24 @@ describe("TRAWL client", () => {
     expect((await client.info()).version).toBe("1.9.3")
     expect((await client.health()).status).toBe("ok")
     expect((await client.stats()).browsers).toBe(1)
+  })
+
+  test("accepts cache health from current servers and rejects malformed cache counters", async () => {
+    const cache = {
+      driver: "redis" as const,
+      enabled: true,
+      connected: true,
+      state: "connected" as const,
+      lastConnectedAt: null,
+      connectFailures: 0,
+      lookups: { hit: 1, miss: 0, error: 0 },
+      writes: { ok: 0, error: 0 },
+    }
+    let body = { status: "ok", uptime: 1, pool: {}, cache }
+    const { client } = fixture(() => Response.json(body))
+    expect((await client.health()).cache).toEqual(cache)
+    body = { ...body, cache: { ...cache, connectFailures: -1 } }
+    await expect(client.health()).rejects.toMatchObject({ kind: "protocol" })
   })
 
   test("maps session handles and existing-session operations to the native API", async () => {

@@ -75,11 +75,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add guarded desktop page history, a stable animated sidebar, bundled Urbanist, DOM-aligned macOS window controls, display-aware frame restoration and generation-scoped startup recovery. Preserve tray WebView destruction and prevent placeholder configuration from being saved during startup.
 - Add interactive desktop activity inspection, a browser-capacity breakdown, copyable instance addresses and request metadata details without recording response content. Overview previews the five latest requests with a Show all action opening Requests.
 - Add typed dashboard metrics to the client. Native distributions remain in development; platform validation and signing are required before release.
-- Add `BROWSER_GEOIP_IP` to start browsers with a known public egress IP when external IP-discovery services are unavailable. Keep automatic discovery by default, validate configured addresses and provide an actionable startup error (#288).
-- Solve the AWS WAF CAPTCHA wall through its audio puzzle in the browser tier, using the existing speech-to-text configuration. Require an accepted answer and verified clearance, bound transcription and token validation to the local budget, and preserve configured external fallback. Transcripts without a usable answer request a fresh puzzle, and at most three answers are submitted per wall (#283).
-- Add `STT_MODEL` to choose the model name sent to `STT_URL` (default `whisper-1`).
 
 ### Changed
+
+- Expose and validate session cache health and CAPTCHA metrics in the SDK while accepting responses from older servers.
 
 - Hide the native menu bar on Linux and Windows and integrate Windows window controls into the TRAWL workspace header.
 
@@ -100,7 +99,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Center desktop pane titles over translucent headers, group shortcut settings into App and Tray with compact keycaps, and animate New request above the settings save bar. Add Command-Up/Down group navigation in the command palette and preserve its highlighted item through unchanged status polls.
 - Use Command-S for desktop Start/Stop, Command-B for the sidebar and Command-Shift-R for Restart; add editable Command-1–9 tray instance shortcuts. Migrate the previous sidebar default while preserving custom bindings. Keep the logo inside the collapsing sidebar, move its Search divider above the trigger, size shortcut recorders to their keycaps, fill stopped Requests like Overview, and show the palette sidebar icon.
 - Keep tray instance selection in the background when the window is closed, and gray the tray logo while the local server is stopped. Center the stopped Overview in a full-height card and move smooth scrolling to the end of Application behavior.
-- Increase the default browser acquisition wait from 15 to 30 seconds so bursts can wait longer for a free browser. Keep explicit `BROWSER_ACQUIRE_TIMEOUT_MS` overrides and the request's overall deadline.
 
 ### Fixed
 
@@ -125,6 +123,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Route the desktop application's native Quit command through unsaved-settings confirmation and owned-server cleanup, matching tray Quit behavior.
 - Restore desktop macOS window-control alignment after completed native titlebar layouts, including live corner resizing, without correcting individual buttons mid-layout.
 - Allow container clients to reach managed loopback instances through the exact Docker and OrbStack host aliases while retaining cross-origin browser and Host validation.
+
+## [1.12.0] - 2026-11-23
+
+### Security
+- Upgrade node-forge to 1.4.4 and the web/docs Nginx runtime to 1.31.9 for upstream security fixes.
+
+### Fixed
+- Isolate MITM challenge routing between proxy instances and cancel scrape work when the proxy client disconnects (#307).
+- Preserve configured proxy failover and residential proxy selection for sessionless `/v1` requests (#295, #299).
+- Stop Baxia NC interaction when the page or widget frame navigates, preserving the embedded CAPTCHA opt-out on the destination (#285, #305).
+- Solve Baxia NC access walls for default `/v1` requests and reject uncleared Baxia pages from cached browser sessions (#285).
+- Reuse browser sessions for repeated requests through the same explicit proxy, with separate cache entries for each proxy identity (#298).
+- Include page content in the structured results of MCP `read` and `scrape` for clients that consume structured output (#294).
+- Restore the Redis session cache automatically after a connection loss without blocking scrapes on reconnect (#296).
+- Let queued HTTPS response bytes flush when the MITM tunnel closes, preventing truncated downloads for slow clients (#293).
+
+### Added
+- Solve Alibaba's Baxia NC "slide to verify" slider on punish pages in the browser tiers. A slide only counts when the server issues a new `x5sec` cookie; rejected slides use the widget's own retry, up to three drags.
+- Show session cache connectivity and operation counters in `/health` and `/metrics` without changing readiness (#297).
+- Add `BROWSER_GEOIP_IP` to start browsers with a known public egress IP when external IP-discovery services are unavailable. Keep automatic discovery by default, validate configured addresses and provide an actionable startup error (#288).
+- Solve the AWS WAF CAPTCHA wall through its audio puzzle in the browser tier, using the existing speech-to-text configuration. Require an accepted answer and verified clearance, bound transcription and token validation to the local budget, and preserve configured external fallback. Transcripts without a usable answer request a fresh puzzle, and at most three answers are submitted per wall (#283).
+- Add `STT_MODEL` to choose the model name sent to `STT_URL` (default `whisper-1`).
+- Solve DataDome CAPTCHA walls through audio in the headful browser pool, with an opt-in experimental slider. Require a fresh cookie, a successful document response and a cleared challenge frame before reporting success; stop on cancellation and preserve external fallback (#291). DataDome can still restrict a session after a correct answer.
+- Let the speech-to-text helpers take the language of the clip. The DataDome solver reads it from the clip path, so a browser in `pt-BR` no longer gets English transcription; digits are understood in English and Portuguese.
+- Keep the randomised screen at least as large as the fixed browser window, so the window is never bigger than its own screen.
+- Show CAPTCHA results in the local metrics dashboard: a per-solver panel with attempts, solved, failed and success rate, and a CAPTCHA column on recent activity and failures. Tier attempts in `timings` carry `captchas` when they tried one.
+
+### Changed
+- Route sessionless `/v1` GET and POST requests through the configured `PROXY_URL` pool when no request proxy is supplied (including Prowlarr's empty proxy object). Fail without sending traffic directly when the proxy is unavailable (#295).
+- Increase the default browser acquisition wait from 15 to 30 seconds so bursts can wait longer for a free browser. Keep explicit `BROWSER_ACQUIRE_TIMEOUT_MS` overrides and the request's overall deadline.
+- Refresh compatible dependencies, including Bun 1.4.5, Biome 2.6.8, noble-hashes 2.4.0, Rust 1.100.0 and golang.org/x/net 0.63.0. Preserve Friendly Captcha v1 proof bytes across the hash-library update. Keep the supported Camoufox/Playwright pairing and TypeScript 6 for Vue tooling.
+
+### Upgrade notes
+- No data migration is required. Recreate the container and retain existing data volumes.
+- Sessionless `/v1` requests now use the configured `PROXY_URL` pool when no request proxy is supplied, including Prowlarr's empty proxy object. An unavailable configured proxy does not fall back to a direct connection.
+- The optional `wreq` transport still retains an already pending native body read until its timeout. The default Bun transport is unaffected; the separate upstream fix is not included in this release.
+- Redis remains at 8.10.3 until the official stable 8.12 Docker image is available. The client workspace remains at 0.1.0 and is not published to npm by this release.
 
 ## [1.11.1] - 2026-11-12
 

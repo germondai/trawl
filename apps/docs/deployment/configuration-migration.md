@@ -5,6 +5,29 @@ description: Upgrade notes and environment-variable changes across TRAWL release
 
 # Configuration migration
 
+## Upgrading from v1.11.1 to v1.12.0
+
+No data migration is required. Recreate the container and retain existing Redis data,
+dashboard volumes and MITM CA files.
+
+Sessionless `/v1` requests now use the configured `PROXY_URL` pool when no request proxy
+is supplied, including Prowlarr's empty proxy object. If the configured proxy is unavailable,
+the request fails without sending traffic directly. Explicit request proxies retain precedence.
+
+The default browser acquisition wait increases from 15 to 30 seconds. Explicit
+`BROWSER_ACQUIRE_TIMEOUT_MS` settings and the overall request deadline still apply.
+
+AWS WAF and DataDome audio handling reuse the existing transcription configuration.
+`STT_MODEL` selects the model sent to `STT_URL` and defaults to `whisper-1`.
+The DataDome slider remains experimental and opt-in with `DATADOME_SLIDER=true`.
+See [CAPTCHA configuration](/getting-started/configuration#captcha-audio-and-media-tools).
+
+The optional `TIER1_TRANSPORT=wreq` still retains a pending native body read until
+its timeout. The default Bun transport is unaffected; the upstream native fix is not
+included in this release.
+
+The client workspace remains at 0.1.0; this release does not publish it to npm.
+
 ## Upgrading from v1.11.0 to v1.11.1
 
 No configuration or data migration is required. Recreate the container and keep existing

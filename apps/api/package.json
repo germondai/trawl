@@ -1,6 +1,6 @@
 {
   "name": "@trawl/api",
-  "version": "1.11.1",
+  "version": "1.12.0",
   "private": true,
   "scripts": {
     "dev": "bun run --watch src/index.ts",
@@ -17,7 +17,7 @@
     "@trawl/telemetry": "workspace:*",
     "elysia": "^1.4.32",
     "linkedom": "^0.18.15",
-    "node-forge": "^1.4.3",
+    "node-forge": "^1.4.4",
     "turndown": "^7.2.5",
     "zod": "^4.6.7"
   },

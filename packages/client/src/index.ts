@@ -1,6 +1,7 @@
 export type {
   BlockedEvidence,
   BrowserSession,
+  CaptchaOutcome,
   CapturedResponseEntry,
   ConsoleLogEntry,
   Cookie,
@@ -22,6 +23,7 @@ export type {
   RuntimeMemory,
   ScrapeResponse,
   ServerInfoResponse,
+  SessionCacheHealth,
   StatsResponse,
   SupportedMethod,
   TargetAuth,

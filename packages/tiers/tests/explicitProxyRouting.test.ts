@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import type { BrowserHandle } from "@trawl/browser"
+import type { SessionData } from "@trawl/types"
 import { type OrchestratorDeps, ScrapeError, scrape } from "../src/orchestrator"
+import { ProxyPool } from "../src/utils/proxyRotator"
 import { tier1Transport } from "../src/utils/tier1Transport"
 
 function unusedBrowserDeps(overrides: Partial<OrchestratorDeps> = {}): OrchestratorDeps {
@@ -144,12 +146,13 @@ describe("explicit proxy routing", () => {
         deps,
       ),
     ).rejects.toBeInstanceOf(ScrapeError)
-    expect(loadCalls).toBe(0)
+    expect(loadCalls).toBe(1)
     expect(released).toBeTrue()
   })
 
-  test("does not save explicit-proxy cookies into the domain session cache", async () => {
-    let saveCalls = 0
+  test("reuses a cached session only with the same explicit proxy credentials", async () => {
+    const cache = new Map<string, SessionData>()
+    const proxy = "http://user:secret@proxy.example:8080"
     const handle = {
       id: 7,
       lease: 11,
@@ -158,8 +161,9 @@ describe("explicit proxy routing", () => {
     const deps = unusedBrowserDeps({
       acquireBrowser: async () => handle,
       releaseBrowser: () => {},
-      saveSession: async () => {
-        saveCalls++
+      loadSession: async (key) => cache.get(key),
+      saveSession: async (key, data) => {
+        cache.set(key, data)
       },
     })
 
@@ -168,7 +172,7 @@ describe("explicit proxy routing", () => {
         url: "https://target.example",
         skipHttp: true,
         maxTier: 3,
-        proxy: "http://proxy.example:8080",
+        proxy,
       },
       deps,
       {
@@ -196,7 +200,20 @@ describe("explicit proxy routing", () => {
 
     expect(result.tier).toBe(3)
     expect(result.proxyUsed).toBeTrue()
-    expect(saveCalls).toBe(0)
+    expect(cache.size).toBe(1)
+    expect(cache.has("target.example")).toBeFalse()
+    expect([...cache.keys()][0]).not.toContain("secret")
+    const replay = (route?: string) =>
+      scrape({ url: "https://target.example", skipHttp: true, maxTier: 2, proxy: route }, deps, {
+        tier2: async (...args) => {
+          expect(args[10]).toBe(proxy)
+          return { tier: 2, status: "success", durationMs: 1, html: "<html>cached</html>", statusCode: 200 }
+        },
+      })
+    expect((await replay(proxy)).sessionCached).toBeTrue()
+    await expect(replay(proxy.replace("secret", "other"))).rejects.toBeInstanceOf(ScrapeError)
+    await expect(replay()).rejects.toBeInstanceOf(ScrapeError)
+    expect(cache.size).toBe(1)
   })
 
   test("relaxes browser certificate checks only for a proxy recognized by the caller", async () => {
@@ -258,7 +275,7 @@ describe("explicit proxy routing", () => {
   })
 
   test("does not save explicit-proxy Tier 4 cookies into the domain session cache", async () => {
-    let saveCalls = 0
+    const keys: string[] = []
     const handle = {
       id: 7,
       lease: 11,
@@ -267,8 +284,8 @@ describe("explicit proxy routing", () => {
     const deps = unusedBrowserDeps({
       acquireBrowser: async () => handle,
       releaseBrowser: () => {},
-      saveSession: async () => {
-        saveCalls++
+      saveSession: async (key) => {
+        keys.push(key)
       },
     })
 
@@ -304,7 +321,7 @@ describe("explicit proxy routing", () => {
 
     expect(result.tier).toBe(4)
     expect(result.proxyUsed).toBeTrue()
-    expect(saveCalls).toBe(0)
+    expect(keys).toEqual([expect.stringMatching(/^proxy:[a-f0-9]{64}:target\.example$/)])
   })
 
   test("retains the cached Tier 2 fast path without an explicit proxy", async () => {
@@ -339,8 +356,9 @@ describe("explicit proxy routing", () => {
     expect(loadCalls).toBe(1)
   })
 
-  test("retains session persistence for configured-pool escalation", async () => {
+  test.each([false, true])("retains configured-pool session persistence (pinned: %s)", async (pinned) => {
     let saveCalls = 0
+    const proxy = "http://pool.example:8080"
     const handle = {
       id: 7,
       lease: 11,
@@ -352,32 +370,34 @@ describe("explicit proxy routing", () => {
       saveSession: async () => {
         saveCalls++
       },
-      proxyPool: {
-        next: () => "http://pool.example:8080",
-        markBad: () => {},
-      } as unknown as OrchestratorDeps["proxyPool"],
+      proxyPool: new ProxyPool([proxy]),
+      proxyFromPool: pinned,
     })
 
-    const result = await scrape({ url: "https://target.example", skipHttp: true, maxTier: 3 }, deps, {
-      tier3: async () => ({
-        tier: 3,
-        status: "success",
-        durationMs: 1,
-        html: "<html>pool</html>",
-        cookies: [
-          {
-            name: "pool-cookie",
-            value: "ok",
-            domain: "target.example",
-            path: "/",
-            expires: -1,
-            httpOnly: false,
-            secure: true,
-          },
-        ],
-        statusCode: 200,
-      }),
-    })
+    const result = await scrape(
+      { url: "https://target.example", skipHttp: true, maxTier: 3, proxy: pinned ? proxy : undefined },
+      deps,
+      {
+        tier3: async () => ({
+          tier: 3,
+          status: "success",
+          durationMs: 1,
+          html: "<html>pool</html>",
+          cookies: [
+            {
+              name: "pool-cookie",
+              value: "ok",
+              domain: "target.example",
+              path: "/",
+              expires: -1,
+              httpOnly: false,
+              secure: true,
+            },
+          ],
+          statusCode: 200,
+        }),
+      },
+    )
 
     expect(result.proxyUsed).toBeTrue()
     expect(saveCalls).toBe(1)

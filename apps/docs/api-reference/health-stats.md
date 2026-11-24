@@ -18,7 +18,7 @@ FlareSolverr-style readiness message - confirms the API process is up (does not 
 ```json
 {
   "msg": "TRAWL is ready!",
-  "version": "1.11.1",
+  "version": "1.12.0",
   "uptime": 42
 }
 ```
@@ -34,6 +34,15 @@ curl -s http://localhost:8191/
 ## `GET /health`
 
 Full system health check. Used by Docker Compose health checks and monitoring systems.
+
+The `cache` object reports the configured driver, whether it is enabled, connection state
+(`disabled`, `connecting`, `connected` or `unavailable`), the last successful connection time,
+and counters for connection failures, lookups and writes. Operations skipped while the cache
+is offline do not count as misses. Cache availability does not change HTTP readiness.
+
+`/metrics` also exposes `trawl_session_cache_info`, `trawl_session_cache_up`,
+`trawl_session_cache_connect_failures_total`, `trawl_session_cache_lookups_total`
+and `trawl_session_cache_writes_total`.
 
 ### Response
 
@@ -224,6 +233,16 @@ charts for 15 minutes, 1 hour, 24 hours, 7 days or 30 days, with hover and
 keyboard details for each time bucket, plus tier, source and failure-cause
 breakdowns. It also lists the latest 100 completed requests
 with timestamps, domains, duration, status and outcome, plus the latest 50 failures.
+The **CAPTCHA solvers** panel counts every CAPTCHA a request tried to clear, per solver
+(`turnstile`, `recaptcha-v2`, `hcaptcha`, `altcha`, `friendly-captcha`, `cap`, `shumei`,
+`geetest-slide`, `aws-waf`, ...), with attempts, solved, failed and success rate. An
+external-solver fallback shows as its own row (for example `turnstile (2captcha)`) and counts as a
+separate attempt, so a CAPTCHA the local solver missed and the fallback cleared appears as one failure
+and one solve. Detecting a wall without running a solver adds no attempt. Summary counts include all
+recorded kinds even when the table only shows the 32 most frequent. The activity and failure tables add a
+CAPTCHA column with each request's outcomes, and the failure filter matches them. Each tier attempt in
+the scrape result's `timings` carries a `captchas` array of `{ kind, outcome }` only when it tried one.
+Counts start with the first request recorded after upgrading; older history has no CAPTCHA data.
 The `GET /dashboard/events` stream signals new activity immediately;
 the page refreshes its snapshot when an event arrives and falls back to periodic
 refresh. The live view can be paused or refreshed manually. Export JSON downloads

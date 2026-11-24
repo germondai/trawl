@@ -14,6 +14,7 @@ import {
   hasAltcha,
   hasAwsWafCaptcha,
   hasAwsWafChallenge,
+  hasBaxiaPunish,
   hasCloudflareChallengeHeader,
   hasDuckDuckGoChallenge,
   hasFriendlyCaptcha,
@@ -627,6 +628,21 @@ async function runTier1Once(
         durationMs: Date.now() - start,
         reason: "friendly-captcha-shell",
         challenge: "friendly-captcha",
+        effectiveUrl: currentUrl,
+        responseHeaders,
+        contentType,
+        body: rawBytes,
+        statusCode: res.status,
+      }
+    }
+    if (hasBaxiaPunish(previewText, responseHeaders)) {
+      return {
+        tier: 1,
+        certificateError,
+        status: "needs-js",
+        durationMs: Date.now() - start,
+        reason: "baxia-punish",
+        challenge: "baxia",
         effectiveUrl: currentUrl,
         responseHeaders,
         contentType,

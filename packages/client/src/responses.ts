@@ -74,9 +74,24 @@ export const isWafDetection = (value: unknown): value is WafDetection =>
           (item.evidence === 0 || item.evidence === -1),
       )))
 
+const optionalCaptchaOutcomes = (value: unknown): boolean =>
+  value === undefined ||
+  (Array.isArray(value) &&
+    value.every(
+      (item) => isRecord(item) && label(item.kind) && (item.outcome === "solved" || item.outcome === "failed"),
+    ))
+
+const captchaCounts = (value: Record<string, unknown>): boolean =>
+  [value.attempts, value.solved, value.failed].every(positiveNumber)
+
 export const isDashboardSnapshot = (value: unknown): value is DashboardSnapshot =>
   isRecord(value) &&
   (value.maximumMs === undefined || positiveNumber(value.maximumMs)) &&
+  (value.captchas === undefined ||
+    (isRecord(value.captchas) &&
+      captchaCounts(value.captchas) &&
+      Array.isArray(value.captchas.kinds) &&
+      value.captchas.kinds.every((row) => isRecord(row) && label(row.kind) && captchaCounts(row)))) &&
   ["requests", "successes", "failures", "averageMs", "rangeMinutes", "retainedEvents", "bucketMs"].every((key) =>
     positiveNumber(value[key]),
   ) &&
@@ -106,7 +121,8 @@ export const isDashboardSnapshot = (value: unknown): value is DashboardSnapshot 
       positiveNumber(row.durationMs) &&
       typeof row.success === "boolean" &&
       [row.tier, row.statusCode].every((value) => value === null || positiveNumber(value)) &&
-      [row.category, row.severity].every((value) => value === null || typeof value === "string"),
+      [row.category, row.severity].every((value) => value === null || typeof value === "string") &&
+      optionalCaptchaOutcomes(row.captchas),
   )
 
 export const isSession = (value: unknown): value is BrowserSession =>
@@ -140,7 +156,8 @@ export const isScrapeResponse = (value: unknown): value is ScrapeResponse =>
   typeof value.totalMs === "number" &&
   Array.isArray(value.cookies) &&
   value.cookies.every(isCookie) &&
-  Array.isArray(value.timings)
+  Array.isArray(value.timings) &&
+  value.timings.every((timing) => isRecord(timing) && optionalCaptchaOutcomes(timing.captchas))
 
 export const isServerInfo = (value: unknown): value is ServerInfoResponse =>
   isRecord(value) &&
@@ -148,11 +165,28 @@ export const isServerInfo = (value: unknown): value is ServerInfoResponse =>
   typeof value.version === "string" &&
   typeof value.uptime === "number"
 
+const isSessionCacheHealth = (value: unknown): boolean =>
+  isRecord(value) &&
+  (value.driver === "redis" || value.driver === "memory") &&
+  typeof value.enabled === "boolean" &&
+  typeof value.connected === "boolean" &&
+  (value.state === "disabled" ||
+    value.state === "connecting" ||
+    value.state === "connected" ||
+    value.state === "unavailable") &&
+  (value.lastConnectedAt === null || typeof value.lastConnectedAt === "string") &&
+  positiveNumber(value.connectFailures) &&
+  isRecord(value.lookups) &&
+  [value.lookups.hit, value.lookups.miss, value.lookups.error].every(positiveNumber) &&
+  isRecord(value.writes) &&
+  [value.writes.ok, value.writes.error].every(positiveNumber)
+
 export const isHealth = (value: unknown): value is HealthResponse =>
   isRecord(value) &&
   (value.status === "ok" || value.status === "starting") &&
   typeof value.uptime === "number" &&
-  isRecord(value.pool)
+  isRecord(value.pool) &&
+  (value.cache === undefined || isSessionCacheHealth(value.cache))
 
 export const isStats = (value: unknown): value is StatsResponse =>
   isRecord(value) && typeof value.browsers === "number" && (value.headful === null || isRecord(value.headful))

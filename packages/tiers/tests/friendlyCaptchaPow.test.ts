@@ -1,6 +1,12 @@
 import { expect, test } from "bun:test"
-import { solveFriendlyCaptchaV1 } from "../src/solvers/friendlyCaptchaPow"
+import { solveFriendlyCaptchaPuzzle, solveFriendlyCaptchaV1 } from "../src/solvers/friendlyCaptchaPow"
 import { friendlyPuzzle, verifyFriendlyProof } from "./fixtures/friendlyCaptcha"
+
+test("preserves Friendly v1 proof bytes across hash-library upgrades", () => {
+  const puzzle = "server-signature.AAAAAAAAAAAAAAAAAQADCAAAAAAAAAAAAAAAAAAAAAA="
+  const result = solveFriendlyCaptchaPuzzle(puzzle)
+  expect(result?.response.split(".").slice(0, 3).join(".")).toBe(`${puzzle}.AAAAAAEAAAABAAAAAgAAAAIAAAAAAAAA`)
+})
 
 test.each([0, 1])(
   "Friendly v1 proof preserves the puzzle at difficulty %s and solves every sub-puzzle",

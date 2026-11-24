@@ -3,10 +3,67 @@ import type { Page } from "patchright"
 import type { ExternalCaptchaSession } from "../src/solvers/externalCaptcha"
 import { waitForAwsWafResolution } from "../src/utils/awsWafWait"
 import { routeChallengeWait } from "../src/utils/challengeRouter"
+import { waitForDataDomeResolution } from "../src/utils/datadomeWait"
 import { DATADOME_CAPTCHA, DATADOME_INTERSTITIAL, DATADOME_JSON_HARD_BLOCK } from "./fixtures/datadome"
 import { DDOS_GUARD_INTERSTITIAL } from "./fixtures/ddosGuard"
 import { DUCKDUCKGO_ANOMALY_CHALLENGE } from "./fixtures/duckduckgo"
 import { ALTCHA_WIDGET_HTML, FRIENDLY_CAPTCHA_WIDGET_HTML } from "./fixtures/pow"
+
+for (const kind of ["aws-waf", "datadome"] as const) {
+  test(`${kind} does not report clearance when cancelled during final confirmation`, async () => {
+    const request = new AbortController()
+    const outcomes: unknown[] = []
+    const confirm = async () => {
+      request.abort()
+      return "ok" as const
+    }
+    const result = await routeChallengeWait(
+      { content: async () => "<html>protected content</html>" } as Page,
+      kind === "datadome" ? DATADOME_CAPTCHA : "",
+      kind === "aws-waf" ? { "x-amzn-waf-action": "captcha" } : {},
+      1000,
+      undefined,
+      {
+        cloudflare: confirm,
+        imperva: confirm,
+        akamai: confirm,
+        ddosGuard: confirm,
+        awsWaf: confirm,
+        dataDome: confirm,
+        awsWafCaptcha: async () => true,
+        dataDomeCaptcha: async () => true,
+      },
+      kind === "aws-waf" ? 405 : 403,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      request.signal,
+      (items) => outcomes.push(...items),
+    )
+    expect(result.resolution).toBe("captcha-required")
+    expect(result.captchasSolved).toBeUndefined()
+    expect(outcomes).toEqual([{ kind, outcome: "failed" }])
+  })
+}
+
+for (const waiter of [waitForAwsWafResolution, waitForDataDomeResolution]) {
+  test(`${waiter.name} stops polling when cancelled`, async () => {
+    let reads = 0
+    const page = {
+      content: async () => {
+        reads++
+        return "<html>protected content</html>"
+      },
+      context: () => ({ cookies: async () => [] }),
+    } as unknown as Page
+    const options = { pollMs: 300, signal: AbortSignal.timeout(20) }
+    const start = Date.now()
+    expect(await waiter(page, 500, "https://example.test/", options)).toBe("timeout")
+    expect(Date.now() - start).toBeLessThan(200)
+    expect(reads).toBe(1)
+  })
+}
 
 describe("browser challenge routing", () => {
   test("passes response headers into detection and routes an authoritative CF challenge to its waiter", async () => {
@@ -353,6 +410,136 @@ describe("browser challenge routing", () => {
     })
   })
 
+  describe("DataDome CAPTCHA wall solving", () => {
+    const idle = async () => {
+      throw new Error("waiter must not run")
+    }
+    const waiters = (overrides: Record<string, unknown>) =>
+      ({
+        cloudflare: idle,
+        ddosGuard: idle,
+        imperva: idle,
+        akamai: idle,
+        awsWaf: idle,
+        dataDome: idle,
+        ...overrides,
+      }) as never
+    const left = { content: async () => "<html><body>real page</body></html>", frames: () => [] } as unknown as Page
+
+    test.each(["http-block", "header-block", "remaining-frame"])("does not count %s as clearance", async (mode) => {
+      const outcomes: unknown[] = []
+      const page = {
+        content: async () => "<html><body>restricted</body></html>",
+        frames: () => (mode === "remaining-frame" ? [{ url: () => "https://geo.captcha-delivery.com/captcha/" }] : []),
+      } as unknown as Page
+      const result = await routeChallengeWait(
+        page,
+        DATADOME_CAPTCHA,
+        {},
+        1000,
+        undefined,
+        waiters({ dataDomeCaptcha: async () => true, dataDome: async () => "ok" }),
+        403,
+        undefined,
+        (): Record<string, string> => (mode === "header-block" ? { "x-dd-b": "1" } : {}),
+        undefined,
+        undefined,
+        undefined,
+        (items) => outcomes.push(...items),
+        () => (mode === "http-block" ? 403 : 200),
+      )
+      expect(result.resolution).not.toBe("ok")
+      expect(result.captchasSolved).toBeUndefined()
+      expect(outcomes).toEqual([{ kind: "datadome", outcome: "failed" }])
+    })
+
+    test("solves the wall, then lets the waiter confirm the new cookie", async () => {
+      const calls: string[] = []
+      const result = await routeChallengeWait(
+        left,
+        DATADOME_CAPTCHA,
+        {},
+        1000,
+        "https://example.test/",
+        waiters({
+          dataDomeCaptcha: async () => {
+            calls.push("solve")
+            return true
+          },
+          dataDome: async () => {
+            calls.push("confirm")
+            return "ok" as const
+          },
+        }),
+      )
+      expect(calls).toEqual(["solve", "confirm"])
+      expect(result).toEqual({ challengeType: "datadome", resolution: "ok", captchasSolved: ["datadome"] })
+    })
+
+    test("keeps CAPTCHA-required when the solver fails or throws", async () => {
+      for (const solve of [
+        async () => false,
+        async () => {
+          throw new Error("browser closed")
+        },
+      ]) {
+        const result = await routeChallengeWait(
+          left,
+          DATADOME_CAPTCHA,
+          {},
+          1000,
+          undefined,
+          waiters({ dataDomeCaptcha: solve }),
+        )
+        expect(result).toEqual({ challengeType: "datadome", resolution: "captcha-required" })
+      }
+    })
+
+    test("reports the waiter verdict, without claiming a solve, when the answer is not accepted", async () => {
+      const result = await routeChallengeWait(
+        left,
+        DATADOME_CAPTCHA,
+        {},
+        1000,
+        undefined,
+        waiters({ dataDomeCaptcha: async () => true, dataDome: async () => "ip-blocked" as const }),
+      )
+      expect(result).toEqual({ challengeType: "datadome", resolution: "ip-blocked" })
+    })
+
+    test("never tries to solve a hard block", async () => {
+      const result = await routeChallengeWait(
+        left,
+        DATADOME_JSON_HARD_BLOCK,
+        {},
+        1000,
+        undefined,
+        waiters({ dataDomeCaptcha: idle }),
+      )
+      expect(result).toEqual({ challengeType: "datadome", resolution: "ip-blocked" })
+    })
+
+    test("does not try to solve once the request is aborted", async () => {
+      const controller = new AbortController()
+      controller.abort()
+      const result = await routeChallengeWait(
+        left,
+        DATADOME_CAPTCHA,
+        {},
+        1000,
+        undefined,
+        waiters({ dataDomeCaptcha: idle }),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        controller.signal,
+      )
+      expect(result).toEqual({ challengeType: "datadome", resolution: "captcha-required" })
+    })
+  })
+
   test("reports a DuckDuckGo image challenge without invoking the Cloudflare waiter", async () => {
     const fail = async () => {
       throw new Error("waiter must not run")
@@ -476,23 +663,45 @@ test("keeps Turnstile on an active Cloudflare wall in the wall waiter", async ()
 test("a configured WAF profile must clear the challenge after applying its response", async () => {
   let solves = 0
   let cleared = false
+  const outcomes: unknown[] = []
   const external = {
     discover: async () => ["profile:0"],
     canSolve: async () => true,
     localBudget: () => 10,
-    solveProfiles: async () => {
+    solveProfiles: async (_page, _remaining, _signal, _proxy, onAttempt) => {
       solves++
+      onAttempt?.("turnstile:2captcha", false)
       return ["datadome:2captcha"]
     },
-  } as unknown as ExternalCaptchaSession
+  } satisfies Pick<ExternalCaptchaSession, "discover" | "canSolve" | "localBudget" | "solveProfiles">
   const page = { content: async () => (cleared ? "<html><body>Owned content</body></html>" : DATADOME_CAPTCHA) } as Page
   const waiters = { cloudflare: async () => "ok" as const } as unknown as Parameters<typeof routeChallengeWait>[5]
   const run = () =>
-    routeChallengeWait(page, DATADOME_CAPTCHA, {}, 10000, undefined, waiters, 403, undefined, () => ({}), external)
+    routeChallengeWait(
+      page,
+      DATADOME_CAPTCHA,
+      {},
+      10000,
+      undefined,
+      waiters,
+      403,
+      undefined,
+      () => ({}),
+      external as unknown as ExternalCaptchaSession,
+      undefined,
+      undefined,
+      (items) => outcomes.push(...items),
+    )
   expect(await run()).toEqual({ challengeType: "datadome", resolution: "captcha-required" })
   cleared = true
   expect(await run()).toEqual({ challengeType: "none", resolution: "ok", captchasSolved: ["datadome:2captcha"] })
   expect(solves).toBe(2)
+  expect(outcomes).toEqual([
+    { kind: "turnstile:2captcha", outcome: "failed" },
+    { kind: "datadome:2captcha", outcome: "failed" },
+    { kind: "turnstile:2captcha", outcome: "failed" },
+    { kind: "datadome:2captcha", outcome: "solved" },
+  ])
 })
 
 test("DataDome IP blocks do not create paid profile tasks", async () => {

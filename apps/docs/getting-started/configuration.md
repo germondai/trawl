@@ -862,6 +862,23 @@ The result depends on the recogniser separating the two voices:
   configured external fallback. Cancelling the request stops transcription and further submissions.
 - The embedded widget on an ordinary page, and the image-grid puzzle, are not solved.
 
+### DataDome CAPTCHA audio
+
+TRAWL solves a DataDome CAPTCHA wall through the widget's audio alternative, in the headful pool
+(`BROWSER_HEADFUL_POOL_SIZE=1`). The clip says six digits, typed one per box:
+
+- The clip is read in the page's language, which the clip path carries. The recogniser is told that
+  language, and the digits are understood in English and Portuguese; other languages request a new
+  clip instead of guessing.
+- The solver plays the clip, waits for it to end and types at a human pace. A transcript without
+  six digits requests a new clip, and at most three answers are submitted per wall.
+- A passed widget is not clearance. DataDome also scores the session, and on strict sites it can
+  replace the widget with an "access restricted" page after a correct answer. TRAWL reports that as
+  a failure and the request escalates. Clearance requires a successful document response and
+  the disappearance of the challenge frame, as well as a fresh cookie.
+- The experimental slider path is off by default. `DATADOME_SLIDER=true` tries it before audio,
+  using at most half the remaining solver budget, capped at 30 seconds.
+
 The API container already includes ffmpeg. Bare-metal installations must make `ffmpeg` available on
 `PATH` or set `FFMPEG_PATH`. These values are read only by CAPTCHA solving; ordinary scrapes do not
 contact the configured STT service. Treat `STT_API_KEY` as a secret and avoid committing it to `.env`.
@@ -870,7 +887,7 @@ contact the configured STT service. Treat `STT_API_KEY` as a secret and avoid co
 
 ### `PROXY_URL`
 
-These environment-level proxies are escalation pools: direct Tier 1 and cached Tier 2 may complete before they are used. In contrast, the API request-level `proxy` field is a routing guarantee; target traffic for that request never falls back to a direct connection.
+For `/scrape`, these environment-level proxies are escalation pools: direct Tier 1 and cached Tier 2 may complete before they are used. For sessionless `/v1` GET and POST requests, the datacenter pool is also the default route when the request omits `proxy` or sends `{}`. An explicit request proxy takes precedence. If the selected proxy fails or the pool has no available endpoint, the request fails without connecting directly. Named sessions still use their session's routing settings.
 
 **Default:** _(empty - no proxy)_
 
@@ -979,7 +996,12 @@ Both `POST /scrape` and `POST /v1` accept an optional `proxy` field in the reque
 { "url": "https://example.com", "proxy": "http://user:pass@my-proxy.example.com:8080" }
 ```
 
-Note: `proxy` on `/v1` is a TRAWL-specific extension - it is not part of the real FlareSolverr v2 contract, so other FlareSolverr-compatible clients simply won't send it.
+FlareSolverr also accepts a proxy object with a `url` and optional credentials. Prowlarr may send an empty object when its global proxy is disabled.
+
+Sessionless requests through an explicit proxy can reuse a cached browser session for the same
+destination and proxy identity, including credentials. Proxied sessions are stored separately from
+direct sessions. If the proxy rotates its exit IP and the site rejects the cached clearance, TRAWL
+invalidates that entry and continues with a fresh solve through the requested proxy.
 
 ### Test an endpoint
 
