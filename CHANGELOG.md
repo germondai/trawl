@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stop stale DataDome answers after document navigation and preserve successful submission-triggered navigation.
 - Report persistent provider challenges without asserting a datacenter IP diagnosis.
 
+### Changed
+- Clarify requested upstream proxy use in scrape logs and keep exhaustive incomplete WAF-provider details at debug level.
+
 ## [1.12.0] - 2026-11-23
 
 ### Security
