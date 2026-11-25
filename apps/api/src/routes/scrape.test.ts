@@ -197,7 +197,7 @@ describe("POST /sessions/:id/scrape", () => {
       for (const body of [null, [], {}, { url: "" }, { url, screenshot: 1 }, { url, sessionId: "other" }]) {
         expect((await send(app, "/sessions/account/scrape", body)).status).toBe(400)
       }
-      expect((await send(app, "/sessions/invalid.id/scrape", { url })).status).toBe(400)
+      expect((await send(app, "/sessions/invalid%20id/scrape", { url })).status).toBe(400)
       const unavailable = await send(app, "/sessions/account/scrape", { url })
       expect(unavailable.status).toBe(503)
       expect(await unavailable.json()).toEqual({ error: "Browser pool initializing, retry in a few seconds" })

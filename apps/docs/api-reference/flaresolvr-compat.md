@@ -32,6 +32,8 @@ interface FlareSolverrRequest {
 
 ### Fields
 
+Session names may contain 1-128 ASCII letters, digits, dots, underscores or hyphens, including hostname-based names such as `webstreamr_vixsrc.to`. The names `.` and `..` are reserved. See [Browser Sessions](/api-reference/browser-sessions) for session lifecycle and limits.
+
 | Field        | Type   | Required | Description                                                                                                                                                                                                                                                                                                              |
 | ------------ | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `cmd`        | string | No       | `"request.get"` or `"request.post"` (default `"request.get"`)                                                                                                                                                                                                                                                            |

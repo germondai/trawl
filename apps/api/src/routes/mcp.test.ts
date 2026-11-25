@@ -547,7 +547,7 @@ describe("MCP route", () => {
   })
 })
 
-test("MCP forwards a named session for every page tool and rejects invalid IDs", async () => {
+test("MCP forwards dotted session IDs for every page tool and rejects invalid IDs", async () => {
   const received: string[] = []
   const app = mcpRoute({
     poolReady: () => true,
@@ -568,7 +568,7 @@ test("MCP forwards a named session for every page tool and rejects invalid IDs",
         name,
         arguments: {
           url: "https://1.1.1.1",
-          sessionId: "account",
+          sessionId: "webstreamr_vixsrc.to",
           ...(name === "extract" ? { itemSelector: "html", fields: { text: { selector: "html" } } } : {}),
         },
       }),
@@ -577,10 +577,12 @@ test("MCP forwards a named session for every page tool and rejects invalid IDs",
     expect(body, `${name}: ${JSON.stringify(body)}`).toHaveProperty("result")
     expect(body.result.isError).not.toBe(true)
   }
-  expect(received).toEqual(["account", "account", "account", "account", "account"])
-  const invalid = await app.handle(
-    rpc("tools/call", { name: "read", arguments: { url: "https://1.1.1.1", sessionId: "../invalid" } }),
-  )
-  expect((await invalid.json()).result.isError).toBe(true)
+  expect(received).toEqual(Array(5).fill("webstreamr_vixsrc.to"))
+  for (const sessionId of ["../invalid", ".", "..", "a".repeat(129), "a\n", "a b"]) {
+    const invalid = await app.handle(
+      rpc("tools/call", { name: "read", arguments: { url: "https://1.1.1.1", sessionId } }),
+    )
+    expect((await invalid.json()).result.isError).toBe(true)
+  }
   expect(received).toHaveLength(5)
 })

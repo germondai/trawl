@@ -50,7 +50,7 @@ const baseInputShape = {
   detectWaf: z.boolean().optional().describe("Identify WAF providers offline; enabled by default, false opts out"),
   sessionId: z
     .string()
-    .regex(/^[a-zA-Z0-9_-]{1,128}$/)
+    .regex(/^(?!\.{1,2}$)[a-zA-Z0-9._-]{1,128}$/)
     .optional()
     .describe("Existing publicOnly browser session created through POST /sessions"),
   url: z.string().min(1).describe("Public HTTP(S) URL"),

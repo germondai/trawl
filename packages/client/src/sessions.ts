@@ -14,7 +14,7 @@ import type { Transport } from "./transport"
 import type { EvalOptions, RequestOptions, ScrapeRequest } from "./types"
 
 function sessionPath(id: string): string {
-  if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) throw new TypeError("Invalid session ID")
+  if (!/^(?!\.{1,2}$)[a-zA-Z0-9._-]{1,128}$/.test(id)) throw new TypeError("Invalid session ID")
   return `/sessions/${encodeURIComponent(id)}`
 }
 
