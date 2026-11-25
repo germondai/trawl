@@ -5,6 +5,7 @@ interface HistoryGestureOptions {
   enabled(): boolean
   canNavigate(direction: HistoryDirection): boolean
   navigate(direction: HistoryDirection): void
+  onThreshold?(): void
 }
 
 type WheelInput = Pick<
@@ -83,6 +84,7 @@ export function createHistoryGesture(
       gesture ??= { blocked: blockedAtStart() || Math.abs(event.deltaY) > Math.abs(event.deltaX), x: 0 }
       if (event.defaultPrevented) gesture.blocked = true
       if (gesture.blocked || (!owned && Math.abs(event.deltaX) <= Math.abs(event.deltaY) * 1.5)) return owned
+      const previous = gesture.x
       gesture.x = Math.max(-neutralZone - threshold, Math.min(neutralZone + threshold, gesture.x + event.deltaX))
       const direction = gesture.x < 0 ? "back" : "forward"
       const progress = Math.min(1, Math.max(0, (Math.abs(gesture.x) - neutralZone) / threshold))
@@ -93,12 +95,16 @@ export function createHistoryGesture(
       }
       owned = true
       options.feedback(direction, progress)
+      if (touching && progress === 1 && previous !== gesture.x) options.onThreshold?.()
       return true
     },
   }
 }
 
-export function installNativeHistoryGesture(options: HistoryGestureOptions) {
+export function installNativeHistoryGesture(
+  options: HistoryGestureOptions & { preview?: (direction: HistoryDirection | null, progress: number) => boolean },
+) {
+  let previewing = false
   let feedback: HTMLElement | undefined
   let animation: Animation | undefined
   let geometry: ResizeObserver | undefined
@@ -126,7 +132,15 @@ export function installNativeHistoryGesture(options: HistoryGestureOptions) {
   }
   const gesture = createHistoryGesture({
     ...options,
+    onThreshold() {
+      if (previewing) options.onThreshold?.()
+    },
     feedback(direction, progress) {
+      previewing = options.preview?.(direction, progress) ?? false
+      if (previewing) {
+        removeFeedback()
+        return
+      }
       if (direction === null) {
         if (!feedback || animation) return
         const element = feedback

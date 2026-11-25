@@ -343,7 +343,27 @@ Při tahu ze systémové hrany se aktuální obsah odsunuje a odkrývá předcho
 
 TRAWL pro náhled drží v paměti nejvýše čtyři nedávné stránky. Zobrazuje neinteraktivní kopii hlavičky a obsahu. Přesun na stejnou stránku, otevřená vrstva, neuložené nastavení, omezený pohyb nebo nedostupný náhled použijí standardní navigaci. Nativní callback má přednost před historií WebView pouze tehdy, když v historii aplikace existuje krok Zpět. Na starším Androidu funguje potvrzené Zpět bez průběhu tahu.
 
-Ověř tah zleva i zprava, náhled před potvrzením, zrušení, potvrzený návrat o jeden krok, klávesnici a návrat na domovskou obrazovku. Na Androidu 15 v emulátoru TRAWL ověřil náhled, zrušení, potvrzení a návrat na plochu. Viz [nativní callback](../../apps/desktop/src-tauri/gen/android/app/src/main/java/com/germondai/trawl/desktop/MainActivity.kt) a [napojení na historii](../../apps/desktop/app/composables/useAndroidPredictiveBack.ts).
+Ověř tah zleva i zprava, náhled před potvrzením, zrušení, potvrzený návrat o jeden krok, klávesnici a návrat na domovskou obrazovku. Na Androidu 15 v emulátoru TRAWL ověřil náhled, zrušení, potvrzení a návrat na plochu. Viz [nativní callback](../../apps/desktop/src-tauri/gen/android/app/src/main/java/com/germondai/trawl/desktop/MainActivity.kt) a [napojení na historii](../../apps/desktop/app/composables/usePredictiveBack.ts).
+
+Na macOS používá tah dvěma prsty stejný náhled pro Zpět i Vpřed. Cíl se potvrdí při puštění po překročení prahu a zbytek setrvačnosti nesmí přidat další navigaci. Krátký, obrácený nebo zrušený tah vrátí aktuální stránku na místo. Vodorovně posuvný obsah si ponechává gesto, které v něm začalo. Pro krok uvnitř jedné stránky zůstává k dispozici běžná historie bez náhledu jiné stránky.
+
+### G13 Zvuk a haptika
+
+Nový profil má zvuky i haptiku zapnuté tam, kde je aplikace podporuje. Uložené volby mají přednost. Přepínače mají popisy, ukládají se nezávisle na stavu serveru a odezva se vyvolává v popředí.
+
+| Interakce | Odezva v TRAWLu |
+| --- | --- |
+| Přechod na jinou stránku | Krátký tichý tón. Zpět/Vpřed uvnitř stejné stránky jej vynechá. |
+| Kliknutí na aktivní položku navigace | Vlastní krátký tón. Odscrollovaný hlavní obsah se vrátí na začátek a respektuje omezený pohyb. |
+| Sidebar a překryvné vrstvy | Každá skupina má vlastní dvojici zvuků pro otevření a zavření. Překryvy zahrnují menu, select, popover a dialogové vrstvy. |
+| Požadavek | Odezva při odeslání a odlišný výsledek pro úspěch a chybu. Zrušení nemá chybovou odezvu. |
+| Přesun request tabu | Jeden jemný pulz za skutečnou změnu pozice při tažení na Androidu a macOS. Samotný pohyb v jedné pozici je tichý. |
+| Kraj scrollu | Jen Android. Pulz při příjezdu na svislý nebo vodorovný okraj, po odjetí se může zopakovat. |
+| Dosažení hrany náhledu Zpět nebo Vpřed na Macu | Nativní pulz AppKit Alignment při úplném odkrytí cíle, dokud se prsty dotýkají trackpadu. Tah lze ještě vrátit. Puštění ani následné zrušení další pulz neposílají. Opakované tlačení do stejné hrany pulz neopakuje. |
+
+**Kontrola:** vyzkoušej zvuk a haptiku samostatně, přechod mezi stránkami i kroky uvnitř stránky, oba směry a zrušení tahu, více pozic tabu při jediném tažení a opakovaný příjezd na stejný okraj. Na Macu ověř dosažení hrany s prsty na trackpadu a pak zkus tah vrátit i potvrdit. Na Androidu ověř odezvu se zapnutou i vypnutou systémovou haptikou.
+
+Reference: [zvuky a haptika](../../apps/desktop/app/composables/useInteractionFeedback.ts), [hranice scrollu](../../apps/desktop/app/composables/useScrollEdgeFeedback.ts), [přesun tabů](../../apps/desktop/app/composables/useRequestTabDrag.ts), [macOS fáze gest](../../apps/desktop/src-tauri/src/history_gesture.rs).
 
 ## Text hledání a tooltipy
 

@@ -204,7 +204,7 @@ async function preference(
   else if (key === "appVisibility") config.desktop.appVisibility = value as UserConfig["desktop"]["appVisibility"]
   else if (key === "sidebarBehavior") config.desktop.sidebarBehavior = value as UserConfig["desktop"]["sidebarBehavior"]
   else config.desktop[key] = Boolean(value)
-  await desktop.save(config)
+  await desktop.save(config, key === "interactionSounds" || key === "hapticFeedback")
 }
 </script>
 <template>
@@ -353,9 +353,10 @@ async function preference(
         <USwitch
           :aria-label="t('ui.interactionSounds')"
           :model-value="desktop.config.desktop.interactionSounds === true"
-          :disabled="!desktop.native || desktop.busy"
+          :disabled="!desktop.loaded"
           @update:model-value="preference('interactionSounds', $event)"
         />
+        <template #description>{{ t("ui.interactionSoundsDescription") }}</template>
       </UFormField>
       <UFormField
         v-if="desktop.mobile || macOS"
@@ -366,9 +367,10 @@ async function preference(
         <USwitch
           :aria-label="t('ui.hapticFeedback')"
           :model-value="desktop.config.desktop.hapticFeedback === true"
-          :disabled="!desktop.native || desktop.busy"
+          :disabled="!desktop.loaded"
           @update:model-value="preference('hapticFeedback', $event)"
         />
+        <template #description>{{ t("ui.hapticFeedbackDescription") }}</template>
       </UFormField>
       <UFormField
         class="preference-row"

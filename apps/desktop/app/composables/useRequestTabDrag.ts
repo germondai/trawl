@@ -9,7 +9,8 @@ export function closestTabIndex(tabs: readonly Pick<HTMLElement, "offsetLeft" | 
   }, 0)
 }
 
-export function useRequestTabDrag(move: (id: string, index: number) => void) {
+export function useRequestTabDrag(move: (id: string, index: number) => boolean) {
+  const feedback = useInteractionFeedback()
   const dragging = shallowRef("")
   const offset = shallowRef(0)
   let press:
@@ -78,8 +79,8 @@ export function useRequestTabDrag(move: (id: string, index: number) => void) {
     if (!reorder) return
     const center = left + press.element.offsetWidth / 2
     const index = closestTabIndex(tabs, center)
-    if (index !== tabs.indexOf(press.element)) {
-      move(press.id, index)
+    if (index !== tabs.indexOf(press.element) && move(press.id, index)) {
+      feedback("reorder")
       nextTick(() => {
         position(false)
         if (press?.element.isConnected) press.element.setPointerCapture(press.pointer)

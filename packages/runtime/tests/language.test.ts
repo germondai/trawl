@@ -31,13 +31,13 @@ test("language preference defaults, migrates and persists without changing user 
   }
 })
 
-test("interaction feedback is opt-in and persists independently", async () => {
+test("interaction feedback defaults to enabled and persists independently", async () => {
   const root = await mkdtemp(join(tmpdir(), "trawl-feedback-"))
   const paths = runtimePaths(root)
   try {
     const config = await readConfig(paths)
-    expect(config.desktop.interactionSounds).toBe(false)
-    expect(config.desktop.hapticFeedback).toBe(false)
+    expect(config.desktop.interactionSounds).toBe(true)
+    expect(config.desktop.hapticFeedback).toBe(true)
     for (const [interactionSounds, hapticFeedback] of [
       [true, false],
       [false, true],

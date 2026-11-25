@@ -1,11 +1,21 @@
 import type { createNavigationSteps } from "./useNavigationSteps"
 
 /** UI portals share this class through UTheme, including selects inside another popover. */
-export function usePopupNavigation(navigation: ReturnType<typeof createNavigationSteps>) {
+export function usePopupNavigation(
+  navigation: ReturnType<typeof createNavigationSteps>,
+  feedback: (open: boolean) => void,
+) {
   const popups = new Map<HTMLElement, () => void>()
   let observer: MutationObserver | undefined
   onMounted(() => {
+    const feedbackElements =
+      '.navigation-popup[data-state="open"], [role="dialog"][data-state="open"]:not(.mobile-sidebar), [role="alertdialog"][data-state="open"]'
+    let previous = new Set(document.querySelectorAll(feedbackElements))
     const sync = () => {
+      const layers = new Set(document.querySelectorAll(feedbackElements))
+      if ([...layers].some((element) => !previous.has(element))) feedback(true)
+      else if ([...previous].some((element) => !layers.has(element))) feedback(false)
+      previous = layers
       const open = new Set(document.querySelectorAll<HTMLElement>('.navigation-popup[data-state="open"]'))
       for (const [element, stop] of popups)
         if (!open.has(element)) {

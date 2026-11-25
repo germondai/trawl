@@ -64,10 +64,14 @@ export function useNativeShell(sidebarOpen: Readonly<Ref<boolean>>, initializing
         }
         if (!clock || next.latest - next.earliest < clock.latest - clock.earliest) clock = next
       }
-      await until(() => desktop.preferencesReady && !initializing.value).toBe(true)
-      await document.fonts.ready
-      const logo = document.querySelector<HTMLImageElement>(".brand img")
-      if (logo) await logo.decode().catch(() => {})
+      // Windows uses controls drawn by the WebView. Its shell can be revealed
+      // while the runtime is still loading configuration or probing the server.
+      if (!/^Win/.test(navigator.platform)) {
+        await until(() => desktop.preferencesReady && !initializing.value).toBe(true)
+        await document.fonts.ready
+        const logo = document.querySelector<HTMLImageElement>(".brand img")
+        if (logo) await logo.decode().catch(() => {})
+      }
       await nextTick()
       if (disposed) return
       // Hidden WKWebViews may pause animation frames and resize observer delivery.

@@ -72,7 +72,10 @@ class RuntimePlugin(activity: Activity) : Plugin(activity), DefaultLifecycleObse
                     "interactionHaptic" -> {
                         val view = activity.window.decorView
                         val feedback = invoke.getArgs().optString("feedback")
-                        val effect = if (Build.VERSION.SDK_INT >= 30 && feedback == "success") {
+                        val effect = if (feedback == "edge" || feedback == "reorder") {
+                            if (Build.VERSION.SDK_INT >= 34) HapticFeedbackConstants.SEGMENT_FREQUENT_TICK
+                            else HapticFeedbackConstants.CLOCK_TICK
+                        } else if (Build.VERSION.SDK_INT >= 30 && feedback == "success") {
                             HapticFeedbackConstants.CONFIRM
                         } else if (Build.VERSION.SDK_INT >= 30 && feedback == "error") {
                             HapticFeedbackConstants.REJECT

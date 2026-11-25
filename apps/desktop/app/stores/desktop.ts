@@ -254,11 +254,11 @@ export const useDesktopStore = defineStore("desktop", () => {
   function snapshot(value: UserConfig): UserConfig {
     return JSON.parse(JSON.stringify(value))
   }
-  const save = (value: UserConfig) => {
+  const save = (value: UserConfig, feedbackOnly = false) => {
     const baseline = snapshot(config.value),
       draft = snapshot(value)
-    return enqueueConfig(() =>
-      action(async () => {
+    return enqueueConfig(async () => {
+      const write = async () => {
         configRevision++
         const next = await management<UserConfig>({
           action: "saveConfig",
@@ -266,8 +266,16 @@ export const useDesktopStore = defineStore("desktop", () => {
         })
         configRevision++
         config.value = next
-      }),
-    )
+      }
+      if (!feedbackOnly) return action(write)
+      try {
+        await write()
+        return true
+      } catch (cause) {
+        error.value = cause
+        return false
+      }
+    })
   }
   function reorderInstance(id: string, direction: -1 | 1) {
     return enqueueConfig(async () => {

@@ -486,7 +486,8 @@ p {
   margin-bottom: 24px;
   background: #1a1a1d;
 }
-.desktop-shell[data-initializing="true"] {
+.desktop-shell:not(.native-windows-shell)[data-initializing="true"],
+.native-windows-shell[data-initializing="true"] .workspace-scroll {
   visibility: hidden;
 }
 body:has(.desktop-shell[data-initializing="true"]) :is(.tour-spotlight, .tour-popover) {

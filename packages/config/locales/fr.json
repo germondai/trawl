@@ -1,6 +1,8 @@
 {
   "ui.interactionSounds": "Sons de l’interface",
+  "ui.interactionSoundsDescription": "Émet de courts sons lors de la navigation, de l’ouverture des commandes et des résultats de requêtes.",
   "ui.hapticFeedback": "Retour haptique",
+  "ui.hapticFeedbackDescription": "Fournit un retour tactile pour la navigation et les requêtes sur les appareils compatibles.",
   "ui.trawlIsAvailable": "TRAWL {p0} est disponible",
   "ui.installItFromAppSettings": "Installez-la dans les paramètres de l’application.",
   "ui.appSettings": "Paramètres de l’application",

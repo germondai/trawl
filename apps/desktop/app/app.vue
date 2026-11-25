@@ -13,6 +13,8 @@ import { newWorkbenchDraft, replacesWorkbenchDraft } from "~/utils/workbench"
 
 const desktop = useDesktopStore()
 const feedback = useInteractionFeedback()
+useInteractionAudioActivation()
+useScrollEdgeFeedback()
 const initializing = shallowRef(desktop.native)
 let initialized = false
 const appUpdates = useAppUpdates()
@@ -33,6 +35,7 @@ watch(
 const downloads = useBrowserDownloadsStore()
 const macOS = /Mac/.test(navigator.platform)
 const nativeMac = desktop.native && macOS
+const nativeWindows = desktop.native && /^Win/.test(navigator.platform)
 const nativeShortcuts = nativeMac || desktop.mobile
 let historyGesture: ReturnType<typeof installNativeHistoryGesture> | undefined
 let historyPhase: UnlistenFn | undefined
@@ -41,7 +44,12 @@ onMounted(async () => {
   historyGesture = installNativeHistoryGesture({
     enabled: () => !phone.value && !document.querySelector('[role="dialog"],[data-shortcut-recording]'),
     canNavigate: (direction) => (direction === "back" ? canBack.value : canForward.value),
-    navigate: (direction) => move(direction === "back" ? -1 : 1),
+    preview: nativeMac ? previewHistory : undefined,
+    onThreshold: nativeMac ? () => feedback("gesture", false) : undefined,
+    navigate: (direction) => {
+      if (nativeMac) previewHistory(direction, 0, true)
+      move(direction === "back" ? -1 : 1, nativeMac)
+    },
   })
   if (nativeMac)
     historyPhase = await listen<HistoryGesturePhase>("trawl:history-gesture-phase", ({ payload }) =>
@@ -55,7 +63,7 @@ onBeforeUnmount(() => {
 const kbds = useShortcutKeys()
 const quitKeys = computed(() => kbds("quit"))
 const navigation = provideNavigationSteps()
-usePopupNavigation(navigation)
+usePopupNavigation(navigation, (open) => feedback(open ? "open" : "close"))
 useCustomScrollbars()
 const { canBack, canForward } = navigation
 const workbench = useWorkbenchStore()
@@ -71,24 +79,29 @@ function acceptDiscard() {
   pendingAction.value = null
   action?.()
 }
-function move(direction: -1 | 1) {
+function move(direction: -1 | 1, trackpad = false) {
   const next = navigation.peek(direction)
-  if (next) moveTo(next.id)
+  if (next) moveTo(next.id, trackpad)
 }
-function moveTo(id: number) {
+function moveTo(id: number, trackpad = false) {
   const next = navigation.find(id)
   if (!next) return
   const apply = () => {
-    if (navigation.current.value.id === id) return
+    const before = navigation.current.value
+    if (before.id === id) return
+    const changedPage = next.page !== before.page
+    if (nativeMac && !trackpad && changedPage) feedback("gesture")
     navigation.go(id)
-    feedback("navigate")
+    if (changedPage && (!nativeMac || trackpad)) feedback("navigate", true, !trackpad)
   }
   if (next.page !== page.value) guard(apply)
   else apply()
 }
 useBrowserNavigation(navigation, moveTo)
 const sidebarOpen = shallowRef(false)
+watch(sidebarOpen, (open) => feedback(open ? "sidebar-open" : "sidebar-close"))
 const sidebarCollapsed = shallowRef(false)
+watch(sidebarCollapsed, (collapsed) => feedback(collapsed ? "sidebar-close" : "sidebar-open"))
 const sidebarHidden = computed(
   () => sidebarCollapsed.value && desktop.config.desktop.sidebarBehavior === "hide" && !onboardingOpen.value,
 )
@@ -223,12 +236,14 @@ useEventListener(
 )
 const workspacePane = useTemplateRef<HTMLElement>("workspacePane")
 const workspaceScroll = useTemplateRef<HTMLElement>("workspaceScroll")
-useAndroidPredictiveBack({
-  enabled: () => desktop.mobile,
-  animate: () => phone.value && !initializing.value && !desktop.settingsDirty,
+const previewHistory = usePredictiveBack({
+  enabled: desktop.mobile || nativeMac,
+  android: desktop.mobile,
+  animate: () =>
+    (nativeMac || phone.value) && !initializing.value && !desktop.settingsDirty && !document.fullscreenElement,
   workspace: () => workspacePane.value,
   current: () => navigation.current.value,
-  previous: () => navigation.peek(-1),
+  destination: (direction) => navigation.peek(direction === "back" ? -1 : 1),
   navigate: () => move(-1),
 })
 const { top: scrollToTop } = useWorkspaceScroll(workspaceScroll)
@@ -323,6 +338,8 @@ watch(
 )
 function navigate(next: Page) {
   if (next === page.value) {
+    if ((workspaceScroll.value?.scrollTop ?? 0) > 0) scrollToTop()
+    feedback("active")
     sidebarOpen.value = false
     return
   }
@@ -349,6 +366,7 @@ function newRequest() {
   guard(() => {
     if (replacesWorkbenchDraft(workbench.draft, newWorkbenchDraft())) addRequestTab()
     navigation.visit("workbench", { "workbench-tab": workbench.activeTabId })
+    feedback("navigate")
     sidebarOpen.value = false
   })
 }
@@ -490,6 +508,7 @@ async function close(behavior: "tray" | "quit", rememberChoice = false) {
         data-native-window-chrome
         :class="{
           'native-mac': nativeMac,
+          'native-windows-shell': nativeWindows,
           'phone-layout': phone,
           'television-layout': television,
           'sidebar-fully-hidden': sidebarHidden,
@@ -501,7 +520,7 @@ async function close(behavior: "tray" | "quit", rememberChoice = false) {
           v-model:collapsed="sidebarCollapsed"
           :hidden="sidebarHidden"
           :page="page"
-          @navigate="(next) => (next === 'workbench' ? newRequest() : navigate(next))"
+          @navigate="(next) => (next === 'workbench' && page !== 'workbench' ? newRequest() : navigate(next))"
           @select="selectInstance"
           @search="openCommands"
         />

@@ -15,8 +15,8 @@
     "quitBehavior": "hold",
     "appVisibility": "dock-and-tray",
     "smoothScroll": true,
-    "interactionSounds": false,
-    "hapticFeedback": false,
+    "interactionSounds": true,
+    "hapticFeedback": true,
     "liveActivities": true,
     "sidebarBehavior": "collapse",
     "keybindings": {

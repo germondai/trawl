@@ -14,6 +14,51 @@ const wheel = (deltaX: number, deltaY = 0, extra = {}) => ({
 })
 const allowed = () => false
 
+test("the trackpad signals a reached edge before release and never repeats while held there", () => {
+  for (const direction of [-1, 1]) {
+    const events: string[] = []
+    const gesture = createHistoryGesture({
+      enabled: () => true,
+      canNavigate: () => true,
+      feedback: () => {},
+      onThreshold: () => events.push("edge"),
+      navigate: (value) => events.push(value),
+    })
+    gesture.phase("begin")
+    gesture.wheel(wheel(direction * 100), allowed)
+    expect(events).toEqual([])
+    gesture.wheel(wheel(direction * 30), allowed)
+    gesture.wheel(wheel(direction * 30), allowed)
+    expect(events).toEqual(["edge"])
+    gesture.wheel(wheel(-direction * 50), allowed)
+    gesture.phase("end")
+    expect(events).toEqual(["edge"])
+  }
+})
+
+test("forward preview progresses and retreats without committing when the swipe is cancelled", () => {
+  const progress: [HistoryDirection | null, number][] = []
+  const commits: HistoryDirection[] = []
+  const gesture = createHistoryGesture({
+    enabled: () => true,
+    canNavigate: (direction) => direction === "forward",
+    feedback: (direction, fraction) => progress.push([direction, fraction]),
+    navigate: (direction) => commits.push(direction),
+  })
+  gesture.phase("begin")
+  gesture.wheel(wheel(73), allowed)
+  gesture.wheel(wheel(45), allowed)
+  gesture.wheel(wheel(-45), allowed)
+  gesture.phase("cancel")
+  expect(progress).toEqual([
+    ["forward", 0.5],
+    ["forward", 1],
+    ["forward", 0.5],
+    [null, 0],
+  ])
+  expect(commits).toEqual([])
+})
+
 function fixture() {
   const navigations: HistoryDirection[] = []
   let enabled = true,

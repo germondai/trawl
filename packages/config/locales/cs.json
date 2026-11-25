@@ -1,6 +1,8 @@
 {
   "ui.interactionSounds": "Zvuky rozhraní",
+  "ui.interactionSoundsDescription": "Přehrává krátké zvuky při navigaci, otevírání ovládacích prvků a dokončení požadavků.",
   "ui.hapticFeedback": "Haptická odezva",
+  "ui.hapticFeedbackDescription": "Při navigaci a práci s požadavky poskytuje hmatovou odezvu na podporovaných zařízeních.",
   "ui.trawlIsAvailable": "TRAWL {p0} je k dispozici",
   "ui.installItFromAppSettings": "Nainstaluj jej v nastavení aplikace.",
   "ui.appSettings": "Nastavení aplikace",

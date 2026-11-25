@@ -1,6 +1,8 @@
 {
   "ui.interactionSounds": "Interaktionstöne",
+  "ui.interactionSoundsDescription": "Spielt kurze Töne bei der Navigation, beim Öffnen von Bedienelementen und bei Anfrageergebnissen ab.",
   "ui.hapticFeedback": "Haptisches Feedback",
+  "ui.hapticFeedbackDescription": "Gibt bei der Navigation und bei Anfragen haptische Rückmeldung auf unterstützten Geräten.",
   "ui.trawlIsAvailable": "TRAWL {p0} ist verfügbar",
   "ui.installItFromAppSettings": "Installiere das Update in den App-Einstellungen.",
   "ui.appSettings": "App-Einstellungen",

@@ -42,9 +42,10 @@ export const useWorkbenchStore = defineStore("workbench", () => {
   }
   function moveTab(id: string, index: number) {
     const from = tabs.value.findIndex((tab) => tab.id === id)
-    if (from < 0 || index < 0 || index >= tabs.value.length || from === index) return
+    if (from < 0 || index < 0 || index >= tabs.value.length || from === index) return false
     const [tab] = tabs.value.splice(from, 1)
     if (tab) tabs.value.splice(index, 0, tab)
+    return Boolean(tab)
   }
   watch(
     () => desktop.activeId,

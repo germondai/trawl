@@ -6,6 +6,7 @@ let capabilityFailures = 0
 let capabilityReads = 0
 let localStatus = { running: false, ready: false }
 let healthReads = 0
+let releaseSave: (() => void) | undefined
 const capabilities = {
   version: 1,
   authentication: "bearer",
@@ -37,11 +38,23 @@ const metrics = {
 mock.module("@tauri-apps/api/core", () => ({
   isTauri: () => true,
   Channel: class {},
-  invoke: async (command: string, request: { instanceId: string; path: string; request?: { action: string } }) => {
+  invoke: async (
+    command: string,
+    request: { instanceId: string; path: string; request?: { action: string; config?: unknown } },
+  ) => {
     if (command === "instance_status") return localStatus
     if (command === "server_start") throw "Local server stopped during startup. Check Logs for details."
     if (command === "management") {
-      if (request.request?.action === "stop") return (localStatus = { running: false, ready: false })
+      if (request.request?.action === "stop") {
+        localStatus = { running: false, ready: false }
+        return localStatus
+      }
+      if (request.request?.action === "saveConfig") {
+        await new Promise<void>((resolve) => {
+          releaseSave = resolve
+        })
+        return request.request.config
+      }
       throw new Error("Fixture configuration is unavailable")
     }
     if (request.path === "/health" && request.instanceId === "local") {
@@ -61,6 +74,21 @@ mock.module("@tauri-apps/api/core", () => ({
   },
 }))
 const { useDesktopStore } = await import("../app/stores/desktop")
+test("saving sound preferences leaves the server stop action available", async () => {
+  setActivePinia(createPinia())
+  const store = useDesktopStore()
+  const config = emptyConfig()
+  config.desktop.interactionSounds = false
+  const saving = store.save(config, true)
+  await Promise.resolve()
+  expect(releaseSave).toBeDefined()
+  expect(store.busy).toBe(false)
+  expect(await store.stop()).toBe(true)
+  releaseSave?.()
+  releaseSave = undefined
+  expect(await saving).toBe(true)
+  expect(store.config.desktop.interactionSounds).toBe(false)
+})
 test("a local instance warming up does not display a transient HTTP 503 alert", async () => {
   setActivePinia(createPinia())
   const store = useDesktopStore()

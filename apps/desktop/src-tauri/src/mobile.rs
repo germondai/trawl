@@ -268,6 +268,9 @@ pub(super) async fn interaction_haptic(
     feedback: crate::InteractionFeedback,
 ) -> Result<(), String> {
     let feedback = match feedback {
+        crate::InteractionFeedback::Edge => "edge",
+        crate::InteractionFeedback::Gesture => "navigate",
+        crate::InteractionFeedback::Reorder => "reorder",
         crate::InteractionFeedback::Press => "press",
         crate::InteractionFeedback::Navigate => "navigate",
         crate::InteractionFeedback::Success => "success",

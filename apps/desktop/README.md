@@ -57,7 +57,7 @@ Requests supports centered pagination and server-side search, source/result/tier
 
 Server access, limits and configuration are documented in [the observability API reference](../docs/api-reference/observability.md). Native targets must pass platform CI, installer and macOS/Windows signing checks before public distribution.
 
-Manual Windows builds produce an NSIS setup and a portable ZIP. To run the ZIP, extract the entire `TRAWL` folder and open `TRAWL.exe`. The ZIP requires Microsoft Edge WebView2 Runtime. Both variants use the same Windows user profile for settings and local browser data.
+Manual Windows builds produce the branded NSIS setup.
 
 New request supports up to eight draft tabs per instance (four instances in memory). Switching tabs stops waiting and clears the response view; request fields remain until a tab or the app window closes. Reset and closing a nonempty tab require confirmation. A dedicated sidebar action and the floating plus button open a request without replacing another draft. Captured server history is separate from these temporary tabs.
 

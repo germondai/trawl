@@ -112,6 +112,9 @@ async fn app_locale(app: tauri::AppHandle) -> Result<String, String> {
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum InteractionFeedback {
+    Edge,
+    Gesture,
+    Reorder,
     Press,
     Navigate,
     Success,
@@ -134,10 +137,11 @@ async fn interaction_haptic(
             NSHapticFeedbackPerformer,
         };
         let pattern = match feedback {
-            InteractionFeedback::Press | InteractionFeedback::Error => {
+            InteractionFeedback::Edge => return Ok(()),
+            InteractionFeedback::Gesture | InteractionFeedback::Reorder => NSHapticFeedbackPattern::Alignment,
+            InteractionFeedback::Press | InteractionFeedback::Navigate | InteractionFeedback::Error => {
                 NSHapticFeedbackPattern::Generic
             }
-            InteractionFeedback::Navigate => NSHapticFeedbackPattern::Alignment,
             InteractionFeedback::Success => NSHapticFeedbackPattern::LevelChange,
         };
         app.run_on_main_thread(move || {

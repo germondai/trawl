@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Add optional interaction sounds and native haptic feedback for Android and compatible Mac trackpads.
-- Produce a portable Windows ZIP alongside the installer in manual native builds.
+- Add interaction sounds and native haptic feedback for Android and compatible Mac trackpads, with independent controls in App settings.
+- Give light tactile feedback at Android scroll boundaries, on request-tab reordering, and when a macOS trackpad history preview reaches its edge. Preview both directions during macOS trackpad swipes.
 
 - Preview previous app pages during Android Predictive Back and restore the current page when the gesture is cancelled.
 

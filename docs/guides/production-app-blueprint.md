@@ -205,6 +205,16 @@ Na mobilu nech animaci Zpět sledovat průběh systémového tahu. Pokud má apl
 
 Na kořeni uvolni gesto systému. Na Androidu 14 a novějším může aplikace využít průběh gesta pro vlastní přechod. Tlačítko Zpět, starší Android, omezený pohyb a chybějící náhled mají zachovat funkční návrat bez průběžné animace. Testuj také obě hrany, klávesnici, otevřenou vrstvu a neuložené změny. Viz [katalog G12](trawl-interaction-catalog.md#g12-android-predictive-back) a [Android Developers](https://developer.android.com/guide/navigation/custom-back/support-animations-views).
 
+### Prediktivní navigace na trackpadu
+
+Na macOS může stejný náhled sledovat směr Zpět i Vpřed. Historii změň po uvolnění prstů a dosažení prahu. Při zrušení vrať aktuální stránku na místo se stejným obsahem a scrollem. Vodorovně posuvný kontejner si ponechává gesto, které v něm začalo. Ověř obě strany a zrušení na fyzickém trackpadu. [Katalog G01–G04 a G12](trawl-interaction-catalog.md#gesta)
+
+### Zvuk a haptika
+
+Nabídni samostatné přepínače s názvem a popisem. Ukládání těchto preferencí nemá blokovat jiné akce v aplikaci. Zvuk i haptika doplňují viditelnou odezvu a mohou fungovat nezávisle.
+
+Rozliš tichý tón při změně stránky, kliknutí na aktivní položku a dvojice tónů pro otevření a zavření sidebaru a překryvných vrstev. Při návratu mezi kroky uvnitř jedné stránky vynech tón přechodu. U prediktivního tahu na trackpadu dej jeden pulz při dosažení hrany náhledu, ještě před puštěním. Pulz označuje dosažený práh, takže tah jde dál vrátit. Při puštění pulz neopakuj. U tabů dej pulz za skutečný přesun. U scrollu použij nejjemnější dostupný pulz jen na platformách, kde je přínosný. Ověř, že se neopakuje při tlačení do stejného okraje. [Katalog G13](trawl-interaction-catalog.md#g13-zvuk-a-haptika)
+
 ### Příkazy a zkratky
 
 Menu, toolbar, tray, command palette a klávesnice volají stejnou akci se stejnou dostupností. Registr příkazů nese ID, lokalizovaný název, rozsah, klávesovou kombinaci, dostupnost a obsluhu. Produktová logika se nekopíruje do pěti handlerů.

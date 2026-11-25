@@ -1,6 +1,8 @@
 {
   "ui.interactionSounds": "Interaction sounds",
+  "ui.interactionSoundsDescription": "Play a short sound for navigation, opened controls and request results.",
   "ui.hapticFeedback": "Haptic feedback",
+  "ui.hapticFeedbackDescription": "Give tactile feedback for navigation and requests on supported devices.",
   "ui.trawlIsAvailable": "TRAWL {p0} is available",
   "ui.installItFromAppSettings": "Install it from App settings.",
   "ui.appSettings": "App settings",
