@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { EventEmitter } from "node:events"
 import type { Page } from "patchright"
 import { audioLanguage, solveDataDome } from "../src/solvers/datadome"
 
@@ -14,7 +15,7 @@ const clip = (n: number) => `https://dd.prod.captcha-delivery.com/audio/2026-11-
 const GOOD = "please type the numbers you hear 5 8. 9. 2. 4. 4."
 
 // "gone": the wall left the page. "restricted": DataDome swapped the widget for its access-restricted page.
-type Verdict = "accept" | "reject" | "gone" | "restricted" | "restricted-inline" | "swapped"
+type Verdict = "accept" | "reject" | "gone" | "restricted" | "restricted-inline" | "swapped" | "restricted-main"
 
 // No pauses: the pacing is a human-likeness concern, not something the loop logic depends on.
 const NO_PACE: { typing: [number, number]; keystroke: [number, number]; submit: [number, number]; settle: number } = {
@@ -42,9 +43,18 @@ function fakeWidget(
     restrictedWhilePlaying?: boolean
     // Toggle clicks that do nothing, the way a click landing on the animating button does.
     ignoredToggleClicks?: number
+    navigateAfterSubmit?: boolean
+    navigateOnFocus?: boolean
+    topLevelWidget?: boolean
+    navigateBeforeSubmit?: boolean
+    navigateOnSubmitPress?: boolean
+    navigateOnReload?: boolean
   } = {},
 ) {
+  const events = new EventEmitter()
   const log: string[] = []
+  const pointer: string[] = []
+  let pointerPressed = false
   const typed: string[] = []
   // Key presses, in order, and the digit box that had the focus when each one arrived.
   const keystrokes: string[] = []
@@ -63,7 +73,7 @@ function fakeWidget(
   const srcOf = () => (options.audioHost ? `https://${options.audioHost}/a.wav` : clip(state.clip))
 
   const visible = (selector: string) => {
-    if (options.present === false) return false
+    if (options.present === false || state.inline) return false
     if (selector === AUDIO_BUTTON) return !state.audio
     if (selector === INPUTS) return state.audio
     return false
@@ -75,11 +85,16 @@ function fakeWidget(
       if (ignoredToggles > 0) ignoredToggles--
       else state.audio = true
     }
-    if (selector === RELOAD) state.clip++
+    if (selector === RELOAD) {
+      state.clip++
+      if (options.navigateOnReload) events.emit("framenavigated", frame)
+    }
     if (selector === SUBMIT) {
       const verdict = verdicts.shift() ?? "reject"
       if (verdict === "accept") state.passed = true
-      else if (verdict === "restricted-inline") {
+      else if (verdict === "restricted-main") {
+        state.inline = true
+      } else if (verdict === "restricted-inline") {
         // The widget flags the pass and then swaps its own content for the restricted page.
         state.passed = true
         state.inline = true
@@ -93,7 +108,20 @@ function fakeWidget(
         state.detached = true
         state.restricted = true
       } else state.clip++
+      if (options.navigateAfterSubmit) events.emit("framenavigated", mainFrame)
     }
+  }
+
+  const clickElement = async (selector: string, index: number, bound = false) => {
+    if (selector === SUBMIT && options.navigateBeforeSubmit) {
+      events.emit("framenavigated", frame)
+      if (bound) throw new Error("Element is not attached to the DOM")
+    }
+    // Focusing a digit box is not one of the controls the log tracks.
+    if (selector === INPUTS) {
+      focused = index
+      if (options.navigateOnFocus) events.emit("framenavigated", frame)
+    } else click(selector)
   }
 
   const locator = (selector: string, index = 0): unknown => ({
@@ -102,11 +130,14 @@ function fakeWidget(
     isVisible: async () => visible(selector),
     count: async () => (selector === PASSED && state.passed ? 1 : 0),
     getAttribute: async (name: string) => (selector === AUDIO_TRACK && name === "src" ? srcOf() : null),
-    click: async () => {
-      // Focusing a digit box is not one of the controls the log tracks.
-      if (selector === INPUTS) focused = index
-      else click(selector)
-    },
+    click: () => clickElement(selector, index),
+    elementHandle: async () => ({
+      click: () => clickElement(selector, index, true),
+      scrollIntoViewIfNeeded: async () => {},
+      boundingBox: async () => ({ x: 40, y: 180, width: 80, height: 30 }),
+      isVisible: async () => true,
+      dispose: async () => {},
+    }),
     textContent: async () => (state.inline ? "O acesso está temporariamente restrito" : "Digite os números"),
   })
 
@@ -125,7 +156,7 @@ function fakeWidget(
       }
       return true
     },
-    url: () => "https://geo.captcha-delivery.com/captcha/",
+    url: () => (options.topLevelWidget ? "https://www.thefork.com/" : "https://geo.captcha-delivery.com/captcha/"),
   }
   // What DataDome puts in the replacement iframe once it has turned an answer away.
   const restrictedWall = {
@@ -136,7 +167,27 @@ function fakeWidget(
     isDetached: () => false,
     url: () => "https://geo.captcha-delivery.com/captcha/",
   }
+  const mainFrame = options.topLevelWidget ? frame : idle("https://www.thefork.com/")
   const page = {
+    on: events.on.bind(events),
+    off: events.off.bind(events),
+    mainFrame: () => mainFrame,
+    mouse: {
+      move: async () => {
+        pointer.push("move")
+        if (options.navigateBeforeSubmit) events.emit("framenavigated", frame)
+      },
+      down: async () => {
+        pointer.push("down")
+        pointerPressed = true
+        if (options.navigateOnSubmitPress) events.emit("framenavigated", frame)
+      },
+      up: async () => {
+        pointer.push("up")
+        if (pointerPressed && !options.navigateOnSubmitPress) click(SUBMIT)
+        pointerPressed = false
+      },
+    },
     keyboard: {
       type: async (text: string) => {
         keystrokes.push(text)
@@ -146,14 +197,16 @@ function fakeWidget(
     frames: () =>
       state.detached
         ? [
-            idle("https://www.thefork.com/"),
+            mainFrame,
             ...(state.restricted ? [idle("https://geo.captcha-delivery.com/captcha/")] : []),
             ...(state.swapped ? [restrictedWall] : []),
           ]
-        : [idle("https://www.thefork.com/"), frame],
+        : options.topLevelWidget
+          ? [frame]
+          : [mainFrame, frame],
   } as unknown as Page
 
-  return { page, log, typed, keystrokes, state }
+  return { page, log, typed, keystrokes, state, events, frame, pointer }
 }
 
 function recogniser(transcripts: Array<string | undefined>) {
@@ -172,6 +225,92 @@ const download = async (_page: Page, url: string) => {
 }
 
 describe("DataDome audio solver", () => {
+  test.each(["main", "widget", "detach"])("does not type a stale transcript after %s navigation", async (mode) => {
+    const widget = fakeWidget()
+    let transcriptionSignal: AbortSignal | undefined
+    const solved = await solve(
+      widget.page,
+      5000,
+      undefined,
+      async (_bytes, signal) => {
+        transcriptionSignal = signal
+        widget.events.emit(
+          mode === "detach" ? "framedetached" : "framenavigated",
+          mode === "main" ? widget.page.mainFrame() : widget.frame,
+        )
+        return GOOD
+      },
+      download,
+    )
+    expect(solved).toBe(false)
+    expect(transcriptionSignal?.aborted).toBe(true)
+    expect(widget.keystrokes).toEqual([])
+    expect(widget.log).not.toContain(`click:${SUBMIT}`)
+    expect(widget.events.listenerCount("framenavigated")).toBe(0)
+    expect(widget.events.listenerCount("framedetached")).toBe(0)
+  })
+
+  test("does not type when focusing a digit box navigates the widget", async () => {
+    const widget = fakeWidget({ navigateOnFocus: true })
+    expect(await solve(widget.page, 5000, undefined, recogniser([GOOD]).fn, download)).toBe(false)
+    expect(widget.keystrokes).toEqual([])
+    expect(widget.log).not.toContain(`click:${SUBMIT}`)
+  })
+
+  test("stops entering digits when the document changes during typing", async () => {
+    const widget = fakeWidget()
+    const type = widget.page.keyboard.type.bind(widget.page.keyboard)
+    widget.page.keyboard.type = async (...args) => {
+      await type(...args)
+      widget.events.emit("framenavigated", widget.page.mainFrame())
+    }
+    expect(await solve(widget.page, 5000, undefined, recogniser([GOOD]).fn, download)).toBe(false)
+    expect(widget.keystrokes).toEqual(["5"])
+    expect(widget.log).not.toContain(`click:${SUBMIT}`)
+  })
+
+  test("keeps solving when an unrelated frame navigates", async () => {
+    const widget = fakeWidget()
+    expect(
+      await solve(
+        widget.page,
+        5000,
+        undefined,
+        async () => {
+          widget.events.emit("framenavigated", {})
+          return GOOD
+        },
+        download,
+      ),
+    ).toBe(true)
+    expect(widget.keystrokes).toHaveLength(6)
+    expect(widget.events.listenerCount("framenavigated")).toBe(0)
+    expect(widget.events.listenerCount("framedetached")).toBe(0)
+  })
+
+  test("does not retarget the submit control when pointer movement navigates before the click", async () => {
+    const widget = fakeWidget({ navigateBeforeSubmit: true })
+    expect(await solve(widget.page, 5000, undefined, recogniser([GOOD]).fn, download)).toBe(false)
+    expect(widget.log).not.toContain(`click:${SUBMIT}`)
+    expect(widget.pointer).toEqual(["move"])
+  })
+
+  test("releases without submitting when pressing Verify navigates", async () => {
+    const widget = fakeWidget({ navigateOnSubmitPress: true })
+    expect(await solve(widget.page, 5000, undefined, recogniser([GOOD]).fn, download)).toBe(false)
+    expect(widget.pointer).toEqual(["move", "down", "up"])
+    expect(widget.log).not.toContain(`click:${SUBMIT}`)
+  })
+
+  test("keeps solving a new puzzle when its requested reload navigates the widget", async () => {
+    const widget = fakeWidget({ navigateOnReload: true })
+    const stt = recogniser(["1 2 3 4 5", GOOD])
+    expect(await solve(widget.page, 5000, undefined, stt.fn, download)).toBe(true)
+    expect(stt.files).toHaveLength(2)
+    expect(widget.log.filter((entry) => entry === `click:${RELOAD}`)).toHaveLength(1)
+    expect(widget.log.filter((entry) => entry === `click:${SUBMIT}`)).toHaveLength(1)
+  })
+
   test("never submits when cancelled during the pre-submit pause", async () => {
     const widget = fakeWidget()
     const request = new AbortController()
@@ -257,7 +396,7 @@ describe("DataDome audio solver", () => {
   })
 
   test("counts the wall leaving the page after an answer as solved", async () => {
-    const widget = fakeWidget({ verdicts: ["gone"] })
+    const widget = fakeWidget({ verdicts: ["gone"], navigateAfterSubmit: true })
 
     expect(await solve(widget.page, 5000, undefined, recogniser([GOOD]).fn, download)).toBe(true)
   })
@@ -265,6 +404,11 @@ describe("DataDome audio solver", () => {
   test("does not count the access-restricted page that replaces the widget as solved", async () => {
     const widget = fakeWidget({ verdicts: ["restricted"] })
 
+    expect(await solve(widget.page, 5000, undefined, recogniser([GOOD]).fn, download)).toBe(false)
+  })
+
+  test("does not count main-document navigation to an access-restricted page as solved", async () => {
+    const widget = fakeWidget({ verdicts: ["restricted-main"], navigateAfterSubmit: true, topLevelWidget: true })
     expect(await solve(widget.page, 5000, undefined, recogniser([GOOD]).fn, download)).toBe(false)
   })
 
