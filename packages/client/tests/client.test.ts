@@ -292,34 +292,40 @@ describe("TRAWL client", () => {
     expect((await client.stats()).browsers).toBe(1)
   })
 
-  test("maps session handles and existing-session operations to the native API", async () => {
-    const session = { id: "owned-session", createdAt: 1, expiresAt: 1000, busy: false, keepPage: true }
-    const { client, requests } = fixture((request) => {
-      if (request.url.endsWith("/scrape")) return Response.json(page)
-      if (request.url.endsWith("/eval")) return Response.json({ value: "Owned title" })
-      if (request.url.endsWith("/cookies")) return Response.json({ cookies: [] })
-      if (request.method === "DELETE") return Response.json({ status: "ok" })
-      if (request.method === "POST") return Response.json(session)
-      return Response.json({ sessions: [session] })
-    })
-    const handle = await client.sessions.create({ keepPage: true })
-    expect(handle.id).toBe(session.id)
-    expect(handle.details).toEqual(session)
-    expect(await handle.scrape({ url: page.url })).toEqual(page)
-    expect(await handle.eval("document.title")).toBe("Owned title")
-    expect(await handle.cookies()).toEqual([])
-    await handle.close()
-    expect(await client.sessions.list()).toEqual([session])
-    expect(await client.sessions.eval(session.id, "document.title", { maxTimeout: 1000 })).toBe("Owned title")
-    expect(await requests[2]?.json()).toEqual({ expression: "document.title" })
-    expect(requests[4]?.method).toBe("DELETE")
-    expect(requests[1]?.url).toBe("https://api.example/prefix/sessions/owned-session/scrape")
-  })
+  test.each(["owned-session", "webstreamr_vixsrc.to"])(
+    "maps session handles and operations for %s to the native API",
+    async (id) => {
+      const session = { id, createdAt: 1, expiresAt: 1000, busy: false, keepPage: true }
+      const { client, requests } = fixture((request) => {
+        if (request.url.endsWith("/scrape")) return Response.json(page)
+        if (request.url.endsWith("/eval")) return Response.json({ value: "Owned title" })
+        if (request.url.endsWith("/cookies")) return Response.json({ cookies: [] })
+        if (request.method === "DELETE") return Response.json({ status: "ok" })
+        if (request.method === "POST") return Response.json(session)
+        return Response.json({ sessions: [session] })
+      })
+      const handle = await client.sessions.create({ keepPage: true })
+      expect(handle.id).toBe(session.id)
+      expect(handle.details).toEqual(session)
+      expect(await handle.scrape({ url: page.url })).toEqual(page)
+      expect(await handle.eval("document.title")).toBe("Owned title")
+      expect(await handle.cookies()).toEqual([])
+      await handle.close()
+      expect(await client.sessions.list()).toEqual([session])
+      expect(await client.sessions.eval(session.id, "document.title", { maxTimeout: 1000 })).toBe("Owned title")
+      expect(await requests[2]?.json()).toEqual({ expression: "document.title" })
+      expect(requests[4]?.method).toBe("DELETE")
+      expect(requests[1]?.url).toBe(`https://api.example/prefix/sessions/${id}/scrape`)
+      expect(requests[4]?.url).toBe(`https://api.example/prefix/sessions/${id}`)
+    },
+  )
 
   test("rejects conflicting session IDs and unsafe path segments before sending", async () => {
     const { client, requests } = fixture(() => Response.json(page))
     await expect(client.sessions.scrape("one", { url: page.url, sessionId: "two" })).rejects.toThrow("sessionId")
-    await expect(client.sessions.cookies("../health")).rejects.toThrow("session")
+    for (const id of ["../health", ".", "..", "a/b", "a\\b", "a".repeat(129), "a\n", "a b"]) {
+      await expect(client.sessions.cookies(id)).rejects.toThrow("session")
+    }
     expect(requests).toHaveLength(0)
   })
 

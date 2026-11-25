@@ -17,7 +17,7 @@ curl -X POST http://localhost:8191/sessions \
   -d '{"id":"account"}'
 ```
 
-The response is HTTP 201 with `{ "id": "account", "createdAt": 1770000000000, "expiresAt": 1770003600000, "busy": false, "keepPage": false }`. Timestamps are Unix milliseconds. IDs accept 1-128 ASCII letters, digits, underscores or hyphens.
+The response is HTTP 201 with `{ "id": "account", "createdAt": 1770000000000, "expiresAt": 1770003600000, "busy": false, "keepPage": false }`. Timestamps are Unix milliseconds. IDs accept 1-128 ASCII letters, digits, dots, underscores or hyphens. The IDs `.` and `..` are reserved because URL paths normalize those segments. Names are preserved exactly; `account.example` and `account_example` identify different sessions.
 
 Creation options:
 

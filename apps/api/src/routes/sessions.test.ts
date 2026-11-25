@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test"
 import { FINGERPRINT } from "@trawl/browser"
-import { BrowserSessions, type OrchestratorDeps } from "@trawl/tiers"
+import { BrowserSessions, type OrchestratorDeps, type scrape } from "@trawl/tiers"
 import { Elysia } from "elysia"
 import { MetricsStore } from "../metrics"
 import { sessionsRoute } from "./sessions"
@@ -10,11 +10,13 @@ const cleanup: (() => Promise<void>)[] = []
 afterEach(async () => {
   await Promise.all(cleanup.splice(0).map((close) => close()))
 })
-function app() {
+function app(runScrape?: typeof scrape) {
+  let contextCount = 0
   // One browser per pool: the session manager pins a session's context to the
   // browser that created it and rejects a replacement.
   const browser = {
     newContext: async () => {
+      contextCount++
       const pageList: {
         closed: boolean
         evaluate(expression: string): Promise<unknown>
@@ -80,7 +82,7 @@ function app() {
   const deps = () => ({ sessions }) as OrchestratorDeps
   const api = new Elysia()
     .use(sessionsRoute(deps, () => true))
-    .use(v1Route({ poolReady: () => true, orchestratorDeps: deps, metricsStore: metrics }))
+    .use(v1Route({ poolReady: () => true, orchestratorDeps: deps, metricsStore: metrics, runScrape }))
   return {
     send: async (path: string, body?: unknown, method = body === undefined ? "GET" : "POST") => {
       const response = await api.handle(
@@ -94,6 +96,7 @@ function app() {
       return { status: response.status, body: await response.json() }
     },
     metrics,
+    contextCount: () => contextCount,
   }
 }
 
@@ -118,13 +121,70 @@ test("native and FlareSolverr lifecycle commands share sessions without adding s
   expect(metrics.snapshot().requests).toBe(0)
 })
 
+test("FlareSolverr requests create and reuse dotted sessions without aliasing underscores", async () => {
+  const id = "webstreamr_vixsrc.to"
+  const otherId = "webstreamr_vixsrc_to"
+  const { send, contextCount } = app(async (request) => {
+    expect(request.sessionId).toBe(id)
+    return {
+      url: request.url,
+      html: "<html><body>Owned session content</body></html>",
+      cookies: [],
+      userAgent: "fixture-agent",
+      statusCode: 200,
+      tier: 3,
+      sessionCached: false,
+      timings: [],
+      totalMs: 1,
+    }
+  })
+  for (const cmd of ["request.get", "request.post"]) {
+    expect(await send("/v1", { cmd, url: "https://fixture.example/", session: id })).toMatchObject({
+      status: 200,
+      body: { status: "ok", solution: { status: 200, response: "<html><body>Owned session content</body></html>" } },
+    })
+  }
+  expect(await send("/v1", { cmd: "sessions.create", session: id })).toMatchObject({
+    status: 200,
+    body: { session: id },
+  })
+  expect(contextCount()).toBe(1)
+  expect((await send(`/sessions/${id}/cookies`)).status).toBe(200)
+  expect((await send("/sessions", { id: otherId })).status).toBe(201)
+  expect((await send("/v1", { cmd: "sessions.list" })).body.sessions).toEqual([id, otherId])
+  expect(contextCount()).toBe(2)
+  expect((await send("/v1", { cmd: "sessions.destroy", session: id })).status).toBe(200)
+  expect((await send("/sessions")).body.sessions.map((session: { id: string }) => session.id)).toEqual([otherId])
+  expect((await send(`/sessions/${otherId}`, undefined, "DELETE")).status).toBe(200)
+  expect((await send("/sessions")).body.sessions).toEqual([])
+})
+
+test.each([".leading", "trailing.", "foo..bar", "a".repeat(128)])(
+  "native session lifecycle preserves ID %s",
+  async (id) => {
+    const { send } = app()
+    expect(await send("/sessions", { id })).toMatchObject({ status: 201, body: { id } })
+    expect((await send("/v1", { cmd: "sessions.list" })).body.sessions).toEqual([id])
+    expect((await send(`/sessions/${id}/cookies`)).status).toBe(200)
+    expect((await send(`/sessions/${id}`, undefined, "DELETE")).status).toBe(200)
+  },
+)
+
 test("invalid session input, duplicates, missing IDs and capacity return actionable errors", async () => {
   const { send } = app()
   for (const body of [
     [],
     null,
     { id: "" },
+    { id: "." },
+    { id: ".." },
     { id: "../private" },
+    { id: "a/b" },
+    { id: "a\\b" },
+    { id: "a\n" },
+    { id: "a\0b" },
+    { id: "a b" },
+    { id: "a".repeat(129) },
     { headful: "yes" },
     { ignoreCertificateErrors: 1 },
     { proxy: {} },
@@ -132,6 +192,11 @@ test("invalid session input, duplicates, missing IDs and capacity return actiona
     { proxy: "file:///tmp/local" },
   ]) {
     expect((await send("/sessions", body)).status).toBe(400)
+    if (body && "id" in body) {
+      for (const cmd of ["request.get", "sessions.create", "sessions.destroy"]) {
+        expect((await send("/v1", { cmd, url: "https://fixture.example/", session: body.id })).status).toBe(400)
+      }
+    }
   }
   expect((await send("/v1", { cmd: "sessions.destroy" })).status).toBe(400)
   expect((await send("/sessions/absent", undefined, "DELETE")).status).toBe(404)

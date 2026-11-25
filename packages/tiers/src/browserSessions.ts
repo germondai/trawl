@@ -34,8 +34,12 @@ interface Options {
 }
 
 export function validateSessionId(id: unknown): asserts id is string {
-  if (typeof id !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(id)) {
-    throw new RequestValidationError("session ID must contain 1-128 letters, numbers, underscores or hyphens", 400)
+  // URL paths normalize . and .. instead of treating them as session IDs.
+  if (typeof id !== "string" || !/^(?!\.{1,2}$)[a-zA-Z0-9._-]{1,128}$/.test(id)) {
+    throw new RequestValidationError(
+      "session ID must contain 1-128 letters, numbers, dots, underscores or hyphens and must not be . or ..",
+      400,
+    )
   }
 }
 
