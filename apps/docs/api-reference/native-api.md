@@ -58,6 +58,19 @@ When combined with `ignoreCertificateErrors`, a cross-host meta refresh can stil
 by the crossed-landing guard: its HTTP probe does not follow meta refreshes. This option does
 not relax that guard.
 
+### Response HTML and rendered content
+
+Tier 1 returns the response HTML without running page scripts. A successful HTTP
+response can contain embedded product data while the links or cards created by
+JavaScript are still absent from the DOM.
+
+For rendered HTML, set `skipHttp: true` and `contentWaitForSelector` to an element
+that identifies the content you need, such as `a[href*="/item/"]` for product links.
+The selector controls how long the browser waits; if it times out, TRAWL returns
+the current HTML, so check that the required content is present. Keep the HTTP
+path for requests that already contain the data you need. Use `captureResponses`
+when a known JSON endpoint provides that data directly.
+
 ### Fields
 
 | Field                       | Type     | Default  | Description                                                                                                                                                                                                                                                                                                                                               |

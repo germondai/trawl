@@ -25,6 +25,7 @@ import {
   isBlocked,
   isCloudflarePage,
   isExplicitChallengeRejection,
+  terminalResponseFailure,
 } from "../utils/detect"
 import { isGoogleSorryUrl } from "../utils/googleSorry"
 import { normalizeHtml } from "../utils/html"
@@ -502,6 +503,21 @@ async function runTier1Once(
         durationMs: Date.now() - start,
         reason: "google-sorry-challenge",
         challenge: "recaptcha",
+        responseHeaders,
+        contentType,
+        body: rawBytes,
+        statusCode: res.status,
+      }
+    }
+
+    const terminal = terminalResponseFailure(previewText, responseHeaders)
+    if (terminal) {
+      return {
+        tier: 1,
+        certificateError,
+        ...terminal,
+        durationMs: Date.now() - start,
+        effectiveUrl: currentUrl,
         responseHeaders,
         contentType,
         body: rawBytes,

@@ -62,6 +62,61 @@ function isActiveScript(script: Element): boolean {
   return isActiveElement(script) && (!type || /^(?:module|(?:text|application)\/(?:java|ecma)script)$/.test(type))
 }
 
+export function terminalResponseFailure(
+  html: string,
+  headers: Record<string, string> = {},
+): { status: "blocked"; reason: string } | { status: "error"; reason: string } | undefined {
+  if (hasCloudflareChallengeHeader(headers)) return
+  if (!/cf-error-details|access denied|verification required/i.test(html)) return
+  const { document } = parseHTML(html)
+  const live = (element: Element) => isActiveElement(element) && !element.closest("pre,code,blockquote,article")
+  const details = [...document.querySelectorAll("*")].find(
+    (element) => htmlAttribute(element, "id")?.toLowerCase() === "cf-error-details" && live(element),
+  )
+  if (details && !hasCloudflareChallengeScript(html, document)) {
+    const text = details.textContent ?? ""
+    const code = /error code\s*(52[0-6])\b/i.exec(text)?.[1]
+    if (code && /\bhost\s+error\b/i.test(text)) return { status: "error", reason: `cloudflare-origin-http-${code}` }
+  }
+
+  const title = [...document.querySelectorAll("title")].find(live)?.textContent?.trim() ?? ""
+  if (!/^(?:access denied|verification required)$/i.test(title)) return
+  const heading = [...document.querySelectorAll("h1")].find(live)?.textContent?.trim() ?? ""
+  const providerLink = [...document.querySelectorAll("a")].some((link) => {
+    if (!live(link)) return false
+    try {
+      return new URL(htmlAttribute(link, "href") ?? "").hostname === "errors.edgesuite.net"
+    } catch {
+      return false
+    }
+  })
+  const registrationForm = [...document.querySelectorAll("form")].some(
+    (form) =>
+      htmlAttribute(form, "action") !== undefined && live(form) && [...form.querySelectorAll("input")].some(live),
+  )
+  for (const element of document.querySelectorAll(
+    "head,script,style,template,noscript,textarea,pre,code,blockquote,article",
+  ))
+    element.remove()
+  const text = (document.body?.textContent ?? "").replace(/\s+/g, " ").trim()
+  // Provider evidence plus a short access wall; generic denial titles and article examples are content.
+  if (text.length > 2000) return
+  if (
+    /^access denied$/i.test(title) &&
+    /^access denied$/i.test(heading) &&
+    /you (?:don't|do not) have permission to access\b/i.test(text) &&
+    /\breference\s*#\s*[\w.]+/i.test(text) &&
+    (providerLink || /https?:\/\/errors\.edgesuite\.net\//i.test(text))
+  )
+    return { status: "blocked", reason: "akamai-access-denied" }
+  if (
+    /^verification required$/i.test(title) &&
+    registrationForm &&
+    /\brequires registration before automated access\b|\bregister for legitimate automated access\b/i.test(text)
+  )
+    return { status: "blocked", reason: "automated-access-verification-required" }
+}
+
 function hasCloudflareChallengeScript(html: string, document?: Document): boolean {
   if (!CLOUDFLARE_CHALLENGE_MARKERS.test(html)) return false
   const root = document ?? parseHTML(html).document
@@ -90,6 +145,7 @@ export const isCloudflareChallengeTitle = (title: string): boolean =>
 
 export function isCloudflarePage(html: string, headers: Record<string, string>): boolean {
   if (hasCloudflareChallengeHeader(headers)) return true
+  if (terminalResponseFailure(html, headers)?.status === "error") return false
   if (hasDdosGuardChallenge(html)) return false
   if (hasDuckDuckGoChallenge(html) || hasAnubisChallenge(html)) return false
   if (hasAltcha(html) || hasFriendlyCaptcha(html)) return false
@@ -439,6 +495,7 @@ export function detectChallengeType(
 }
 
 export function isBlocked(status: number, html: string): boolean {
+  if (terminalResponseFailure(html)?.status === "blocked") return true
   if (status === 403 || status === 429) return true
   if (isCloudflarePage(html, {})) return true
   if (hasImpervaChallenge(html)) return true

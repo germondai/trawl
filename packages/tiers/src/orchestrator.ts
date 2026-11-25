@@ -580,6 +580,7 @@ async function scrapeWithinBudget(
     if (ignoreCertificateErrors) certificateError = t1.certificateError
     const crossed1 = hasUsablePayload(t1) ? await refuseCrossed(t1.effectiveUrl, httpUserAgent, tier1Proxy) : undefined
     emit(crossed1 ? crossedTiming(t1, crossed1) : t1)
+    if (t1.status === "error" && t1.reason?.match(/^cloudflare-origin-http-52[0-6]$/)) throw failure(t1.reason)
     if (explicitProxy && t1.status === "error" && t1.reason?.startsWith("proxy-")) {
       throw new ScrapeError(t1.reason, timings)
     }
@@ -708,6 +709,7 @@ async function scrapeWithinBudget(
         ? await refuseCrossed(t2.effectiveUrl, session.userAgent, sessionProxy)
         : undefined
       emit(crossed2 ? crossedTiming(t2, crossed2) : t2)
+      if (t2.status === "error" && t2.reason?.match(/^cloudflare-origin-http-52[0-6]$/)) throw failure(t2.reason)
       if (hasUsablePayload(t2) && !crossed2) {
         if (t2.cookies && t2.cookies.length > 0) {
           await deps.saveSession(cacheKey, {
@@ -824,6 +826,7 @@ async function scrapeWithinBudget(
       }
       const crossed3 = hasUsablePayload(t3) ? await refuseCrossed(t3.effectiveUrl, t3.userAgent, proxy3) : undefined
       emit(crossed3 ? crossedTiming(t3, crossed3) : t3)
+      if (t3.status === "error" && t3.reason?.match(/^cloudflare-origin-http-52[0-6]$/)) throw failure(t3.reason)
       if (hasUsablePayload(t3) && !crossed3) {
         const cookies: Cookie[] = t3.cookies ?? []
         if (cookies.length > 0 && cacheAllowed) {

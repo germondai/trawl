@@ -20,6 +20,7 @@ import {
   isBlocked,
   isBrowserErrorPage,
   isCloudflarePage,
+  terminalResponseFailure,
 } from "../utils/detect"
 import { isGoogleSorryUrl } from "../utils/googleSorry"
 import { trackMainDocumentResponses } from "../utils/mainResponse"
@@ -121,6 +122,17 @@ async function runTier2Task(
       }
       html = await page.content()
     }
+    const terminal = terminalResponseFailure(html, mainResponse.headers)
+    if (terminal) {
+      if (terminal.status === "blocked")
+        await reportBlocked(
+          page,
+          capture.blockedEvidence,
+          { tier: 2, ...terminal, statusCode: mainResponse.status, html },
+          budget.remaining(),
+        )
+      return { tier: 2, ...terminal, durationMs: Date.now() - start }
+    }
     const anubis = hasAnubisChallenge(html)
     if (!anubis && !isBlocked(mainResponse.status, html)) {
       if (capture.anubisDetected) {
@@ -215,7 +227,7 @@ async function runTier2Task(
     }
 
     if (isBlocked(mainResponse.status, html)) {
-      const reason = `http-${mainResponse.status}`
+      const reason = terminalResponseFailure(html, mainResponse.headers)?.reason ?? `http-${mainResponse.status}`
       await reportBlocked(
         page,
         capture.blockedEvidence,
@@ -259,6 +271,17 @@ async function runTier2Task(
       shot,
       evidence,
     } = await captureBrowserDocument(page, capture, pageCapture, budget, screenshot)
+    const finalTerminal = terminalResponseFailure(finalHtml, mainResponse.headers)
+    if (finalTerminal) {
+      if (finalTerminal.status === "blocked")
+        await reportBlocked(
+          page,
+          capture.blockedEvidence,
+          { tier: 2, ...finalTerminal, statusCode: mainResponse.status, html: finalHtml, screenshot: shot },
+          budget.remaining(),
+        )
+      return { tier: 2, ...finalTerminal, durationMs: Date.now() - start }
+    }
     if (hasAnubisChallenge(finalHtml) || isAnubisVerificationUrl(page.url())) {
       const reason = "anubis-persistent"
       await reportBlocked(

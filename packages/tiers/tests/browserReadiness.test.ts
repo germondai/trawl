@@ -3,6 +3,7 @@ import type { BrowserHandle } from "@trawl/browser"
 import { runTier2 } from "../src/tiers/2"
 import { runTier3 } from "../src/tiers/3"
 import { runTier4 } from "../src/tiers/4"
+import { ACCESS_DENIED, CLOUDFLARE_ORIGIN_ERROR, VERIFICATION_REQUIRED } from "./fixtures/terminalResponses"
 
 const html = `<html><body>${"Ready document ".repeat(20)}</body></html>`
 
@@ -77,6 +78,40 @@ function fixture(anubisContent = true, documentHtml = html) {
 }
 
 describe("browser document readiness", () => {
+  for (const tier of [2, 3] as const) {
+    for (const late of [false, true]) {
+      test.each([
+        [ACCESS_DENIED, "blocked", "akamai-access-denied"],
+        [VERIFICATION_REQUIRED, "blocked", "automated-access-verification-required"],
+        [CLOUDFLARE_ORIGIN_ERROR, "error", "cloudflare-origin-http-522"],
+      ] as const)(
+        `Tier ${tier} rejects a terminal document (${late ? "after loading" : "on navigation"})`,
+        async (terminalHtml, status, reason) => {
+          const site = fixture(true, late ? html : terminalHtml)
+          if (late) {
+            let loaded = false
+            site.page.content = async () => (loaded ? terminalHtml : html)
+            site.page.waitForLoadState = async () => {
+              loaded = true
+            }
+          }
+          const result =
+            tier === 2
+              ? await runTier2(
+                  "https://fixture.example/",
+                  site.handle,
+                  { cookies: [], userAgent: "fixture-agent", savedAt: 1 },
+                  2000,
+                )
+              : await runTier3("https://fixture.example/", site.handle, 2000)
+          expect(result.status).toBe(status)
+          expect(result.reason).toBe(reason)
+          expect(site.closed()).toBe(1)
+        },
+      )
+    }
+  }
+
   for (const tier of [2, 3] as const) {
     test(`Tier ${tier} skips embedded verification only when requested`, async () => {
       const site = fixture(true, html.replace("</body>", '<div class="cf-turnstile"></div></body>'))

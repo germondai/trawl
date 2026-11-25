@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Accept dotted session IDs in `/v1`, native session APIs, MCP and the TypeScript client for hostname-based FlareSolverr clients (#310).
+- Reject recognized HTTP 200 access-denied and automated-access verification pages across HTTP and browser tiers.
+- Return known Cloudflare origin failures promptly instead of treating them as solvable challenges.
+- Report persistent provider challenges without asserting a datacenter IP diagnosis.
 
 ## [1.12.0] - 2026-11-23
 

@@ -15,6 +15,7 @@ suites=(
   apps/api/src/datadome.integration.test.ts
   apps/api/src/baxia.integration.test.ts
   apps/api/src/cloudflareFallback.integration.test.ts
+  apps/api/src/terminalResponses.integration.test.ts
   apps/api/src/externalCaptcha.integration.test.ts
   packages/browser/tests/metaRefresh.integration.test.ts
   packages/browser/tests/rawText.integration.test.ts
@@ -29,7 +30,7 @@ do
   memory_limit=1g
   runtime_user=0:0
   # Persistent contexts need headroom; the runtime memory guard may retire them.
-  if [[ "$suite" == apps/api/src/browserSessions.integration.test.ts || "$suite" == apps/api/src/shutdown.integration.test.ts ]]; then
+  if [[ "$suite" == apps/api/src/browserSessions.integration.test.ts || "$suite" == apps/api/src/shutdown.integration.test.ts || "$suite" == apps/api/src/terminalResponses.integration.test.ts ]]; then
     memory_limit=2g
   fi
   # Catch root-owned browser caches baked into runtime images.
@@ -51,6 +52,7 @@ do
     -e TRAWL_DATADOME_TESTS=1 \
     -e TRAWL_BAXIA_TESTS=1 \
     -e TRAWL_CLOUDFLARE_FALLBACK_TESTS=1 \
+    -e TRAWL_TERMINAL_RESPONSE_TESTS=1 \
     -e TRAWL_EXTERNAL_CAPTCHA_TESTS=1 \
     -e TRAWL_SHUTDOWN_TESTS=1 \
     -e TRAWL_POOL_RESOURCE_TESTS="${TRAWL_POOL_RESOURCE_TESTS:-0}" \
@@ -64,6 +66,8 @@ do
     -v "$repo_root/apps/api/src/datadome.integration.test.ts:/app/apps/api/src/datadome.integration.test.ts:ro" \
     -v "$repo_root/apps/api/src/baxia.integration.test.ts:/app/apps/api/src/baxia.integration.test.ts:ro" \
     -v "$repo_root/apps/api/src/cloudflareFallback.integration.test.ts:/app/apps/api/src/cloudflareFallback.integration.test.ts:ro" \
+    -v "$repo_root/apps/api/src/terminalResponses.integration.test.ts:/app/apps/api/src/terminalResponses.integration.test.ts:ro" \
+    -v "$repo_root/packages/tiers/tests/fixtures:/app/packages/tiers/tests/fixtures:ro" \
     -v "$repo_root/apps/api/src/externalCaptcha.integration.test.ts:/app/apps/api/src/externalCaptcha.integration.test.ts:ro" \
     -v "$repo_root/apps/api/src/poolResources.integration.test.ts:/app/apps/api/src/poolResources.integration.test.ts:ro" \
     --entrypoint bun "$image" test "$suite"

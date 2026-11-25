@@ -10,6 +10,7 @@ import {
   hasImpervaChallenge,
   isBlocked,
   isCloudflarePage,
+  terminalResponseFailure,
 } from "./detect"
 import { isGoogleSorryUrl } from "./googleSorry"
 
@@ -22,6 +23,8 @@ export function persistentBrowserWall(
   originalChallenge: ChallengeType,
   solved: readonly string[] = [],
 ): { reason: string; challenge?: "datadome" } | undefined {
+  const terminal = terminalResponseFailure(html, headers)
+  if (terminal?.status === "blocked") return { reason: terminal.reason }
   if (
     hasAnubisChallenge(html) ||
     isAnubisVerificationUrl(url) ||
