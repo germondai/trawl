@@ -76,7 +76,8 @@ describe("request logging", () => {
       true,
     )
     expect(lines.join("\n")).not.toMatch(/private|secret/)
-    expect(lines.some((line) => line.includes("wafIncompleteProducts=") && line.includes("Body provider"))).toBe(true)
+    expect(lines.some((line) => line.includes("wafIncompleteProductCount=1"))).toBe(true)
+    expect(lines.join("\n")).not.toContain("Body provider")
     expect(lines.some((line) => line.includes("wafDiagnostics=body_truncated"))).toBe(true)
     expect(store.snapshot().waf.providers).toEqual([{ product: "Cloudflare", requests: 2, failures: 1 }])
     store.close()
@@ -114,7 +115,11 @@ describe("request logging", () => {
     expect(JSON.stringify(store.snapshot())).not.toContain("private")
   })
 
-  test("logs a redacted start, each tier, and a success summary", async () => {
+  test.each([
+    { source: "native" as const },
+    { source: "proxy" as const },
+    { source: "proxy" as const, proxy: "http://user:secret@proxy.example:8080" },
+  ])("logs ingress and requested upstream routing separately: %j", async ({ source, proxy }) => {
     const lines: string[] = []
     const output = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)))
     const result: ScrapeResult = {
@@ -132,8 +137,8 @@ describe("request logging", () => {
     if (!attempt) throw new Error("missing test timing")
     try {
       await runLoggedScrape(
-        "native",
-        { url: "https://user:secret@example.com/page?token=secret" },
+        source,
+        { url: "https://user:secret@example.com/page?token=secret", proxy },
         { ...deps(), defaultMaxTimeout: 120000 },
         async (_request, tracedDeps) => {
           tracedDeps.onTierAttempt?.(attempt)
@@ -146,12 +151,54 @@ describe("request logging", () => {
     }
 
     expect(lines).toHaveLength(3)
-    expect(lines[0]).toContain("event=request.start request=abc123 source=native")
+    expect(lines[0]).toContain(`event=request.start request=abc123 source=${source}`)
+    expect(lines[0]).toContain(`upstreamProxyRequested=${Boolean(proxy)}`)
+    expect(lines[0]).not.toContain(" proxy=")
     expect(lines[0]).toContain("target=https://example.com/page")
     expect(lines[0]).toContain("timeoutMs=120000")
     expect(lines.join("\n")).not.toContain("secret")
     expect(lines[1]).toContain("event=tier.complete request=abc123 tier=1 status=success")
     expect(lines[2]).toContain("event=request.success request=abc123")
+  })
+
+  test("keeps exhaustive WAF incomplete-provider details at debug level for either outcome", () => {
+    const result = Bun.spawnSync({
+      cmd: [
+        process.execPath,
+        "-e",
+        `
+          import { ScrapeError } from "@trawl/tiers"
+          import { MetricsStore } from "./metrics.ts"
+          import { runLoggedScrape } from "./requestLogging.ts"
+          const store = new MetricsStore()
+          const waf = { engine: "wafmeow", state: "incomplete", products: [],
+            incompleteProducts: ["First provider", "Last provider"], sourceTier: 1, durationMs: 1 }
+          const output = { url: "https://example.com", html: "ok", cookies: [], userAgent: "test",
+            statusCode: 200, tier: 1, sessionCached: false, timings: [], totalMs: 1, waf }
+          try {
+            await runLoggedScrape("proxy", { url: output.url }, {}, async () => output, "debug-ok", store)
+            const error = new ScrapeError("challenge persisted", [])
+            error.waf = waf
+            await runLoggedScrape("proxy", { url: output.url }, {}, async () => { throw error },
+              "debug-error", store).catch(() => {})
+          } finally { store.close() }
+        `,
+      ],
+      cwd: import.meta.dir,
+      env: { ...process.env, LOG_LEVEL: "debug" },
+    })
+    expect(result.exitCode).toBe(0)
+    const lines = result.stdout.toString().split("\n")
+    for (const request of ["debug-ok", "debug-error"]) {
+      expect(
+        lines.some(
+          (line) =>
+            line.includes(`level=debug scope=scrape event=request.waf-details request=${request} source=proxy`) &&
+            line.includes('wafIncompleteProducts="First provider, Last provider"'),
+        ),
+      ).toBe(true)
+    }
+    expect(result.stderr.toString()).toContain('reason="challenge persisted"')
   })
 
   test("a fresh browser solve resets the Tier 1 needs-js streak for the next HTTP replay", async () => {

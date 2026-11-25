@@ -76,6 +76,16 @@ CI runs `bun run verify` on every PR.
 
 ### Browser integration tests
 
+Terminal response tests cover HTTP 200 denial pages, upstream Cloudflare errors,
+normal content and resolving challenges through both `/scrape` and `/v1`, directly
+and through an explicit proxy. They use local fixtures and are included in the
+browser smoke runner:
+
+```bash
+TRAWL_TERMINAL_RESPONSE_TESTS=1 CAMOUFOX_INSTALL_DIR=/path/to/camoufox bun test apps/api/src/terminalResponses.integration.test.ts
+```
+
+
 Meta refresh integration tests use a real Camoufox browser with local HTTP fixtures,
 including a simulated cross-host challenge. They are skipped in the default test suite.
 Install the compatible browser version pinned in `apps/api/Dockerfile` (currently

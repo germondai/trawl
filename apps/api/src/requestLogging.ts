@@ -14,10 +14,20 @@ const wafLogFields = (waf?: WafDetection) => ({
   wafSourceTier: waf?.sourceTier,
   wafDurationMs: waf?.durationMs,
   wafReason: waf?.reason,
-  wafIncompleteProducts: waf?.incompleteProducts?.join(", "),
+  wafIncompleteProductCount: waf?.incompleteProducts?.length,
   wafDiagnostics: waf?.diagnostics?.map((item) => item.code).join(", "),
   wafDetailsTruncated: waf?.detailsTruncated,
 })
+
+function logWafDetails(request: string, source: ScrapeSource, waf?: WafDetection) {
+  if (!waf?.incompleteProducts?.length) return
+  log("debug", "scrape", {
+    event: "request.waf-details",
+    request,
+    source,
+    wafIncompleteProducts: waf.incompleteProducts.join(", "),
+  })
+}
 
 export async function runLoggedScrape(
   source: ScrapeSource,
@@ -39,7 +49,7 @@ export async function runLoggedScrape(
     target: safeUrl(req.url),
     timeoutMs: req.maxTimeout ?? deps.defaultMaxTimeout ?? 60_000,
     maxTier: req.maxTier ?? 4,
-    proxy: Boolean(req.proxy),
+    upstreamProxyRequested: Boolean(req.proxy),
   })
 
   const originalAttempt = deps.onTierAttempt
@@ -92,6 +102,7 @@ export async function runLoggedScrape(
       captchas: result.captchasSolved?.join(","),
       ...wafLogFields(waf),
     })
+    logWafDetails(id, source, waf)
     return result
   } catch (error) {
     if (error instanceof ScrapeError) waf = error.waf
@@ -115,6 +126,7 @@ export async function runLoggedScrape(
       reason: safeMessage(error instanceof Error ? error.message : String(error)),
       ...wafLogFields(waf),
     })
+    logWafDetails(id, source, waf)
     throw error
   }
 }

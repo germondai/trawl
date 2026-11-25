@@ -23,6 +23,7 @@ describe.skipIf(process.env.TRAWL_DATADOME_TESTS !== "1")("DataDome browser inte
     invalidateSession: async () => {},
   }
   let accepted = 0
+  let submitted = 0
   const content = `<html><body><h1>Owned destination content</h1><p>${"Complete results. ".repeat(30)}</p></body></html>`
   const wall = `<html><body><script>var dd={'rt':'c','host':'geo.captcha-delivery.com'}</script><p>Owned challenge wall</p></body></html>`
 
@@ -34,7 +35,13 @@ describe.skipIf(process.env.TRAWL_DATADOME_TESTS !== "1")("DataDome browser inte
         const url = new URL(request.url)
         const headers = { "content-type": "text/html" }
         if (url.pathname === "/cleared") return new Response(content, { headers })
+        if (url.pathname === "/restricted")
+          return new Response("<html><body>Your access is temporarily restricted</body></html>", {
+            status: 403,
+            headers,
+          })
         if (url.pathname === "/verify") {
+          submitted++
           const { answer } = await request.json()
           if (answer !== "123456") return new Response("Rejected", { status: 403 })
           accepted++
@@ -43,14 +50,15 @@ describe.skipIf(process.env.TRAWL_DATADOME_TESTS !== "1")("DataDome browser inte
         if (url.pathname === "/widget") {
           return new Response(
             `<html><body><button id="captcha__audio__button" onclick="document.querySelector('#panel').hidden=false">Audio</button>
-            <div id="panel" hidden><audio class="audio-captcha-track" src="https://dd.prod.captcha-delivery.com/audio/fixture/en/clip.wav"></audio>
+            <div id="panel" hidden><audio class="audio-captcha-track" src="https://dd.prod.captcha-delivery.com/audio/fixture/en/clip${url.searchParams.has("round") ? "2" : "1"}.wav"></audio>
             <button class="audio-captcha-play-button">Play</button>
             ${Array.from({ length: 6 }, () => '<input class="audio-captcha-inputs" maxlength="1">').join("")}
-            <button class="audio-captcha-submit-button">Verify</button></div><script>
+            <button class="audio-captcha-submit-button" ${url.searchParams.has("hover-navigate") ? `style="position:absolute;left:40px;top:180px" onmouseover="location.replace('/widget?after-hover=1')"` : ""}>Verify</button>
+            <button id="captcha__reload__button" onclick="location.replace('/widget?round=2')">New puzzle</button></div><script>
             document.querySelector('.audio-captcha-submit-button').onclick=async()=>{
               const answer=Array.from(document.querySelectorAll('input')).map(x=>x.value).join('');
               const response=await fetch('/verify',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({answer})});
-              if(response.ok)parent.location.href='/cleared';
+              if(response.ok)parent.location.href='${url.searchParams.has("restricted") ? "/restricted" : "/cleared"}';
             };</script></body></html>`,
             { headers },
           )
@@ -139,6 +147,134 @@ describe.skipIf(process.env.TRAWL_DATADOME_TESTS !== "1")("DataDome browser inte
       await handle.context.clearCookies()
     }
   }, 15000)
+
+  test.each(["main", "widget"])(
+    "discards transcription after %s document navigation",
+    async (mode) => {
+      const page = await handle.context.newPage()
+      const before = submitted
+      try {
+        await page.goto(`${server.url}${mode === "main" ? "widget" : "audio"}`, {
+          waitUntil: "domcontentloaded",
+          timeout: 2000,
+        })
+        if (mode === "widget")
+          await page.frameLocator("iframe").locator("#captcha__audio__button").waitFor({ timeout: 2000 })
+        const frame =
+          mode === "main"
+            ? page.mainFrame()
+            : page.frames().find((candidate: { parentFrame(): unknown }) => candidate.parentFrame())
+        if (!frame) throw new Error("fixture widget frame missing")
+        await frame.locator("#captcha__audio__button").waitFor({ timeout: 2000 })
+        let transcriptionSignal: AbortSignal | undefined
+        const solved = await solveDataDome(
+          page as never,
+          5000,
+          undefined,
+          async (_bytes, signal) => {
+            transcriptionSignal = signal
+            await frame.goto(`${server.url}widget?replacement=1`, { waitUntil: "domcontentloaded", timeout: 2000 })
+            return "one two three four five six"
+          },
+          async () => new Uint8Array([1, 2, 3]),
+          { typing: [0, 0], keystroke: [0, 0], submit: [0, 0], settle: 0 },
+        )
+        expect(solved).toBe(false)
+        expect(transcriptionSignal?.aborted).toBe(true)
+        expect(submitted).toBe(before)
+        expect(
+          await frame.locator("input").evaluateAll((inputs: HTMLInputElement[]) => inputs.map((input) => input.value)),
+        ).toEqual(["", "", "", "", "", ""])
+      } finally {
+        await page.close()
+        await handle.context.clearCookies()
+      }
+    },
+    10000,
+  )
+
+  test("does not submit to a replacement document after hovering Verify navigates", async () => {
+    const page = await handle.context.newPage()
+    const before = submitted
+    try {
+      await page.goto(`${server.url}widget?hover-navigate=1`)
+      expect(
+        await solveDataDome(
+          page as never,
+          5000,
+          undefined,
+          async () => "one two three four five six",
+          async () => new Uint8Array([1, 2, 3]),
+          { typing: [0, 0], keystroke: [0, 0], submit: [0, 0], settle: 0 },
+        ),
+      ).toBe(false)
+      expect(page.url()).toContain("after-hover=1")
+      expect(submitted).toBe(before)
+    } finally {
+      await page.close()
+      await handle.context.clearCookies()
+    }
+  }, 10000)
+
+  test("continues with a fresh transcript after New puzzle navigates the widget", async () => {
+    const page = await handle.context.newPage()
+    const before = accepted
+    const clips: string[] = []
+    let transcripts = 0
+    try {
+      await page.goto(`${server.url}widget`)
+      expect(
+        await solveDataDome(
+          page as never,
+          7000,
+          undefined,
+          async () => (++transcripts === 1 ? "one two three four five" : "one two three four five six"),
+          async (_page, src) => {
+            clips.push(src)
+            return new Uint8Array([1, 2, 3])
+          },
+          { typing: [0, 0], keystroke: [0, 0], submit: [0, 0], settle: 0 },
+        ),
+      ).toBe(true)
+      expect(transcripts).toBe(2)
+      expect(clips).toHaveLength(2)
+      expect(clips[0]).not.toBe(clips[1])
+      expect(accepted).toBe(before + 1)
+      expect(await page.content()).toContain("Owned destination content")
+    } finally {
+      await page.close()
+      await handle.context.clearCookies()
+    }
+  }, 10000)
+
+  test.each(["cleared", "restricted"])(
+    "observes %s after an answer navigates the widget's main document",
+    async (outcome) => {
+      const page = await handle.context.newPage()
+      const before = accepted
+      try {
+        await page.goto(`${server.url}widget${outcome === "restricted" ? "?restricted=1" : ""}`)
+        expect(
+          await solveDataDome(
+            page as never,
+            5000,
+            undefined,
+            async () => "one two three four five six",
+            async () => new Uint8Array([1, 2, 3]),
+            { typing: [0, 0], keystroke: [0, 0], submit: [0, 0], settle: 0 },
+          ),
+        ).toBe(outcome === "cleared")
+        expect(accepted).toBe(before + 1)
+        expect(await page.content()).toContain(
+          outcome === "cleared" ? "Owned destination content" : "temporarily restricted",
+        )
+      } finally {
+        await page.close()
+        await handle.context.clearCookies()
+      }
+    },
+    10000,
+  )
 
   for (const route of ["/scrape", "/v1"]) {
     test.each(["cleared", "soft-block", "http-block", "hard-block"])(

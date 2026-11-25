@@ -13,7 +13,13 @@ import { attachPageCapture, type CaptureOptions } from "../utils/capture"
 import { routeChallengeWait } from "../utils/challengeRouter"
 import { normalizeInputCookies, snapshotChallengeCookies, toCookies } from "../utils/cookies"
 import { DeadlineError, RequestBudget, sleep } from "../utils/deadline"
-import { type ChallengeType, hasAnubisChallenge, isBrowserErrorPage, isCloudflarePage } from "../utils/detect"
+import {
+  type ChallengeType,
+  hasAnubisChallenge,
+  isBrowserErrorPage,
+  isCloudflarePage,
+  terminalResponseFailure,
+} from "../utils/detect"
 import { trackMainDocumentResponses } from "../utils/mainResponse"
 import { followMetaRefresh } from "../utils/metaRefresh"
 import { isHardNetworkFailure } from "../utils/network"
@@ -33,19 +39,18 @@ import { routeContinueOverrides } from "../utils/sanitize"
 import { restoreSessionStorage } from "../utils/sessionStorage"
 import type { BrowserTierResult } from "./browserResult"
 
-// Clearance without navigation can indicate an egress-IP block.
-const DATACENTER_BLOCKED_REASONS: Partial<Record<ChallengeType, string>> = {
-  imperva: "datacenter-ip-blocked (imperva sensor cookie obtained but challenge persisted - needs residential proxy)",
-  akamai: "datacenter-ip-blocked (Akamai sensor cookie obtained but challenge persisted - needs residential proxy)",
-  "ddos-guard":
-    "datacenter-ip-blocked (DDoS-Guard clearance cookie obtained but challenge persisted - needs residential proxy)",
-  "aws-waf": "datacenter-ip-blocked (AWS WAF token obtained but challenge persisted - needs residential proxy)",
+// A persistent wall does not establish an IP cause or prove that clearance was issued.
+const PERSISTENT_CHALLENGE_REASONS: Partial<Record<ChallengeType, string>> = {
+  imperva: "challenge-persisted (Imperva access wall remained; different egress may help)",
+  akamai: "challenge-persisted (Akamai access wall remained; different egress may help)",
+  "ddos-guard": "challenge-persisted (DDoS-Guard access wall remained; different egress may help)",
+  "aws-waf": "challenge-persisted (AWS WAF access wall remained; different egress may help)",
   datadome:
-    "datadome-persistent (a datadome cookie was issued but the wall held - check BROWSER_HEADFUL_POOL_SIZE, then try a residential proxy)",
+    "datadome-persistent (DataDome access wall remained; check BROWSER_HEADFUL_POOL_SIZE; different egress may help)",
 }
 
-const DEFAULT_DATACENTER_BLOCKED_REASON =
-  "datacenter-ip-blocked (cf_clearance obtained but redirect never completed - needs residential proxy)"
+const DEFAULT_PERSISTENT_CHALLENGE_REASON =
+  "challenge-persisted (Cloudflare access wall remained; different egress may help)"
 
 const PAGE_SETTLE_MS = 600
 
@@ -162,6 +167,17 @@ async function runBrowserTierTask<T extends 3 | 4>(
 
     const remaining = budget.remaining()
     const peekHtml = await page.content().catch(() => "")
+    const terminal = terminalResponseFailure(peekHtml, mainResponse.headers)
+    if (terminal) {
+      if (terminal.status === "blocked")
+        await reportBlocked(
+          page,
+          capture.blockedEvidence,
+          { tier, ...terminal, statusCode: mainResponse.status, html: peekHtml },
+          budget.remaining(),
+        )
+      return { tier, ...terminal, durationMs: Date.now() - start }
+    }
     const cloudflareWall = isCloudflarePage(peekHtml, mainResponse.headers)
     const challengeTimeout =
       cloudflareWall && capture.cloudflareDeadline !== undefined
@@ -203,9 +219,7 @@ async function runBrowserTierTask<T extends 3 | 4>(
           : resolution === "captcha-required"
             ? `${challengeType}-captcha-required`
             : resolution === "ip-blocked"
-              ? tier === 4
-                ? "proxy-ip-blocked"
-                : (DATACENTER_BLOCKED_REASONS[challengeType] ?? DEFAULT_DATACENTER_BLOCKED_REASON)
+              ? (PERSISTENT_CHALLENGE_REASONS[challengeType] ?? DEFAULT_PERSISTENT_CHALLENGE_REASON)
               : `${challengeType === "none" ? "cloudflare" : challengeType}-challenge-timeout`
       await reportBlocked(
         page,
@@ -281,6 +295,9 @@ async function runBrowserTierTask<T extends 3 | 4>(
 
     const { html, shot, evidence } = await captureBrowserDocument(page, capture, pageCapture, budget, screenshot)
     let captured: CapturedResponse | undefined
+
+    const finalTerminal = terminalResponseFailure(html, mainResponse.headers)
+    if (finalTerminal?.status === "error") return { tier, ...finalTerminal, durationMs: Date.now() - start }
 
     const wall = persistentBrowserWall(
       html,

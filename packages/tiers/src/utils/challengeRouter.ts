@@ -20,6 +20,7 @@ import {
   hasAwsWafCaptcha,
   isCloudflareErrorUrl,
   isCloudflarePage,
+  terminalResponseFailure,
 } from "./detect"
 import { waitForImpervaResolution } from "./impervaWait"
 
@@ -144,6 +145,8 @@ export async function routeChallengeWait(
   onCaptcha?: CaptchaSink,
   responseStatus: () => number | undefined = () => undefined,
 ): Promise<{ challengeType: ChallengeType; resolution: Resolution; captchasSolved?: string[] }> {
+  // No challenge to solve. The tier retains the terminal response's failure status and reason.
+  if (terminalResponseFailure(html, headers)) return { challengeType: "none", resolution: "ok" }
   const deadline = Date.now() + timeoutMs
   let eligible = false
   let managedCloudflare = false

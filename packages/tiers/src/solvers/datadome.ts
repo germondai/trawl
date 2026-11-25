@@ -16,7 +16,15 @@ import type { Frame, Page } from "patchright"
 import { sleep } from "../utils/deadline"
 import { DATADOME_DIGITS, extractDataDomeDigits } from "./datadomeAnswer"
 import { SLIDER_HANDLE, type SliderPace, type SliderResult, solveDataDomeSlider } from "./datadomeSlider"
-import { accepted, findFrame, hasWallFrame, isRestricted, present, settledAfterAccept } from "./datadomeWidget"
+import {
+  accepted,
+  findFrame,
+  hasWallFrame,
+  isRestricted,
+  present,
+  settledAfterAccept,
+  wallRestricted,
+} from "./datadomeWidget"
 import { transcribeAudioBytes } from "./stt"
 
 const AUDIO_BUTTON = "#captcha__audio__button"
@@ -168,23 +176,46 @@ async function solveAudio(
   const deadline = Date.now() + timeoutMs
   const remaining = () => Math.max(0, deadline - Date.now())
   const step = (cap: number) => Math.max(1, Math.min(cap, remaining()))
+  const navigation = new AbortController()
+  signal = AbortSignal.any([signal, navigation.signal])
+  let activeFrame: Frame | undefined
+  let awaitingVerdict = false
+  let requestingPuzzle = false
+  let navigated = false
+  const onNavigation = (frame: Frame) => {
+    if (frame !== page.mainFrame() && frame !== activeFrame) return
+    if (requestingPuzzle && frame === activeFrame) return
+    // Submission may navigate successfully; only unfinished answers belong to the old document.
+    if (awaitingVerdict) navigated = true
+    else navigation.abort()
+  }
+  page.on("framenavigated", onNavigation)
+  page.on("framedetached", onNavigation)
 
   try {
     if (!(await hasDataDomeWidget(page, Math.min(3000, remaining()), signal))) return false
     const first = await widgetFrame(page)
     if (!first || signal.aborted || remaining() <= 0) return false
     let frame: Frame = first
+    activeFrame = first
 
     let submissions = 0
     let previousSrc: string | undefined
     for (let round = 0; round < MAX_ROUNDS && submissions < MAX_SUBMISSIONS; round++) {
       if (signal.aborted || remaining() <= 0) return false
+      awaitingVerdict = false
+      navigated = false
       if (await accepted(frame)) return true
 
       const requestNew = async () => {
         signal.throwIfAborted()
-        await frame.locator(RELOAD).click({ timeout: step(3000) })
-        await sleep(Math.min(800, remaining()), signal).catch(() => {})
+        requestingPuzzle = true
+        try {
+          await frame.locator(RELOAD).click({ timeout: step(3000) })
+          await sleep(Math.min(800, remaining()), signal).catch(() => {})
+        } finally {
+          requestingPuzzle = false
+        }
       }
 
       // A reload can bring the slider back, so the audio panel is re-opened every round.
@@ -244,12 +275,37 @@ async function solveAudio(
         // with no keyboard activity at all. A pass without keystrokes is accepted by the widget and
         // then turned away by the site.
         await boxes.nth(i).click({ timeout: step(3000) })
+        signal.throwIfAborted()
         await page.keyboard.type(digits[i], { delay: between(pace.keystroke) })
         await sleep(Math.min(between(pace.typing), remaining()), signal).catch(() => {})
       }
       signal.throwIfAborted()
       await sleep(Math.min(between(pace.submit), remaining()), signal)
-      await frame.locator(SUBMIT).click({ timeout: step(3000) })
+      signal.throwIfAborted()
+      const submit = await frame.locator(SUBMIT).elementHandle({ timeout: step(3000) })
+      if (!submit) return false
+      let pressed = false
+      try {
+        await submit.scrollIntoViewIfNeeded({ timeout: step(3000) })
+        const box = await submit.boundingBox()
+        if (!box) return false
+        signal.throwIfAborted()
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+        signal.throwIfAborted()
+        if (!(await submit.isVisible())) return false
+        signal.throwIfAborted()
+        pressed = true
+        await page.mouse.down()
+        await sleep(Math.min(50, remaining()), signal)
+        signal.throwIfAborted()
+        // Only releasing on this document dispatches the submit click.
+        awaitingVerdict = true
+        await page.mouse.up()
+        pressed = false
+      } finally {
+        if (pressed) await page.mouse.up().catch(() => {})
+        await submit.dispose().catch(() => {})
+      }
       submissions++
 
       // Accepted by the widget: it flags the pass or unmounts. That is not clearance: the site
@@ -265,6 +321,14 @@ async function solveAudio(
           console.log(`[datadome] widget accepted the answer after ${submissions} submission(s)`)
           return true
         }
+        if (navigated && (await wallRestricted(page, frame))) {
+          console.log(`[datadome] answer turned away after ${submissions} submission(s): access restricted`)
+          return false
+        }
+        if (navigated && !(await widgetFrame(page)) && !hasWallFrame(page)) {
+          console.log(`[datadome] wall gone after ${submissions} submission(s)`)
+          return true
+        }
         if (frame.isDetached()) {
           // The page left the wall, or DataDome swapped in another wall page (a new puzzle, or
           // the "access restricted" page). Only the first one is a pass.
@@ -278,6 +342,7 @@ async function solveAudio(
             return false
           }
           frame = next
+          activeFrame = next
           break
         }
         const now = await readAudioSrc(frame, step(500))
@@ -288,6 +353,9 @@ async function solveAudio(
     console.log(`[datadome] gave up after ${submissions} submission(s)`)
   } catch (err) {
     if (!signal?.aborted) console.log("[datadome] error:", err instanceof Error ? err.message : err)
+  } finally {
+    page.off("framenavigated", onNavigation)
+    page.off("framedetached", onNavigation)
   }
   return false
 }
