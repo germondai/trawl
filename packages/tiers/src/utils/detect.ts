@@ -124,7 +124,9 @@ function hasCloudflareChallengeScript(html: string, document?: Document): boolea
     if (!isActiveScript(script)) return false
     return (
       /\/cdn-cgi\/challenge-platform\/.*orchestrate\/chl_page/i.test(htmlAttribute(script, "src") ?? "") ||
-      /(?:^|[;{}])\s*(?:window\.)?_cf_chl_opt\s*=\s*\{/i.test(script.textContent ?? "")
+      /(?:^|[;{}])\s*(?:(?:window|self|globalThis)\.)?(?:(?:var|let|const)\s+)?_cf_chl_opt\s*=\s*\{/i.test(
+        script.textContent ?? "",
+      )
     )
   })
 }
@@ -156,6 +158,9 @@ export function isCloudflarePage(html: string, headers: Record<string, string>):
     )
   )
     return false
+  // Challenge stubs are tiny; a lean document carrying an orchestration marker cannot be an
+  // ordinary page that merely ships Cloudflare telemetry.
+  if (html.length < 3000 && CLOUDFLARE_CHALLENGE_MARKERS.test(html)) return true
   const { document } = parseHTML(html)
   const title = [...document.querySelectorAll("title")].find(isActiveElement)?.textContent?.trim() ?? ""
   if (isCloudflareChallengeTitle(title)) return true

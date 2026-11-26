@@ -320,8 +320,21 @@ async function scrapeWithinBudget(
   }
   requireContentTypeForBody(sanitizedHeaders, Boolean(req.body))
   const proxyAuthorization = deps.trustedProxyHeaders ? sanitizedHeaders?.authorization : undefined
-  const privateRequest =
-    importedCookies || Boolean(deps.trustedProxyHeaders && (sanitizedHeaders?.cookie || proxyAuthorization))
+  // Client cookies are navigation state, not authentication: reuse the shared session and merge
+  // them during replay. Only an Authorization header isolates a request from shared session state.
+  const privateRequest = importedCookies || Boolean(deps.trustedProxyHeaders && proxyAuthorization)
+  const clientCookieNames =
+    deps.trustedProxyHeaders && sanitizedHeaders?.cookie
+      ? new Set(
+          sanitizedHeaders.cookie
+            .split(";")
+            .map((pair) => {
+              const separator = pair.indexOf("=")
+              return (separator === -1 ? pair : pair.slice(0, separator)).trim()
+            })
+            .filter((name) => name !== ""),
+        )
+      : undefined
   const browserHeaders = deps.trustedProxyHeaders ? sanitizeHeaders(req.headers) : sanitizedHeaders
   if (deps.trustedProxyHeaders && sanitizedHeaders?.cookie) {
     const secure = new URL(req.url).protocol === "https:"
@@ -829,9 +842,13 @@ async function scrapeWithinBudget(
       if (t3.status === "error" && t3.reason?.match(/^cloudflare-origin-http-52[0-6]$/)) throw failure(t3.reason)
       if (hasUsablePayload(t3) && !crossed3) {
         const cookies: Cookie[] = t3.cookies ?? []
-        if (cookies.length > 0 && cacheAllowed) {
+        // Never copy caller-supplied cookies into the shared cache; keep origin-issued clearance.
+        const cookiesToSave = clientCookieNames
+          ? cookies.filter((cookie) => !clientCookieNames.has(cookie.name))
+          : cookies
+        if (cookiesToSave.length > 0 && cacheAllowed) {
           await deps.saveSession(cacheKey, {
-            cookies,
+            cookies: cookiesToSave,
             userAgent: t3.userAgent ?? handle.fingerprint.userAgent,
             savedAt: Date.now(),
             proxyId: proxy3 ? proxyIdentity(proxy3) : undefined,
@@ -942,9 +959,12 @@ async function scrapeWithinBudget(
     emit(crossed4 ? crossedTiming(t4, crossed4) : t4)
     if (hasUsablePayload(t4) && !crossed4) {
       const cookies: Cookie[] = t4.cookies ?? []
-      if (cookies.length > 0 && cacheAllowed) {
+      const cookiesToSave = clientCookieNames
+        ? cookies.filter((cookie) => !clientCookieNames.has(cookie.name))
+        : cookies
+      if (cookiesToSave.length > 0 && cacheAllowed) {
         await deps.saveSession(cacheKey, {
-          cookies,
+          cookies: cookiesToSave,
           userAgent: t4.userAgent ?? handle.fingerprint.userAgent,
           savedAt: Date.now(),
           proxyId: proxyIdentity(proxy4),

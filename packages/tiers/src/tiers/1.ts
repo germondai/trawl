@@ -5,6 +5,7 @@ import type { Cookie, TierResult } from "@trawl/types"
 import { parseHTML } from "linkedom"
 import { anubisInspectionText, detectAnubisPage } from "../utils/anubis"
 import { describeCertificateError, isCertificateError } from "../utils/certificate"
+import { mergeCookieHeaders } from "../utils/cookies"
 import { sleep } from "../utils/deadline"
 import type { ChallengeType } from "../utils/detect"
 import {
@@ -312,13 +313,14 @@ async function runTier1Once(
     let res: Response
     for (let redirects = 0; ; redirects++) {
       await validateOutboundUrl?.(currentUrl)
-      const fetchHop = (insecure: boolean) =>
-        tier1Transport.fetch(currentUrl, {
+      const fetchHop = (insecure: boolean) => {
+        const cookie = mergeCookieHeaders(headers.cookie, sessionCookies?.header(currentUrl))
+        return tier1Transport.fetch(currentUrl, {
           timeoutMs: timeoutMs - (Date.now() - start),
           signal: requestSignal,
           method: currentMethod,
           body: currentBody,
-          headers: sessionCookies ? { ...headers, cookie: sessionCookies.header(currentUrl) } : headers,
+          headers: cookie === undefined ? headers : { ...headers, cookie },
           // Manual redirects let an opted-in request retry only the TLS hop that failed.
           // Restarting from the original URL could submit a successful POST twice when a
           // later redirect target has an invalid certificate.
@@ -330,6 +332,7 @@ async function runTier1Once(
           ...(trustedProxyCa ? { tls: { ca: [...rootCertificates, trustedProxyCa] } } : {}),
           ...(insecure ? { tls: { rejectUnauthorized: false } } : {}),
         })
+      }
 
       try {
         res = await fetchHop(false)
