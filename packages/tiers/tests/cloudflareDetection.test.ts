@@ -10,10 +10,15 @@ describe("Cloudflare challenge detection", () => {
   test("detects active orchestration markers on large pages", () => {
     const padding = "content ".repeat(1000)
     expect(isCloudflarePage(`<script>window._cf_chl_opt={}</script>${padding}`, {})).toBe(true)
+    expect(isCloudflarePage(`<script>var _cf_chl_opt = {}</script>${padding}`, {})).toBe(true)
     expect(isCloudflarePage(`<form id="challenge-form"></form>${padding}`, {})).toBe(true)
     expect(
       isCloudflarePage(`<script src="/cdn-cgi/challenge-platform/orchestrate/chl_page/v1"></script>${padding}`, {}),
     ).toBe(true)
+  })
+
+  test("detects lean challenge stubs that only expose the marker", () => {
+    expect(isCloudflarePage(`<html><body><script>var _cf_chl_opt={}</script></body></html>`, {})).toBe(true)
   })
 
   test("allows passive Cloudflare telemetry on an ordinary large page", () => {

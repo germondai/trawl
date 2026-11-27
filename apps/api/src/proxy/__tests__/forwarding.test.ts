@@ -130,7 +130,7 @@ describe("proxy request lifecycle", () => {
     }
   })
 
-  test("keeps caller cookies separate from shared HTTP clearance", async () => {
+  test("merges shared HTTP clearance into caller cookies without dropping them", async () => {
     let cookie: string | null = null
     let cacheReads = 0
     const origin = Bun.serve({
@@ -149,8 +149,8 @@ describe("proxy request lifecycle", () => {
           })
           expect(reply.status).toBe(200)
           expect(cookie).toContain("session=fixture")
-          expect(cookie).not.toContain("cf_clearance=cached")
-          expect(cacheReads).toBe(0)
+          expect(cookie).toContain("cf_clearance=cached")
+          expect(cacheReads).toBe(1)
         },
         {
           alwaysScrape: true,

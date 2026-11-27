@@ -124,7 +124,9 @@ function hasCloudflareChallengeScript(html: string, document?: Document): boolea
     if (!isActiveScript(script)) return false
     return (
       /\/cdn-cgi\/challenge-platform\/.*orchestrate\/chl_page/i.test(htmlAttribute(script, "src") ?? "") ||
-      /(?:^|[;{}])\s*(?:window\.)?_cf_chl_opt\s*=\s*\{/i.test(script.textContent ?? "")
+      /(?:^|[;{}])\s*(?:(?:window|self|globalThis)\.)?(?:(?:var|let|const)\s+)?_cf_chl_opt\s*=\s*\{/i.test(
+        script.textContent ?? "",
+      )
     )
   })
 }

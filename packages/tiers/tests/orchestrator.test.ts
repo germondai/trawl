@@ -2,6 +2,7 @@ import { describe, expect, spyOn, test } from "bun:test"
 import { type BrowserHandle, PoolExhaustedError } from "@trawl/browser"
 import type { TierResult } from "@trawl/types"
 import { type OrchestratorDeps, ScrapeError, scrape } from "../src/orchestrator"
+import { mergeCookieHeaders } from "../src/utils/cookies"
 import { ProxyPool } from "../src/utils/proxyRotator"
 
 const payload = {
@@ -82,7 +83,7 @@ test.each([1, 2, 3, 4] as const)("Tier %i preserves non-HTML text through the pu
   expect(result.html).toBe(text)
 })
 
-test("trusted proxy cookies use a private browser context without shared cache state", async () => {
+test("trusted proxy cookies are imported into the browser but never written to the shared cache", async () => {
   let reads = 0
   let writes = 0
   let browserHeaders: unknown
@@ -134,8 +135,58 @@ test("trusted proxy cookies use a private browser context without shared cache s
     { name: "session", value: "hello%20world", secure: true },
     { name: "token", value: "a=b", secure: true },
   ])
-  expect(reads).toBe(0)
+  expect(reads).toBe(1)
   expect(writes).toBe(0)
+})
+
+test("trusted proxy cookie requests reuse the shared session without dropping caller cookies", async () => {
+  let reads = 0
+  let jar: unknown
+  let forwarded: Record<string, string> | undefined
+  await scrape(
+    { url: "https://example.test/", maxTier: 1, headers: { Cookie: "token=a=b", "User-Agent": "caller" } },
+    {
+      ...dependencies(1, []),
+      trustedProxyHeaders: true,
+      loadSession: async () => {
+        reads++
+        return {
+          cookies: [
+            {
+              name: "cf_clearance",
+              value: "cached",
+              domain: "example.test",
+              path: "/",
+              expires: -1,
+              httpOnly: true,
+              secure: true,
+            },
+          ],
+          userAgent: "cached-agent",
+          savedAt: 1,
+          httpOrigin: "https://example.test",
+        }
+      },
+    },
+    {
+      tier1: async (...args) => {
+        forwarded = args[1] as Record<string, string>
+        jar = args[9]
+        return { ...payload, tier: 1 as const, status: "success", durationMs: 1 }
+      },
+    },
+  )
+  expect(reads).toBe(1)
+  expect(jar).toBeDefined()
+  expect(forwarded?.cookie).toBe("token=a=b")
+})
+
+test("replay cookies merge without overriding caller values", () => {
+  expect(mergeCookieHeaders("token=a=b; flag=1", "cf_clearance=xyz; flag=2")).toBe(
+    "token=a=b; flag=1; cf_clearance=xyz",
+  )
+  expect(mergeCookieHeaders(undefined, "cf_clearance=xyz")).toBe("cf_clearance=xyz")
+  expect(mergeCookieHeaders("token=a", undefined)).toBe("token=a")
 })
 
 test.each([

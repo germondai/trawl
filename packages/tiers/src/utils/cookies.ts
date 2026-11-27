@@ -13,6 +13,27 @@ export function cookieMatchesUrl(cookie: Cookie, url: URL): boolean {
   )
 }
 
+function cookiePairName(pair: string): string {
+  const separator = pair.indexOf("=")
+  return (separator === -1 ? pair : pair.slice(0, separator)).trim()
+}
+
+// Replay cookies are merged into the caller's Cookie header instead of replacing it: the caller's
+// own values win on a name clash, and cached clearance cookies fill in the rest.
+export function mergeCookieHeaders(
+  clientHeader: string | undefined,
+  replayHeader: string | undefined,
+): string | undefined {
+  if (!replayHeader) return clientHeader
+  if (!clientHeader) return replayHeader
+  const names = new Set(clientHeader.split(";").map(cookiePairName))
+  const extra = replayHeader
+    .split(";")
+    .map((pair) => pair.trim())
+    .filter((pair) => pair !== "" && !names.has(cookiePairName(pair)))
+  return extra.length === 0 ? clientHeader : `${clientHeader}; ${extra.join("; ")}`
+}
+
 export function normalizeInputCookies(cookies: InputCookie[], url: string) {
   if (!Array.isArray(cookies) || cookies.length > 200)
     throw new RequestValidationError("cookies must be an array of at most 200 cookies", 400)
