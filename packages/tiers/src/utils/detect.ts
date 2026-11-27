@@ -158,9 +158,6 @@ export function isCloudflarePage(html: string, headers: Record<string, string>):
     )
   )
     return false
-  // Challenge stubs are tiny; a lean document carrying an orchestration marker cannot be an
-  // ordinary page that merely ships Cloudflare telemetry.
-  if (html.length < 3000 && CLOUDFLARE_CHALLENGE_MARKERS.test(html)) return true
   const { document } = parseHTML(html)
   const title = [...document.querySelectorAll("title")].find(isActiveElement)?.textContent?.trim() ?? ""
   if (isCloudflareChallengeTitle(title)) return true

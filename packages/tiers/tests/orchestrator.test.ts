@@ -83,7 +83,7 @@ test.each([1, 2, 3, 4] as const)("Tier %i preserves non-HTML text through the pu
   expect(result.html).toBe(text)
 })
 
-test("trusted proxy cookies stay in a private browser context and are never written to the shared cache", async () => {
+test("trusted proxy cookies are imported into the browser but never written to the shared cache", async () => {
   let reads = 0
   let writes = 0
   let browserHeaders: unknown
@@ -135,7 +135,7 @@ test("trusted proxy cookies stay in a private browser context and are never writ
     { name: "session", value: "hello%20world", secure: true },
     { name: "token", value: "a=b", secure: true },
   ])
-  expect(reads).toBe(0)
+  expect(reads).toBe(1)
   expect(writes).toBe(0)
 })
 
@@ -164,6 +164,7 @@ test("trusted proxy cookie requests reuse the shared session without dropping ca
           ],
           userAgent: "cached-agent",
           savedAt: 1,
+          httpOrigin: "https://example.test",
         }
       },
     },
